@@ -1,0 +1,7 @@
+{
+  "error": {
+    "code": "not_found",
+    "message": "That company was not found.",
+    "retryable": false
+  }
+}

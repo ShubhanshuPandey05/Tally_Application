@@ -1,0 +1,69 @@
+{
+  "data": {
+    "from_date": "2026-03-01",
+    "to_date": "2026-03-15",
+    "total": {
+      "amount": "229400.00",
+      "currency": "INR",
+      "display": "229,400.00 Dr",
+      "side": "debit",
+      "signed": "229400.00"
+    },
+    "voucher_count": 3,
+    "vouchers": [
+      {
+        "amount": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "date": "2026-03-15",
+        "kind": "purchase",
+        "narration": null,
+        "party": "SARA DISITIBUTOR",
+        "voucher_number": "3",
+        "voucher_type": "Purchase"
+      },
+      {
+        "amount": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "date": "2026-03-15",
+        "kind": "sales",
+        "narration": null,
+        "party": "Reliance Retail",
+        "voucher_number": "1",
+        "voucher_type": "Sales"
+      },
+      {
+        "amount": {
+          "amount": "5000.00",
+          "currency": "INR",
+          "display": "5,000.00 Dr",
+          "side": "debit",
+          "signed": "5000.00"
+        },
+        "date": "2026-03-14",
+        "kind": "sales",
+        "narration": null,
+        "party": "Local Kirana",
+        "voucher_number": "2",
+        "voucher_type": "Sales"
+      }
+    ]
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

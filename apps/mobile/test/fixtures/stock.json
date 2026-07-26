@@ -1,0 +1,113 @@
+{
+  "data": {
+    "items": [
+      {
+        "group": "Grains",
+        "is_below_reorder": false,
+        "is_negative": false,
+        "name": "Rice",
+        "quantity": 500.0,
+        "rate": {
+          "amount": "80.00",
+          "currency": "INR",
+          "display": "80.00 Dr",
+          "side": "debit",
+          "signed": "80.00"
+        },
+        "reorder_level": 100.0,
+        "unit": "KG",
+        "value": {
+          "amount": "40000.00",
+          "currency": "INR",
+          "display": "40,000.00 Dr",
+          "side": "debit",
+          "signed": "40000.00"
+        }
+      },
+      {
+        "group": "Grocery",
+        "is_below_reorder": true,
+        "is_negative": true,
+        "name": "Oil",
+        "quantity": -3.0,
+        "rate": null,
+        "reorder_level": 10.0,
+        "unit": "LTR",
+        "value": {
+          "amount": "450.00",
+          "currency": "INR",
+          "display": "450.00 Dr",
+          "side": "debit",
+          "signed": "450.00"
+        }
+      },
+      {
+        "group": "Grocery",
+        "is_below_reorder": true,
+        "is_negative": false,
+        "name": "Sugar",
+        "quantity": 5.0,
+        "rate": null,
+        "reorder_level": 50.0,
+        "unit": "KG",
+        "value": {
+          "amount": "250.00",
+          "currency": "INR",
+          "display": "250.00 Dr",
+          "side": "debit",
+          "signed": "250.00"
+        }
+      }
+    ],
+    "summary": {
+      "item_count": 3,
+      "low_stock": [
+        {
+          "name": "Sugar",
+          "quantity": 5.0,
+          "reorder_level": 50.0,
+          "unit": "KG",
+          "value": {
+            "amount": "250.00",
+            "currency": "INR",
+            "display": "250.00 Dr",
+            "side": "debit",
+            "signed": "250.00"
+          }
+        }
+      ],
+      "low_stock_count": 1,
+      "negative_stock": [
+        {
+          "name": "Oil",
+          "quantity": -3.0,
+          "reorder_level": 10.0,
+          "unit": "LTR",
+          "value": {
+            "amount": "450.00",
+            "currency": "INR",
+            "display": "450.00 Dr",
+            "side": "debit",
+            "signed": "450.00"
+          }
+        }
+      ],
+      "negative_stock_count": 1,
+      "value": {
+        "amount": "39800.00",
+        "currency": "INR",
+        "display": "39,800.00 Dr",
+        "side": "debit",
+        "signed": "39800.00"
+      }
+    }
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

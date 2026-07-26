@@ -1,0 +1,28 @@
+{
+  "data": {
+    "items": [
+      {
+        "name": "Sugar",
+        "quantity": 5.0,
+        "reorder_level": 50.0,
+        "unit": "KG",
+        "value": {
+          "amount": "250.00",
+          "currency": "INR",
+          "display": "250.00 Dr",
+          "side": "debit",
+          "signed": "250.00"
+        }
+      }
+    ],
+    "window_days": 90
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

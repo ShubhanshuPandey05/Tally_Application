@@ -1,0 +1,74 @@
+{
+  "data": {
+    "ledgers": [
+      {
+        "closing": {
+          "amount": "344220.00",
+          "currency": "INR",
+          "display": "344,220.00 Dr",
+          "side": "debit",
+          "signed": "344220.00"
+        },
+        "group": "Cash-in-Hand",
+        "gstin": null,
+        "name": "Cash",
+        "opening": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "phone": null
+      },
+      {
+        "closing": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Cr",
+          "side": "credit",
+          "signed": "-212600.00"
+        },
+        "group": "Sundry Creditors",
+        "gstin": null,
+        "name": "SARA DISITIBUTOR",
+        "opening": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "phone": null
+      },
+      {
+        "closing": {
+          "amount": "125000.00",
+          "currency": "INR",
+          "display": "125,000.00 Dr",
+          "side": "debit",
+          "signed": "125000.00"
+        },
+        "group": "Bank Accounts",
+        "gstin": null,
+        "name": "HDFC Bank",
+        "opening": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "phone": null
+      }
+    ]
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

@@ -1,0 +1,5 @@
+tags:
+  # Requires a running backend. Skips itself unless
+  # --dart-define=TALLYFLOW_LIVE_URL=... is supplied, so `flutter test` stays
+  # hermetic; see test/live_backend_test.dart for how to run it.
+  live:

@@ -1,0 +1,19 @@
+{
+  "error": {
+    "code": "invalid_request",
+    "detail": {
+      "fields": [
+        {
+          "field": "email",
+          "problem": "value is not a valid email address: An email address must have an @-sign."
+        },
+        {
+          "field": "password",
+          "problem": "String should have at least 1 character"
+        }
+      ]
+    },
+    "message": "Some of the information sent was not valid.",
+    "retryable": false
+  }
+}

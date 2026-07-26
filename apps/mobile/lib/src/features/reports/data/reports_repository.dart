@@ -1,0 +1,94 @@
+import '../../../core/model/freshness.dart';
+import '../../../core/network/api_client.dart';
+import '../domain/reports.dart';
+
+/// Reads for the report screens.
+///
+/// Every method returns a [Fresh] wrapper, so no screen can render figures
+/// without also having the "as of" that belongs beside them.
+class ReportsRepository {
+  ReportsRepository(this._api);
+
+  final ApiClient _api;
+
+  Future<Fresh<DaybookReport>> daybook(
+    String companyId, {
+    required DateRange range,
+    FetchMode mode = FetchMode.auto,
+    String? kind,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/daybook',
+      query: <String, Object?>{
+        'from_date': range.fromWire,
+        'to_date': range.toWire,
+        'mode': mode.wire,
+        'kind': kind,
+      },
+    );
+    return Fresh<DaybookReport>(
+      DaybookReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<OutstandingReport>> outstanding(
+    String companyId, {
+    OutstandingKind kind = OutstandingKind.receivable,
+    FetchMode mode = FetchMode.auto,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/outstanding',
+      query: <String, Object?>{'kind': kind.wire, 'mode': mode.wire},
+    );
+    return Fresh<OutstandingReport>(
+      OutstandingReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<StockReport>> stock(
+    String companyId, {
+    FetchMode mode = FetchMode.auto,
+    String? only,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/stock',
+      query: <String, Object?>{'mode': mode.wire, 'only': only},
+    );
+    return Fresh<StockReport>(
+      StockReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<LedgerReport>> ledgers(
+    String companyId, {
+    FetchMode mode = FetchMode.auto,
+    String? group,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/ledgers',
+      query: <String, Object?>{'mode': mode.wire, 'group': group},
+    );
+    return Fresh<LedgerReport>(
+      LedgerReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<SlowMovingReport>> slowMoving(
+    String companyId, {
+    int days = 90,
+    FetchMode mode = FetchMode.auto,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/insights/slow-moving',
+      query: <String, Object?>{'days': days, 'mode': mode.wire},
+    );
+    return Fresh<SlowMovingReport>(
+      SlowMovingReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+}

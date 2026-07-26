@@ -1,0 +1,11 @@
+[
+  {
+    "base_currency": "INR",
+    "connector_id": "<connector_id>",
+    "financial_year_from": null,
+    "id": "<id>",
+    "is_active": true,
+    "name": "Bhtia Supermarket",
+    "tally_name": "Bhtia Supermarket"
+  }
+]

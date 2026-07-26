@@ -1,0 +1,47 @@
+name: tallyflow
+description: "TallyFlow -- a read-only mobile dashboard for TallyPrime."
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: ^3.5.3
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # State. Riverpod rather than a service locator: the read path is a tree of
+  # async values (session -> company -> dashboard) and AsyncValue models
+  # loading/error/stale-data as one type instead of three nullable fields.
+  flutter_riverpod: ^2.5.1
+
+  # Navigation. Declarative redirects are what enforce "no screen renders
+  # without a session" in one place rather than per-screen guards.
+  go_router: ^14.2.7
+
+  # HTTP. Interceptors are the reason: token attachment and the 401 refresh
+  # dance belong below the repositories, not inside every call site.
+  dio: ^5.7.0
+
+  # Refresh tokens are long-lived credentials for a company's books; they go in
+  # the Keychain / EncryptedSharedPreferences, never in plain preferences.
+  flutter_secure_storage: ^9.2.2
+  shared_preferences: ^2.3.2
+
+  # Money is parsed as decimal, never double. Binary floating point cannot hold
+  # 0.1, and this app shows people their bank balance.
+  decimal: ^3.0.2
+
+  intl: ^0.19.0
+  fl_chart: ^0.69.0
+
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^4.0.0
+
+flutter:
+  uses-material-design: true

@@ -1,0 +1,15 @@
+[
+  {
+    "companies_open": [],
+    "company_count": 1,
+    "connector_version": null,
+    "hostname": null,
+    "id": "<id>",
+    "last_seen_at": null,
+    "name": "Shop PC",
+    "online": true,
+    "os": null,
+    "status": "active",
+    "tally_online": false
+  }
+]
