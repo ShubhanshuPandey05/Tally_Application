@@ -288,14 +288,16 @@ half the time.
 
 ## 5. Shipping a change to the UAT host
 
-Three things never travel through git, so "pull and rebuild" is the whole story
-only for code:
+Only `uat.env` never travels through git:
 
 | | Travels via git? | |
 |---|---|---|
 | Backend, connector, website **source** | yes | rebuilt by compose |
+| Installer `.exe` and `.apk` | yes — committed under `deploy/uat/downloads/` | built on Windows |
 | `uat.env` | **no** — gitignored | created once on the host |
-| Installer `.exe` and `.apk` | **no** — gitignored, built on Windows | copied with `scp` |
+
+Committing the binaries keeps the deploy to one command, at roughly 60 MB per
+release in git history that cannot be reclaimed later.
 
 ### First deploy
 
@@ -307,11 +309,12 @@ docker compose --env-file uat.env up -d --build
 ```
 
 ```powershell
-# on a Windows machine, then copy the results across
+# on a Windows machine -- then commit them, they are not gitignored
 python run.py connector
 python run.py release https://uat-tallyflow.theshubhanshu.dev
-scp TallyFlowConnector-Setup-0.1.0.exe user@host:"Tally Application/deploy/uat/downloads/"
-scp app-release.apk user@host:"Tally Application/deploy/uat/downloads/TallyFlow-0.1.0.apk"
+copy apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe deploy\uat\downloads\
+copy apps\mobile\build\app\outputs\flutter-apk\app-release.apk deploy\uat\downloads\TallyFlow-0.1.0.apk
+git add deploy/uat/downloads && git commit -m "publish 0.1.0 artefacts" && git push
 ```
 
 ### Every deploy after that
@@ -325,8 +328,8 @@ That rebuilds the API and the site, re-runs any new migrations before the API
 starts, and leaves the database and the published artefacts alone. `uat.env`
 survives because it was never in git.
 
-Only re-copy the `.exe` / `.apk` when you have actually rebuilt them — a new
-backend commit does not change them.
+The `.exe` / `.apk` arrive with the pull. Caddy serves that directory as a bind
+mount, so new binaries are live immediately — no rebuild, no restart.
 
 ### Check it landed
 

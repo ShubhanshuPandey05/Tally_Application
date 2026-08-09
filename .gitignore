@@ -57,6 +57,3 @@ logs/
 apps/connector.json
 deploy/uat/uat.env
 
-# UAT published artefacts -- binaries, not source.
-deploy/uat/downloads/*
-!deploy/uat/downloads/README.md

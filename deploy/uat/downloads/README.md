@@ -12,5 +12,7 @@ Drop exactly the two files the website links to:
 The names must match `apps/website/src/data/downloads.js`, and the site must be
 rebuilt after changing the versions there.
 
-Binaries are gitignored: a repository is not an artefact store, and an installer
-carrying a pairing wizard is not something to hand out from a git clone.
+These binaries **are committed**, so `git pull` on the UAT host publishes them
+along with the code. That keeps the deploy to one command, at roughly 60 MB per
+release in git history that git cannot later reclaim. Worth revisiting if the
+repo gets heavy -- GitHub Releases or an object store are the usual answer.
