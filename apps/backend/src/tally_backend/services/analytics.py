@@ -40,6 +40,14 @@ BANK_GROUPS = {
     "bank occ a/c",
 }
 
+#: Where parties live in a stock Indian chart of accounts. Only a default: the
+#: group-outstanding report takes an explicit group name, so a company that
+#: renamed these or files parties under sub-groups can still be read correctly.
+DEFAULT_PARTY_GROUP = {
+    OutstandingKind.RECEIVABLE: "Sundry Debtors",
+    OutstandingKind.PAYABLE: "Sundry Creditors",
+}
+
 TWO_PLACES = Decimal("0.01")
 
 
@@ -346,6 +354,24 @@ def outstanding_summary(
     }
 
 
+def bill_line(bill: OutstandingBill, as_of: date) -> dict[str, Any]:
+    """One bill, as both outstanding endpoints emit it.
+
+    Shared so the flat report and the group report cannot drift into two
+    slightly different bill shapes -- the app decodes both with one parser.
+    """
+    return {
+        "party": bill.party_name,
+        "bill_name": bill.bill_name,
+        "bill_date": bill.bill_date.isoformat() if bill.bill_date else None,
+        "due_date": bill.due_date.isoformat() if bill.due_date else None,
+        "amount": money_out(magnitude(bill.pending_amount)),
+        "days_overdue": bill.days_overdue(as_of),
+        "ageing_bucket": bill.ageing_bucket(as_of),
+        "is_advance": bill.is_advance,
+    }
+
+
 def top_outstanding_parties(
     bills: list[OutstandingBill], kind: OutstandingKind, *, as_of: date, limit: int = 5
 ) -> list[dict[str, Any]]:
@@ -367,6 +393,147 @@ def top_outstanding_parties(
         }
         for name, total in ranked[:limit]
     ]
+
+
+# --------------------------------------------------------------------------
+# Group outstanding
+# --------------------------------------------------------------------------
+
+
+def _norm(name: str) -> str:
+    """Fold a Tally name for comparison.
+
+    Tally preserves whatever a shop typed, so the same party can arrive as
+    "SARA  DISITIBUTOR" from one collection and "Sara Disitibutor" from
+    another. Matching raw would drop that party out of its own group.
+    """
+    return " ".join(name.split()).casefold()
+
+
+def party_group_index(ledgers: list[Ledger]) -> dict[str, str]:
+    """Normalised ledger name -> its direct parent group."""
+    return {
+        _norm(led.name): led.parent_group for led in ledgers if led.parent_group
+    }
+
+
+def group_outstanding(
+    bills: list[OutstandingBill],
+    ledgers: list[Ledger],
+    *,
+    group: str,
+    kind: OutstandingKind,
+    as_of: date,
+) -> dict[str, Any]:
+    """Outstanding for every party filed under one ledger group.
+
+    The other axis to :func:`outstanding_summary`. That one splits bills by the
+    side each bill closes on, which is the honest answer to "who owes me
+    money": a customer's advance is a payable even though it sits in a debtor's
+    ledger. This answers the question Tally's Group Outstanding report answers
+    instead -- "show me my debtors" -- where a party belongs on group
+    membership alone, whichever way each of their bills happens to point.
+
+    Opposite-side bills are therefore kept and reported as ``advances`` rather
+    than dropped. Dropping them would overstate the group by the size of every
+    prepayment; folding them into the total would understate the debt that is
+    actually chaseable. Both numbers are published, and ``net`` is their sum.
+
+    Membership uses the ledger's **direct** parent group. A party filed under a
+    home-made sub-group is counted as ungrouped rather than quietly claimed for
+    its ancestor, and the count of those is returned so the app can say the
+    report is incomplete instead of silently under-reporting.
+    """
+    wanted = _norm(group)
+    index = party_group_index(ledgers)
+    #: The side this group's bills are expected to close on. Anything else is
+    #: an advance or a contra entry.
+    expected = Side.DEBIT if kind is OutstandingKind.RECEIVABLE else Side.CREDIT
+
+    members: dict[str, list[OutstandingBill]] = defaultdict(list)
+    ungrouped: set[str] = set()
+    for bill in bills:
+        parent = index.get(_norm(bill.party_name))
+        if parent is None:
+            ungrouped.add(bill.party_name)
+        elif _norm(parent) == wanted:
+            members[bill.party_name].append(bill)
+
+    total = Money.zero()
+    advances = Money.zero()
+    overdue = Money.zero()
+    net = Money.zero()
+    buckets: dict[str, Money] = defaultdict(Money.zero)
+    bill_count = 0
+    rows: list[tuple[int, Decimal, dict[str, Any]]] = []
+
+    for party, party_bills in members.items():
+        party_total = Money.zero()
+        party_advances = Money.zero()
+        party_net = Money.zero()
+        worst = 0
+
+        for bill in party_bills:
+            amount = magnitude(bill.pending_amount)
+            party_net = party_net + bill.pending_amount
+
+            if bill.pending_amount.side is expected:
+                party_total = party_total + amount
+                bucket = bill.ageing_bucket(as_of)
+                buckets[bucket] = buckets[bucket] + amount
+                if bucket != "not_due":
+                    overdue = overdue + amount
+                worst = max(worst, bill.days_overdue(as_of))
+            else:
+                party_advances = party_advances + amount
+
+        total = total + party_total
+        advances = advances + party_advances
+        net = net + party_net
+        bill_count += len(party_bills)
+
+        party_bills.sort(key=lambda b: b.days_overdue(as_of), reverse=True)
+        rows.append(
+            (
+                worst,
+                party_total.amount,
+                {
+                    "party": party,
+                    "group": group,
+                    "total": money_out(party_total),
+                    "advances": money_out(party_advances),
+                    "net": money_out(party_net),
+                    "bill_count": len(party_bills),
+                    "days_overdue": worst,
+                    "bills": [bill_line(b, as_of) for b in party_bills],
+                },
+            )
+        )
+
+    # Worst overdue first, then largest: the order an owner works the phone in.
+    rows.sort(key=lambda row: (row[0], row[1]), reverse=True)
+
+    return {
+        "group": group,
+        "kind": str(kind),
+        "summary": {
+            "total": money_out(magnitude(total)),
+            "overdue": money_out(magnitude(overdue)),
+            "advances": money_out(magnitude(advances)),
+            "net": money_out(net),
+            "bill_count": bill_count,
+            "party_count": len(members),
+            "ageing": {
+                name: money_out(magnitude(buckets[name]))
+                for name in ("not_due", "1_30", "31_60", "61_90", "91_180", "180_plus")
+            },
+        },
+        "parties": [row[2] for row in rows],
+        # Parties with bills but no ledger row in this read. Not an error, but
+        # the difference between "you have no other debtors" and "we could not
+        # tell", which an owner deserves to see.
+        "ungrouped_party_count": len(ungrouped),
+    }
 
 
 # --------------------------------------------------------------------------

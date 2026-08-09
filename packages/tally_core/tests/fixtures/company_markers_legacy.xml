@@ -1,0 +1,17 @@
+<!-- A TallyPrime build that does not know AltMstId/AltVchId. Unknown native
+     methods are dropped silently rather than raising, so the response is
+     well-formed and simply carries no change counters. The sync must read that
+     as "cannot sync incrementally" and fall back to date windows. -->
+<ENVELOPE>
+ <BODY>
+  <DATA>
+   <COLLECTION>
+    <COMPANY NAME="Ram &amp; Sons Traders" RESERVEDNAME="">
+     <NAME>Ram &amp; Sons Traders</NAME>
+     <STARTINGFROM>20220401</STARTINGFROM>
+     <BOOKSFROM>20220401</BOOKSFROM>
+    </COMPANY>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>

@@ -91,6 +91,16 @@ enum OutstandingKind {
 
   String get question =>
       this == OutstandingKind.receivable ? 'Who owes me money?' : 'Who do I owe?';
+
+  /// The stock Indian group these parties are filed under. Only a label for the
+  /// report index -- the backend resolves the real group and echoes it back, so
+  /// a company that renamed its groups still gets the right heading.
+  String get defaultGroup =>
+      this == OutstandingKind.receivable ? 'Sundry Debtors' : 'Sundry Creditors';
+
+  String get groupQuestion => this == OutstandingKind.receivable
+      ? 'Every debtor, netted against advances'
+      : 'Every creditor, netted against advances';
 }
 
 class OutstandingReport {
@@ -156,6 +166,117 @@ class OutstandingReport {
       bills: _list(json['bills'], OutstandingBill.fromJson),
     );
   }
+}
+
+/// Outstanding for the parties filed under one ledger group.
+///
+/// A different question from [OutstandingReport], not a filtered version of it.
+/// That report splits bills by the side each one closes on, so a customer's
+/// advance counts as a payable. This one takes every party whose ledger sits
+/// under the group -- Sundry Debtors, say -- and reports their advances
+/// separately from what they owe. The two totals will not agree, and both are
+/// right.
+class GroupOutstandingReport {
+  const GroupOutstandingReport({
+    required this.group,
+    required this.kind,
+    required this.asOf,
+    required this.total,
+    required this.overdue,
+    required this.advances,
+    required this.net,
+    required this.billCount,
+    required this.partyCount,
+    required this.ageing,
+    required this.parties,
+    required this.ungroupedPartyCount,
+  });
+
+  final String group;
+  final OutstandingKind kind;
+  final DateTime asOf;
+
+  /// What the group owes on its expected side. Advances are not in here.
+  final Money total;
+  final Money overdue;
+
+  /// Bills pointing the other way: prepayments, contra entries.
+  final Money advances;
+
+  /// [total] less [advances], carrying its own side.
+  final Money net;
+
+  final int billCount;
+  final int partyCount;
+  final Map<String, Money> ageing;
+  final List<GroupParty> parties;
+
+  /// Parties with bills whose ledger was not in this read. Surfaced rather than
+  /// hidden: the difference between "no other debtors" and "we could not tell"
+  /// is the difference between a total an owner can trust and one they cannot.
+  final int ungroupedPartyCount;
+
+  bool get hasAdvances => !advances.isZero;
+
+  factory GroupOutstandingReport.fromJson(Map<String, Object?> json) {
+    final Map<String, Object?> summary = _map(json['summary']);
+    final Map<String, Object?> ageingJson = _map(summary['ageing']);
+    final Map<String, Money> ageing = <String, Money>{
+      for (final String bucket in ageingOrder) bucket: Money.fromJson(ageingJson[bucket]),
+    };
+
+    return GroupOutstandingReport(
+      group: json['group'] as String? ?? '',
+      kind: (json['kind'] as String? ?? 'receivable').contains('payable')
+          ? OutstandingKind.payable
+          : OutstandingKind.receivable,
+      asOf: DateTime.tryParse(json['as_of'] as String? ?? '') ?? DateTime.now(),
+      total: Money.fromJson(summary['total']),
+      overdue: Money.fromJson(summary['overdue']),
+      advances: Money.fromJson(summary['advances']),
+      net: Money.fromJson(summary['net']),
+      billCount: (summary['bill_count'] as num?)?.toInt() ?? 0,
+      partyCount: (summary['party_count'] as num?)?.toInt() ?? 0,
+      ageing: ageing,
+      parties: _list(json['parties'], GroupParty.fromJson),
+      ungroupedPartyCount: (json['ungrouped_party_count'] as num?)?.toInt() ?? 0,
+    );
+  }
+}
+
+/// One party's position within a group. Grouped by the backend, which is the
+/// only side that knows which ledger group a party belongs to.
+class GroupParty {
+  const GroupParty({
+    required this.party,
+    required this.total,
+    required this.advances,
+    required this.net,
+    required this.billCount,
+    required this.daysOverdue,
+    required this.bills,
+  });
+
+  final String party;
+  final Money total;
+  final Money advances;
+  final Money net;
+  final int billCount;
+  final int daysOverdue;
+  final List<OutstandingBill> bills;
+
+  bool get isOverdue => daysOverdue > 0;
+  bool get hasAdvances => !advances.isZero;
+
+  factory GroupParty.fromJson(Map<String, Object?> json) => GroupParty(
+        party: json['party'] as String? ?? '',
+        total: Money.fromJson(json['total']),
+        advances: Money.fromJson(json['advances']),
+        net: Money.fromJson(json['net']),
+        billCount: (json['bill_count'] as num?)?.toInt() ?? 0,
+        daysOverdue: (json['days_overdue'] as num?)?.toInt() ?? 0,
+        bills: _list(json['bills'], OutstandingBill.fromJson),
+      );
 }
 
 class PartyBills {

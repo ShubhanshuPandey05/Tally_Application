@@ -25,6 +25,7 @@ from ..hub import ConnectorHub
 from ..services.auth import AuthService
 from ..services.dashboard import DashboardService
 from ..services.reads import ReadService
+from ..services.sync import SyncCoordinator
 
 
 def get_settings(request: Request) -> Settings:
@@ -47,9 +48,14 @@ async def get_session(request: Request) -> AsyncIterator[AsyncSession]:
             raise
 
 
+def get_sync(request: Request) -> SyncCoordinator:
+    return request.app.state.sync
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 HubDep = Annotated[ConnectorHub, Depends(get_hub)]
+SyncDep = Annotated[SyncCoordinator, Depends(get_sync)]
 
 
 @dataclass(frozen=True)

@@ -222,6 +222,65 @@ that return a snapshot without contacting anyone. That distinction was a real
 bug: a throttled refresh reported the connector as online without checking, which
 would have told an owner their figures were live while their PC was off.
 
+### History is read in slices, then only what changed
+
+Snapshots make *today* cheap. They do nothing for the first read of a company
+that has four years of books — and that read is what kills a shop's Tally. A
+single `vouchers.list` over four years does not come back slowly; it exhausts the
+gateway, and TallyPrime is left alive but answering nothing until somebody
+dismisses a dialog on the PC. It is not a timeout to tune, it is a request that
+must never be sent.
+
+`services/sync.py` and `services/voucher_store.py` handle it in two phases.
+
+**Backfill, newest slice first.** The books are cut into date windows
+(`TALLYFLOW_SYNC_CHUNK_MONTHS`, default 6), read one at a time with a pause
+between them, and merged into `voucher_records` — one row per voucher, keyed on
+Tally's GUID so an edit replaces rather than duplicates. Newest first is a
+product decision: after the first slice the dashboard already answers "what did I
+sell this week?", and the older years fill in behind it while the app is in use.
+Each slice is its own job with its own deadline, so a slow one is retried or
+abandoned alone, and a run that stops half way keeps what it read and resumes at
+the slice it reached.
+
+**After that, only the changes.** Tally stamps every voucher with an `AlterID`
+that increases on each edit, and a company reports the highest one it has issued
+(`company.markers`, the cheapest read in the product). Comparing that one number
+against the last sync answers "is there anything new?" without exporting
+anything; when the answer is yes, `$AlterID > n` returns just those vouchers. A
+shop that sold twenty things today transfers twenty vouchers, not four years of
+them — and a quiet company costs a few hundred bytes per sweep instead of a
+full re-export of the dashboard's window every fifteen minutes.
+
+Two gaps in that story, both handled rather than ignored:
+
+- **Deletion.** A delta says what was created or edited and nothing about what
+  was removed. So a recent window (`TALLYFLOW_SYNC_RECONCILE_DAYS`) is
+  periodically re-read *in full* and treated as authoritative — the only path
+  that ever deletes a stored voucher. Without it, a voucher deleted in Tally
+  would stay on the dashboard forever.
+- **Tally builds that do not report change ids.** The markers query comes back
+  empty rather than failing (unknown native methods are dropped silently), and
+  the sync degrades to re-reading a bounded recent window. Slower, still correct,
+  and never widened back into a full-history export.
+
+The cursor is read *before* the backfill, not after: a voucher edited during a
+multi-minute read has a higher `AlterID` and is picked up by the next delta.
+Advancing it afterwards would step past that edit and lose it permanently. For
+the same reason a delta advances to the marker it read, not to the highest id
+that came back.
+
+The app is told all of this. `GET /v1/companies/{id}/sync` reports slices done
+out of slices planned, the months currently being read, transactions ingested and
+a projected ETA — enough for a determinate progress bar, because a spinner held
+for four minutes is indistinguishable from a hang. `eta_seconds` is `null` until
+the first slice finishes; the app renders that as "estimating", never as zero.
+
+`tally-connector livecheck` verifies the whole mechanism against a real Tally,
+including the failure that is otherwise silent: if `$AlterID` is accepted but
+ignored, every "fetch only what changed" read quietly returns the entire history
+instead, and nothing else in the system would notice.
+
 ### Scaling past one instance
 
 A connector holds one WebSocket to one backend instance, but a phone's request
@@ -252,6 +311,8 @@ and belongs to someone running a shop:
 | Mechanism | Where | Effect |
 |---|---|---|
 | Snapshot reads | `services/reads.py` | Users do not multiply Tally load |
+| Chunked backfill | `services/sync.py` | History is never one enormous export |
+| Change-id deltas | `services/sync.py` | A quiet company costs almost nothing |
 | Request coalescing | `hub/hub.py` | Identical concurrent reads share one round trip |
 | Per-connector job cap | `hub/link.py` | Never more than 2 exports in flight |
 | Refresh throttle | `services/reads.py` | Forced refreshes have a floor |
@@ -466,19 +527,21 @@ identically next time, and hiding that behind old data would mask a real bug.
 
 | Component | State |
 |---|---|
-| `tally_core` — domain models, codec, 7 queries, transport | Done, 98 tests |
-| `connector` — protocol, cache, executor, session, CLI | Done, 69 tests |
+| `tally_core` — domain models, codec, 7 queries, transport | Done, 108 tests |
+| `connector` — protocol, cache, executor, session, CLI | Done, 90 tests |
 | Windows exes via PyInstaller | Both build and run (18 MB each) |
 | Windows installer | Install / upgrade-over-running / uninstall verified end to end |
 | Verified against a live TallyPrime | **All 7 queries, 20/20 checks, 2026-07-23** |
-| `backend` — auth, hub, snapshots, dashboard, reports | Done, 105 tests |
+| `backend` — auth, hub, snapshots, dashboard, reports | Done, 125 tests |
 | Backend ↔ connector, real sockets end to end | Verified, 7 integration tests |
-| `mobile` — auth, pairing, dashboard, 5 reports | Done, 58 tests |
-| Backend ↔ app wire shapes | Pinned by generated fixtures, 10 tests |
+| `mobile` — auth, pairing, dashboard, 6 reports | Done, 63 tests |
+| Backend ↔ app wire shapes | Pinned by generated fixtures, 12 tests |
 | App against a running backend | Verified, 7 live tests |
 | Android debug APK, web release bundle | Both build |
 
-282 Python tests plus 58 Dart tests.
+323 Python tests plus 63 Dart tests. Run them together — `pytest packages`
+on its own misses the `asyncio_mode = "auto"` setting, which lives in
+`apps/backend/pyproject.toml`, and ten `tally_core` async tests error out.
 
 Build the executables and the installer (needs Inno Setup 6 —
 `winget install JRSoftware.InnoSetup`):
@@ -537,3 +600,28 @@ silent — an empty report, not an error:
 
 A `$$IsNonZero:$ClosingBalance` filter on this collection also suppresses all
 output, so settled bills are dropped in the mapper instead.
+
+### Receivable-vs-payable and Sundry-Debtors-vs-Creditors are different axes
+
+Two reports read `outstanding.bills`, and mixing them up produces confident
+wrong numbers:
+
+- `/reports/outstanding` classifies each **bill** by the side it closes on. That
+  is the honest answer to "who owes me money": a customer's advance sits in a
+  debtor's ledger but is genuinely a payable, and counting it as a receivable
+  would tell an owner they are owed money they have already been paid.
+- `/reports/outstanding/group` classifies each **party** by the group its ledger
+  sits under — Tally's Group Outstanding. A party belongs to Sundry Debtors
+  however their individual bills point.
+
+So the same advance appears as a payable in the first report and as an *advance
+against a debtor* in the second, and both are correct. The group report
+therefore publishes `total` (billed, on the group's expected side), `advances`
+(everything pointing the other way) and `net`, rather than one figure that
+silently picks a convention.
+
+Group membership is the ledger's **direct** parent group. A party filed under a
+home-made sub-group is counted as ungrouped rather than quietly claimed for its
+ancestor, and `ungrouped_party_count` is returned so the app can say the report
+is incomplete — a total that is quietly too small is worse than one that admits
+what it could not see.

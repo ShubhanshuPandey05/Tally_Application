@@ -19,6 +19,7 @@ from pydantic import BaseModel
 
 from .codec import parse_xml
 from .errors import (
+    TallyCrashedError,
     TallyError,
     TallyParseError,
     TallyResponseError,
@@ -171,6 +172,16 @@ class TallyClient:
                 # envelope Tally already rejected just wastes the user's time.
                 raise TallyResponseError(
                     f"Tally returned HTTP {exc.response.status_code} for query {label!r}"
+                ) from exc
+            except (httpx.RemoteProtocolError, httpx.ReadError, httpx.WriteError) as exc:
+                # The connection was open and then died with no response: Tally
+                # crashed part-way through building this export. Never retried
+                # here -- see TallyCrashedError. The pipeline's cooldown, and
+                # the caller's snapshot, are the right places to absorb it.
+                raise TallyCrashedError(
+                    f"TallyPrime closed the connection without answering query "
+                    f"{label!r} ({type(exc).__name__}: {exc or 'no detail'}); "
+                    f"check tallyerr.log next to tally.exe for c0000005"
                 ) from exc
             except httpx.HTTPError as exc:
                 last_error = TallyUnreachableError(f"transport error for {label!r}: {exc}")

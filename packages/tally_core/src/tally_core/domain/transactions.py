@@ -47,6 +47,13 @@ class Voucher(BaseModel):
     kind: VoucherTypeKind = VoucherTypeKind.OTHER
     date: date
     guid: str | None = None
+    #: Tally's change counter for this voucher. Bumped on every edit, so it is
+    #: both the cursor an incremental sync advances and the tiebreaker that says
+    #: whether an incoming copy is newer than the one already stored.
+    alter_id: int | None = None
+    #: Stable per-company identity. Unlike ``guid`` it is not globally unique,
+    #: so it is kept only as a fallback key for vouchers Tally sends without one.
+    master_id: int | None = None
     party_name: str | None = None
     narration: str | None = None
     reference: str | None = None

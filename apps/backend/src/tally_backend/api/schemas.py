@@ -8,11 +8,28 @@ silently become a breaking API change.
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
 
-from ..db.models import Company, Connector, ConnectorStatus, Role
+from ..db.models import Company, Connector, ConnectorStatus, Role, as_utc
+
+
+def _as_utc(value: Any) -> Any:
+    """``as_utc`` for a nullable field, leaving anything else to pydantic."""
+    return as_utc(value) if isinstance(value, datetime) else value
+
+
+#: A timestamp guaranteed to reach the app with an explicit UTC offset.
+#:
+#: SQLite hands back naive datetimes even from a ``DateTime(timezone=True)``
+#: column, and a naive ISO string is not a neutral one: Dart's
+#: ``DateTime.parse`` reads an offset-less string as **local** time, so
+#: ``.toLocal()`` becomes a no-op and the value lands wrong by exactly the
+#: device's UTC offset. In India that rendered a connector seen one second ago
+#: as "seen 5 hours ago". Everything is stored as UTC, so stamping UTC on the
+#: way out states what is already true.
+UtcDatetime = Annotated[datetime, BeforeValidator(_as_utc)]
 
 # --------------------------------------------------------------------------
 # Auth
@@ -86,7 +103,7 @@ class ConnectorResponse(BaseModel):
     status: ConnectorStatus
     online: bool
     tally_online: bool
-    last_seen_at: datetime | None
+    last_seen_at: UtcDatetime | None
     hostname: str | None
     os: str | None
     connector_version: str | None
@@ -101,7 +118,17 @@ class ConnectorResponse(BaseModel):
         online: bool,
         companies_open: list[str] | None = None,
         company_count: int = 0,
+        seen_at: datetime | None = None,
     ) -> ConnectorResponse:
+        """``seen_at`` is the live link's last frame, when there is a link.
+
+        The stored ``last_seen_at`` only advances on connect, disconnect and
+        Tally status *transitions* -- deliberately, since writing a row per
+        heartbeat per connector would be the busiest query in the system. But
+        that means a perfectly healthy connector's stored timestamp freezes at
+        connect time, and the app counts up from it: "seen 20 minutes ago" over
+        a connector that answered a heartbeat two seconds earlier.
+        """
         return cls(
             id=connector.id,
             name=connector.name,
@@ -110,7 +137,7 @@ class ConnectorResponse(BaseModel):
             # A connector can be connected to us while Tally itself is closed;
             # the two states drive very different messages in the app.
             tally_online=online and connector.last_tally_online,
-            last_seen_at=connector.last_seen_at,
+            last_seen_at=seen_at or connector.last_seen_at,
             hostname=connector.hostname,
             os=connector.os,
             connector_version=connector.connector_version,

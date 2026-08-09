@@ -52,3 +52,7 @@ logs/
 *.log
 *.db
 *.sqlite3
+
+# Connector pairing credentials -- never commit a live secret.
+apps/connector.json
+deploy/uat/uat.env

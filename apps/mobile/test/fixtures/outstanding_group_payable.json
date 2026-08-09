@@ -1,0 +1,139 @@
+{
+  "data": {
+    "as_of": "2026-03-15",
+    "group": "Sundry Creditors",
+    "kind": "payable",
+    "parties": [
+      {
+        "advances": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "bill_count": 1,
+        "bills": [
+          {
+            "ageing_bucket": "91_180",
+            "amount": {
+              "amount": "212600.00",
+              "currency": "INR",
+              "display": "212,600.00 Dr",
+              "side": "debit",
+              "signed": "212600.00"
+            },
+            "bill_date": "2025-11-22",
+            "bill_name": "2",
+            "days_overdue": 113,
+            "due_date": "2025-11-22",
+            "is_advance": false,
+            "party": "SARA DISITIBUTOR"
+          }
+        ],
+        "days_overdue": 113,
+        "group": "Sundry Creditors",
+        "net": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Cr",
+          "side": "credit",
+          "signed": "-212600.00"
+        },
+        "party": "SARA DISITIBUTOR",
+        "total": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        }
+      }
+    ],
+    "summary": {
+      "advances": {
+        "amount": "0.00",
+        "currency": "INR",
+        "display": "0.00 Dr",
+        "side": "debit",
+        "signed": "0.00"
+      },
+      "ageing": {
+        "180_plus": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "1_30": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "31_60": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "61_90": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "91_180": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "not_due": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        }
+      },
+      "bill_count": 1,
+      "net": {
+        "amount": "212600.00",
+        "currency": "INR",
+        "display": "212,600.00 Cr",
+        "side": "credit",
+        "signed": "-212600.00"
+      },
+      "overdue": {
+        "amount": "212600.00",
+        "currency": "INR",
+        "display": "212,600.00 Dr",
+        "side": "debit",
+        "signed": "212600.00"
+      },
+      "party_count": 1,
+      "total": {
+        "amount": "212600.00",
+        "currency": "INR",
+        "display": "212,600.00 Dr",
+        "side": "debit",
+        "signed": "212600.00"
+      }
+    },
+    "ungrouped_party_count": 0
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

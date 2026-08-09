@@ -9,6 +9,7 @@ import 'package:tallyflow/src/features/companies/application/company_providers.d
 import 'package:tallyflow/src/features/companies/domain/company.dart';
 import 'package:tallyflow/src/features/reports/application/report_providers.dart';
 import 'package:tallyflow/src/features/reports/domain/reports.dart';
+import 'package:tallyflow/src/features/reports/presentation/group_outstanding_screen.dart';
 import 'package:tallyflow/src/features/reports/presentation/outstanding_screen.dart';
 import 'package:tallyflow/src/features/reports/presentation/stock_screen.dart';
 
@@ -102,6 +103,82 @@ void main() {
 
     expect(find.text('Nothing outstanding'), findsOneWidget);
     expect(find.text('Every bill has been settled.'), findsOneWidget);
+  });
+
+  testWidgets('group outstanding is titled by the group the backend read',
+      (WidgetTester tester) async {
+    final GroupOutstandingReport report = GroupOutstandingReport.fromJson(
+      fixture('outstanding_group_payable')['data']! as Map<String, Object?>,
+    );
+
+    await _pump(
+      tester,
+      const GroupOutstandingScreen(kind: OutstandingKind.payable),
+      <Override>[
+        groupOutstandingProvider(
+          (companyId: 'company-1', kind: OutstandingKind.payable, group: null),
+        ).overrideWith((Ref ref) async => _fresh(report)),
+      ],
+    );
+
+    // The heading is the group the server actually resolved, so a company that
+    // renamed "Sundry Creditors" does not read someone else's label.
+    expect(find.text('Sundry Creditors'), findsOneWidget);
+    expect(find.text('Net position'), findsOneWidget);
+    expect(find.text('SARA DISITIBUTOR'), findsOneWidget);
+    expect(find.textContaining('days overdue'), findsWidgets);
+  });
+
+  testWidgets('advances are shown against the party, not netted away silently',
+      (WidgetTester tester) async {
+    // A debtor who has paid ahead: ₹11,800 billed, ₹1,800 held as an advance.
+    // Showing only the ₹10,000 net would leave an owner ringing about a bill
+    // whose money is already in the bank.
+    final GroupOutstandingReport report =
+        GroupOutstandingReport.fromJson(<String, Object?>{
+      'group': 'Sundry Debtors',
+      'kind': 'receivable',
+      'as_of': '2026-03-15',
+      'summary': <String, Object?>{
+        'total': <String, Object?>{'amount': '11800.00', 'side': 'debit'},
+        'overdue': <String, Object?>{'amount': '0.00', 'side': 'debit'},
+        'advances': <String, Object?>{'amount': '1800.00', 'side': 'debit'},
+        'net': <String, Object?>{'amount': '10000.00', 'side': 'debit'},
+        'bill_count': 2,
+        'party_count': 1,
+        'ageing': <String, Object?>{},
+      },
+      'parties': <Object?>[
+        <String, Object?>{
+          'party': 'Reliance Retail',
+          'total': <String, Object?>{'amount': '11800.00', 'side': 'debit'},
+          'advances': <String, Object?>{'amount': '1800.00', 'side': 'debit'},
+          'net': <String, Object?>{'amount': '10000.00', 'side': 'debit'},
+          'bill_count': 2,
+          'days_overdue': 0,
+          'bills': <Object?>[],
+        },
+      ],
+      'ungrouped_party_count': 2,
+    });
+
+    await _pump(
+      tester,
+      const GroupOutstandingScreen(kind: OutstandingKind.receivable),
+      <Override>[
+        groupOutstandingProvider(
+          (companyId: 'company-1', kind: OutstandingKind.receivable, group: null),
+        ).overrideWith((Ref ref) async => _fresh(report)),
+      ],
+    );
+
+    expect(find.text('₹10,000.00'), findsOneWidget);
+    expect(find.text('Billed'), findsOneWidget);
+    expect(find.text('Advances held'), findsOneWidget);
+    expect(find.textContaining('advance'), findsWidgets);
+    // Parties that could not be placed are declared rather than dropped in
+    // silence, so the total is never quietly too small.
+    expect(find.textContaining('2 parties are not in this group'), findsOneWidget);
   });
 
   testWidgets('stock flags negative and low items distinctly',

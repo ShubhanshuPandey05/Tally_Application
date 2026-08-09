@@ -60,6 +60,26 @@
           "signed": "0.00"
         },
         "phone": null
+      },
+      {
+        "closing": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "group": "Sundry Debtors",
+        "gstin": null,
+        "name": "Reliance Retail",
+        "opening": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "phone": null
       }
     ]
   },

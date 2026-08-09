@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+# Connector running command 
+# TALLY_CONNECTOR_CONNECTOR_ID=2cb25e291c44404aaba2fb0128a5628e TALLY_CONNECTOR_CONNECTOR_SECRET=UpnLchNTrUkDC2alwVE0JnbzfvSDqD-IpKq2qjtNPbI TALLY_CONNECTOR_BACKEND_URL=ws://127.0.0.1:8000/v1/connector ./.venv/Scripts/python.exe -m tally_connector.main run
+
 """TallyFlow task runner: `python run.py <command>`.
 
 One file, standard library only, so it works the same on a Windows laptop and on

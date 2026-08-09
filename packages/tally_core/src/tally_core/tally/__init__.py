@@ -11,6 +11,7 @@ from .envelope import Collection, StaticVariables, build_export_envelope
 from .errors import (
     CompanyNotLoadedError,
     TallyBusyError,
+    TallyCrashedError,
     TallyError,
     TallyParseError,
     TallyResponseError,
@@ -27,6 +28,7 @@ __all__ = [
     "StaticVariables",
     "TallyBusyError",
     "TallyClient",
+    "TallyCrashedError",
     "TallyConfig",
     "TallyError",
     "TallyParseError",

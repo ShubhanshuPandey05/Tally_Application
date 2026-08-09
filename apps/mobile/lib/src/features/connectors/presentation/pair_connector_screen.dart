@@ -162,11 +162,11 @@ class _WaitingStep extends ConsumerWidget {
         const SizedBox(height: 20),
         Text('2. Enter these details', style: theme.textTheme.titleSmall),
         const SizedBox(height: 10),
-        _CopyField(label: 'Connector ID', value: pairing.connectorId),
+        CopyField(label: 'Connector ID', value: pairing.connectorId),
         const SizedBox(height: 10),
-        _CopyField(label: 'Pairing code', value: pairing.pairingCode),
+        CopyField(label: 'Pairing code', value: pairing.pairingCode),
         const SizedBox(height: 10),
-        _CopyField(label: 'Secret key', value: pairing.secret, sensitive: true),
+        CopyField(label: 'Secret key', value: pairing.secret, sensitive: true),
         const SizedBox(height: 10),
         Container(
           padding: const EdgeInsets.all(12),
@@ -280,8 +280,14 @@ class _StatusHeader extends StatelessWidget {
   }
 }
 
-class _CopyField extends StatefulWidget {
-  const _CopyField({
+/// A labelled value with a copy button, and a reveal toggle when sensitive.
+///
+/// Public because re-pairing shows the same two fields from a different
+/// screen, and a second copy of this would be a second place for the
+/// "reveal the secret" behaviour to drift.
+class CopyField extends StatefulWidget {
+  const CopyField({
+    super.key,
     required this.label,
     required this.value,
     this.sensitive = false,
@@ -292,10 +298,10 @@ class _CopyField extends StatefulWidget {
   final bool sensitive;
 
   @override
-  State<_CopyField> createState() => _CopyFieldState();
+  State<CopyField> createState() => _CopyFieldState();
 }
 
-class _CopyFieldState extends State<_CopyField> {
+class _CopyFieldState extends State<CopyField> {
   bool _revealed = false;
 
   @override

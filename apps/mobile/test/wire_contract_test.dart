@@ -135,6 +135,42 @@ void main() {
       expect(report.total.isZero, isFalse);
     });
 
+    test('group outstanding nests parties the backend grouped', () {
+      final Map<String, Object?> body = fixture('outstanding_group_receivable');
+      final GroupOutstandingReport report =
+          GroupOutstandingReport.fromJson(body['data']! as Map<String, Object?>);
+
+      expect(report.group, 'Sundry Debtors');
+      expect(report.kind, OutstandingKind.receivable);
+      expect(report.parties, isNotEmpty);
+      expect(report.parties.first.party, 'Reliance Retail');
+      expect(report.parties.first.bills, isNotEmpty);
+      expect(MoneyFormat.full(report.net), '₹11,800.00');
+      expect(report.ungroupedPartyCount, 0);
+    });
+
+    test('a group with no advances nets to its billed total', () {
+      final Map<String, Object?> body = fixture('outstanding_group_receivable');
+      final GroupOutstandingReport report =
+          GroupOutstandingReport.fromJson(body['data']! as Map<String, Object?>);
+
+      expect(report.hasAdvances, isFalse);
+      expect(report.net.amount, report.total.amount);
+    });
+
+    test('group payables keep the credit side on the net', () {
+      final Map<String, Object?> body = fixture('outstanding_group_payable');
+      final GroupOutstandingReport report =
+          GroupOutstandingReport.fromJson(body['data']! as Map<String, Object?>);
+
+      expect(report.group, 'Sundry Creditors');
+      expect(report.net.side, MoneySide.credit);
+      // The debtor's bill is in the same dataset; grouping must not pull it in.
+      expect(report.parties.length, 1);
+      expect(report.parties.first.party, 'SARA DISITIBUTOR');
+      expect(report.parties.first.daysOverdue, greaterThan(90));
+    });
+
     test('stock carries the flags the list colours itself with', () {
       final Map<String, Object?> body = fixture('stock');
       final StockReport report =
@@ -185,6 +221,7 @@ void main() {
       for (final String name in <String>[
         'daybook',
         'outstanding_receivable',
+        'outstanding_group_receivable',
         'stock',
         'ledgers',
         'slow_moving',

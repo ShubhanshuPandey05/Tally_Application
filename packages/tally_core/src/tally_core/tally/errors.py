@@ -53,6 +53,36 @@ class TallyTimeoutError(TallyError):
     retryable = True
 
 
+class TallyCrashedError(TallyError):
+    """Tally accepted the request and then died before answering.
+
+    On the wire this is a connection that was established and then closed with
+    no response -- httpx raises ``RemoteProtocolError``/``ReadError`` with an
+    empty message. On the customer's screen it is TallyPrime's own dialog:
+    ``Software Exception c0000005 (Memory Access Violation)``, logged to
+    ``tallyerr.log`` next to tally.exe with a matching ``tallyN.dmp``.
+
+    This is separated from :class:`TallyUnreachableError` because the response
+    to it is the opposite one. "Cannot connect" says nothing about the request
+    and is worth retrying. "Connected, then Tally vanished" indicts *this*
+    envelope, and re-sending it is actively harmful: crash dumps on a real
+    machine show Tally faulting on a NULL read while building the very
+    collection being retried, and the connector log for 26-07-2026 shows four
+    crashes in four minutes as each retry re-killed a Tally that had only just
+    restarted.
+
+    So it is retryable -- the caller should fall back to its snapshot and come
+    back later -- but never *immediately*, and never inside the same request.
+    """
+
+    code = "tally_crashed"
+    user_message = (
+        "TallyPrime closed unexpectedly while preparing this report. "
+        "Reopen TallyPrime -- your data is safe and we'll retry on our own."
+    )
+    retryable = True
+
+
 class TallyBusyError(TallyError):
     """The connector's Tally queue is full.
 

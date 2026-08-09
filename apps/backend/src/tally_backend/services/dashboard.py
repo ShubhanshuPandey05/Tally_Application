@@ -18,7 +18,7 @@ from tally_core.domain.masters import VoucherTypeKind
 from tally_core.domain.transactions import OutstandingKind
 
 from ..core.errors import AppError
-from ..db.models import Company
+from ..db.models import Company, as_utc
 from . import analytics as an
 from .reads import DataResult, FetchMode, ReadService
 
@@ -111,6 +111,7 @@ class DashboardService:
         params: dict[str, Any] | None = None,
         mode: FetchMode,
         heavy: bool = False,
+        errors: dict[str, str] | None = None,
     ) -> DataResult | None:
         """Fetch one dataset, converting an expected failure into ``None``.
 
@@ -118,6 +119,12 @@ class DashboardService:
         must not be used concurrently, and the connector only has a couple of
         job slots anyway. On the normal path every one of these is a snapshot
         hit -- four indexed primary-key lookups, not four trips to Tally.
+
+        The failure's own wording is kept in ``errors`` rather than discarded.
+        Some causes are things only the shop can fix -- the company not being
+        open in TallyPrime is the one that prompted this -- and replacing that
+        with "Could not read vouchers from Tally" tells them to check the
+        network when they should be clicking Open Company.
         """
         try:
             return await self._reads.fetch(
@@ -125,22 +132,40 @@ class DashboardService:
             )
         except AppError as exc:
             logger.info("dashboard section %s unavailable: %s", dataset, exc.message)
+            if errors is not None:
+                errors[dataset] = exc.user_message
             return None
 
     async def build(
         self, company: Company, *, today: date, mode: FetchMode = FetchMode.AUTO
     ) -> dict[str, Any]:
+        #: Dataset -> why it could not be read, when it could not be.
+        errors: dict[str, str] = {}
+
         # One voucher read covers today, this month, last month and the trend.
         # A round trip to a customer's desktop is the expensive part, so the
         # window is widened rather than split into several reads.
         vouchers_result = await self._load(
-            company, VOUCHERS, params=voucher_params(today), mode=mode, heavy=True
+            company,
+            VOUCHERS,
+            params=voucher_params(today),
+            mode=mode,
+            heavy=True,
+            errors=errors,
         )
-        ledgers_result = await self._load(company, LEDGERS, mode=mode)
+        ledgers_result = await self._load(company, LEDGERS, mode=mode, errors=errors)
         bills_result = await self._load(
-            company, BILLS, params={"as_of": today.isoformat()}, mode=mode, heavy=True
+            company,
+            BILLS,
+            params={"as_of": today.isoformat()},
+            mode=mode,
+            heavy=True,
+            errors=errors,
         )
-        stock_result = await self._load(company, STOCK, mode=mode, heavy=True)
+        stock_result = await self._load(company, STOCK, mode=mode, heavy=True, errors=errors)
+
+        def why(dataset: str, fallback: str) -> str:
+            return errors.get(dataset, fallback)
 
         sections: dict[str, Section] = {}
         vouchers = (
@@ -154,21 +179,28 @@ class DashboardService:
         if vouchers:
             vouchers = an.classify(vouchers, await voucher_kinds(self._reads, company, mode))
 
+        no_vouchers = why(VOUCHERS, "Could not read vouchers from Tally.")
+        no_bills = why(BILLS, "Could not read outstanding bills from Tally.")
+
         sections["sales"] = self._trade_section(
-            "sales", VoucherTypeKind.SALES, vouchers, vouchers_result, today
+            "sales", VoucherTypeKind.SALES, vouchers, vouchers_result, today, no_vouchers
         )
         sections["purchases"] = self._trade_section(
-            "purchases", VoucherTypeKind.PURCHASE, vouchers, vouchers_result, today
+            "purchases", VoucherTypeKind.PURCHASE, vouchers, vouchers_result, today, no_vouchers
         )
-        sections["cash_and_bank"] = self._funds_section(ledgers_result)
+        sections["cash_and_bank"] = self._funds_section(
+            ledgers_result, why(LEDGERS, "Could not read ledgers from Tally.")
+        )
         sections["receivables"] = self._outstanding_section(
-            "receivables", OutstandingKind.RECEIVABLE, bills_result, today
+            "receivables", OutstandingKind.RECEIVABLE, bills_result, today, no_bills
         )
         sections["payables"] = self._outstanding_section(
-            "payables", OutstandingKind.PAYABLE, bills_result, today
+            "payables", OutstandingKind.PAYABLE, bills_result, today, no_bills
         )
-        sections["inventory"] = self._inventory_section(stock_result)
-        sections["activity"] = self._activity_section(vouchers, vouchers_result)
+        sections["inventory"] = self._inventory_section(
+            stock_result, why(STOCK, "Could not read stock from Tally.")
+        )
+        sections["activity"] = self._activity_section(vouchers, vouchers_result, no_vouchers)
 
         return {
             "company": {
@@ -192,9 +224,10 @@ class DashboardService:
         vouchers: list[Any],
         result: DataResult | None,
         today: date,
+        error: str,
     ) -> Section:
         if result is None:
-            return Section(name, ok=False, error="Could not read vouchers from Tally.")
+            return Section(name, ok=False, error=error)
 
         prev_start, prev_end = previous_month_bounds(today)
         this_month = an.total_for(vouchers, kind, since=month_start(today), until=today)
@@ -223,9 +256,9 @@ class DashboardService:
             meta=result.meta(),
         )
 
-    def _funds_section(self, result: DataResult | None) -> Section:
+    def _funds_section(self, result: DataResult | None, error: str) -> Section:
         if result is None:
-            return Section("cash_and_bank", ok=False, error="Could not read ledgers from Tally.")
+            return Section("cash_and_bank", ok=False, error=error)
 
         ledgers = an.parse_ledgers(result.payload)
         cash = an.group_balance(ledgers, an.CASH_GROUPS)
@@ -244,19 +277,24 @@ class DashboardService:
         )
 
     def _outstanding_section(
-        self, name: str, kind: OutstandingKind, result: DataResult | None, today: date
+        self,
+        name: str,
+        kind: OutstandingKind,
+        result: DataResult | None,
+        today: date,
+        error: str,
     ) -> Section:
         if result is None:
-            return Section(name, ok=False, error="Could not read outstanding bills from Tally.")
+            return Section(name, ok=False, error=error)
 
         bills = an.parse_bills(result.payload)
         summary = an.outstanding_summary(bills, kind, as_of=today)
         summary["top_parties"] = an.top_outstanding_parties(bills, kind, as_of=today)
         return Section(name, ok=True, data=summary, meta=result.meta())
 
-    def _inventory_section(self, result: DataResult | None) -> Section:
+    def _inventory_section(self, result: DataResult | None, error: str) -> Section:
         if result is None:
-            return Section("inventory", ok=False, error="Could not read stock from Tally.")
+            return Section("inventory", ok=False, error=error)
         return Section(
             "inventory",
             ok=True,
@@ -264,9 +302,11 @@ class DashboardService:
             meta=result.meta(),
         )
 
-    def _activity_section(self, vouchers: list[Any], result: DataResult | None) -> Section:
+    def _activity_section(
+        self, vouchers: list[Any], result: DataResult | None, error: str
+    ) -> Section:
         if result is None:
-            return Section("activity", ok=False, error="Could not read vouchers from Tally.")
+            return Section("activity", ok=False, error=error)
         return Section(
             "activity",
             ok=True,
@@ -290,7 +330,9 @@ class DashboardService:
         oldest = max(present, key=lambda r: r.age_seconds)
         return {
             "available": True,
-            "refreshed_at": oldest.refreshed_at.isoformat(),
+            # Aware, for the same reason as DataResult.meta: a naive
+            # timestamp is read by the app as local time.
+            "refreshed_at": as_utc(oldest.refreshed_at).isoformat(),
             "age_seconds": round(oldest.age_seconds, 1),
             "is_stale": any(r.is_stale for r in present),
             "connector_online": any(r.connector_online for r in present),

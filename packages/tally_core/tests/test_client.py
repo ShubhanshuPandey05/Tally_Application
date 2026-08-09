@@ -10,6 +10,7 @@ import pytest
 
 from tally_core.tally import TallyClient, TallyConfig, get_query
 from tally_core.tally.errors import (
+    TallyCrashedError,
     TallyResponseError,
     TallyTimeoutError,
     TallyUnreachableError,
@@ -190,3 +191,80 @@ async def test_is_alive_reports_false_when_tally_is_down():
 
     async with client_with(handler) as client:
         assert await client.is_alive() is False
+
+
+# --------------------------------------------------------------------------
+# TallyPrime crashing mid-request (c0000005 "Memory Access Violation")
+# --------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        lambda request: httpx.RemoteProtocolError("", request=request),
+        lambda request: httpx.ReadError("", request=request),
+        lambda request: httpx.WriteError("", request=request),
+    ],
+    ids=["remote_protocol", "read", "write"],
+)
+async def test_a_connection_that_dies_mid_request_is_reported_as_a_crash(failure):
+    """Tally accepted the POST and then vanished, which indicts the envelope.
+
+    Reported by httpx with an empty message, which is exactly how it appeared
+    in the connector log: ``transport error for 'vouchers.list': ``.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise failure(request)
+
+    async with client_with(handler) as client:
+        query = get_query("companies.list")
+        with pytest.raises(TallyCrashedError) as excinfo:
+            await client.execute(query, query.validate_params({}))
+
+    # The message has to survive a support call intact.
+    assert "tallyerr.log" in str(excinfo.value)
+    assert excinfo.value.code == "tally_crashed"
+
+
+async def test_a_crash_is_never_retried_within_the_request():
+    """Re-sending the envelope is what turned one crash into four.
+
+    A Tally that has just died is restarting; the retry either fails to connect
+    or lands on a freshly reopened Tally and kills it again.
+    """
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.RemoteProtocolError("", request=request)
+
+    async with client_with(handler) as client:
+        query = get_query("companies.list")
+        with pytest.raises(TallyCrashedError):
+            await client.execute(query, query.validate_params({}))
+
+    assert attempts == 1
+
+
+async def test_a_crash_is_still_retryable_for_the_caller():
+    """So the connector serves its snapshot rather than a hard failure."""
+    assert TallyCrashedError("boom").retryable is True
+
+
+async def test_refused_connections_are_not_mistaken_for_crashes():
+    """Tally being closed is an ordinary, retryable state -- not a Tally bug."""
+    attempts = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal attempts
+        attempts += 1
+        raise httpx.ConnectError("refused", request=request)
+
+    async with client_with(handler) as client:
+        query = get_query("companies.list")
+        with pytest.raises(TallyUnreachableError):
+            await client.execute(query, query.validate_params({}))
+
+    assert attempts == 3

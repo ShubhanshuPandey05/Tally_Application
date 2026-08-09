@@ -29,6 +29,7 @@ def test_registry_exposes_expected_queries():
     names = {entry["name"] for entry in registry_manifest()}
     assert names == {
         "companies.list",
+        "company.markers",
         "groups.list",
         "ledgers.list",
         "stock_items.list",
@@ -69,6 +70,51 @@ def test_company_envelope_escapes_ampersand():
     xml = query.build(query.validate_params({"company": "Ram & Sons Traders"}))
     assert "Ram &amp; Sons Traders" in xml
     assert "Ram & Sons" not in xml
+
+
+# --------------------------------------------------------------------------
+# Company change markers
+# --------------------------------------------------------------------------
+
+
+def test_company_markers_map(fixture_xml):
+    markers = run("company.markers", fixture_xml("company_markers"))
+    assert markers.name == "Ram & Sons Traders"
+    assert markers.master_alter_id == 1842
+    assert markers.voucher_alter_id == 93117
+    assert markers.books_from == date(2022, 4, 1)
+    assert markers.ending_at == date(2026, 3, 31)
+    assert markers.supports_incremental is True
+
+
+def test_company_markers_ignore_other_open_companies(fixture_xml):
+    """Advancing a cursor with a neighbouring company's counter loses vouchers."""
+    query = get_query("company.markers")
+    params = query.validate_params({"company": "Shreeji Enterprises"})
+    markers = query.parse(parse_xml(fixture_xml("company_markers")), params)
+
+    assert markers.name == "Shreeji Enterprises"
+    assert markers.voucher_alter_id == 2010
+
+
+def test_company_markers_absent_means_no_incremental_sync(fixture_xml):
+    """An older Tally drops the unknown fields silently; that is not zero."""
+    markers = run("company.markers", fixture_xml("company_markers_legacy"))
+    assert markers.voucher_alter_id is None
+    assert markers.master_alter_id is None
+    assert markers.supports_incremental is False
+    # Still useful: the books-from date is what bounds a date-window backfill.
+    assert markers.books_from == date(2022, 4, 1)
+
+
+def test_company_markers_absent_company_is_not_an_error(fixture_xml):
+    """A company that is not open must degrade, not raise."""
+    query = get_query("company.markers")
+    params = query.validate_params({"company": "Never Opened Ltd"})
+    markers = query.parse(parse_xml(fixture_xml("company_markers")), params)
+
+    assert markers.name == "Never Opened Ltd"
+    assert markers.supports_incremental is False
 
 
 # --------------------------------------------------------------------------
@@ -232,6 +278,162 @@ def test_voucher_envelope_carries_date_range():
     xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
     assert "<SVFROMDATE>20250701</SVFROMDATE>" in xml
     assert "<SVTODATE>20250731</SVTODATE>" in xml
+
+
+def test_voucher_envelope_filters_on_date_because_the_period_does_not():
+    """The static variables above are not what scopes a Voucher collection.
+
+    Verified live 2026-08-09: with only SVFROMDATE/SVTODATE set, asking for one
+    week, one month and two years all returned the *same* vouchers -- the whole
+    of the company's open financial year. A dashboard asking for 40 days was
+    being served the year, and a six-month sync chunk was too, which is the
+    chunking doing nothing at all.
+    """
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+
+    assert "<FILTER>TFDateFilter</FILTER>" in xml
+    assert '$Date &gt;= $$Date:&quot;20250701&quot;' in xml
+    assert '$Date &lt;= $$Date:&quot;20250731&quot;' in xml
+
+
+def test_voucher_date_filter_uses_an_unambiguous_literal():
+    """Not `1-Jul-2025` (depends on Tally's language) nor `01-07-2025` (ambiguous)."""
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+
+    assert "Jul" not in xml
+    assert "01-07-2025" not in xml
+
+
+def test_voucher_date_filter_survives_alongside_the_other_filters():
+    """Tally ANDs multiple <FILTER>s; a delta sync needs both to apply."""
+    query = get_query("vouchers.list")
+    xml = query.build(
+        query.validate_params(
+            {
+                "company": "Acme",
+                **VOUCHER_PARAMS,
+                "alter_id_min": 4100,
+                "voucher_type": "Sales",
+            }
+        )
+    )
+
+    assert "<FILTER>TFDateFilter</FILTER>" in xml
+    assert "<FILTER>TFAlterIdFilter</FILTER>" in xml
+    assert "<FILTER>TFVoucherTypeFilter</FILTER>" in xml
+
+
+def test_voucher_alter_ids_map(fixture_xml):
+    """The cursor an incremental sync advances has to survive the mapper."""
+    vouchers = run("vouchers.list", fixture_xml("vouchers_daybook"), **VOUCHER_PARAMS)
+    assert [v.alter_id for v in vouchers] == [4101, 4102, 4130, 4090]
+    assert vouchers[0].master_id == 511
+
+
+def test_voucher_alter_id_filter_is_opt_in():
+    """A backfill must never carry the filter, or it returns an empty window."""
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+    assert "TFAlterIdFilter" not in xml
+    assert "AlterID" not in xml
+
+
+def test_voucher_envelope_does_not_ask_for_alter_ids():
+    """Live Tally sends MASTERID unasked, and a crashed Tally costs a shop its day.
+
+    A c0000005 access violation was seen on a real company while these two were
+    in the FETCH list. That did not prove them guilty -- the window had grown at
+    the same time -- but requesting a field the mapper already receives for free
+    is risk with no upside, so the envelope stays as it was verified.
+    """
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+    assert "<FETCH>MasterID</FETCH>" not in xml
+    assert "<FETCH>AlterID</FETCH>" not in xml
+
+
+def test_voucher_envelope_names_leaf_fields_not_whole_sub_collections():
+    """The fix for TallyPrime dying with c0000005 mid-export.
+
+    ``<FETCH>AllLedgerEntries</FETCH>`` does not mean "that wrapper's fields";
+    it makes Tally build the entire object graph under every voucher line --
+    GST rate details, VAT classifications, tax-object allocations, interest
+    collections, old audit ids. Measured live: 6.83 MB vs 893 KB for identical
+    parsed output over the same six months.
+    """
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+
+    for wrapper in ("AllLedgerEntries", "LedgerEntries",
+                    "AllInventoryEntries", "InventoryEntries"):
+        assert f"<FETCH>{wrapper}</FETCH>" not in xml, (
+            f"{wrapper} requested as a whole sub-collection again"
+        )
+
+    # Every field the mapper actually reads is still named explicitly.
+    for leaf in (
+        "AllLedgerEntries.LedgerName",
+        "AllLedgerEntries.Amount",
+        "AllLedgerEntries.IsDeemedPositive",
+        "AllLedgerEntries.IsPartyLedger",
+        "AllLedgerEntries.BillAllocations.Name",
+        "AllLedgerEntries.CategoryAllocations.Category",
+        "AllInventoryEntries.StockItemName",
+        "AllInventoryEntries.BilledQty",
+        "AllInventoryEntries.BatchAllocations.GodownName",
+    ):
+        assert f"<FETCH>{leaf}</FETCH>" in xml, f"{leaf} is no longer requested"
+
+
+def test_voucher_envelope_keeps_both_entry_wrappers():
+    """Accounting vouchers use LEDGERENTRIES, invoices ALLLEDGERENTRIES.
+
+    The parser still falls back between them, so the request must still supply
+    both -- it costs 2% more payload and keeps that fallback meaningful.
+    """
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+    assert "<FETCH>LedgerEntries.LedgerName</FETCH>" in xml
+    assert "<FETCH>InventoryEntries.StockItemName</FETCH>" in xml
+
+
+def test_voucher_envelope_does_not_ask_for_persisted_view():
+    """The mapper ignores PERSISTEDVIEW, so requesting it was pure weight."""
+    query = get_query("vouchers.list")
+    xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
+    assert "PersistedView" not in xml
+
+
+def test_vouchers_without_inventory_ask_for_no_inventory_fields():
+    """A ledger-only read must not drag the stock graph along."""
+    query = get_query("vouchers.list")
+    xml = query.build(
+        query.validate_params(
+            {"company": "Acme", **VOUCHER_PARAMS, "include_inventory": False}
+        )
+    )
+    assert "InventoryEntries" not in xml
+    assert "AllLedgerEntries.LedgerName" in xml
+
+
+def test_voucher_alter_id_filter_narrows_to_changes():
+    query = get_query("vouchers.list")
+    xml = query.build(
+        query.validate_params({"company": "Acme", **VOUCHER_PARAMS, "alter_id_min": 93117})
+    )
+    assert "<FILTER>TFAlterIdFilter</FILTER>" in xml
+    assert "$AlterID &gt; 93117" in xml
+
+
+def test_voucher_alter_id_filter_cannot_carry_tdl():
+    """The value is interpolated into TDL that runs on a customer's machine."""
+    query = get_query("vouchers.list")
+    with pytest.raises(ValueError):
+        query.validate_params(
+            {"company": "Acme", **VOUCHER_PARAMS, "alter_id_min": '1 OR $$Sys:"x"'}
+        )
 
 
 # --------------------------------------------------------------------------

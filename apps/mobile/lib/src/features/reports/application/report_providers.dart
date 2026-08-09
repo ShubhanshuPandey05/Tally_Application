@@ -15,6 +15,7 @@ final Provider<ReportsRepository> reportsRepositoryProvider =
 /// screens asking for the same window share one request instead of racing.
 typedef DaybookArgs = ({String companyId, DateRange range, String? kind});
 typedef OutstandingArgs = ({String companyId, OutstandingKind kind});
+typedef GroupOutstandingArgs = ({String companyId, OutstandingKind kind, String? group});
 typedef StockArgs = ({String companyId, String? only});
 typedef LedgerArgs = ({String companyId, String? group});
 typedef SlowMovingArgs = ({String companyId, int days});
@@ -34,6 +35,17 @@ final AutoDisposeFutureProviderFamily<Fresh<OutstandingReport>, OutstandingArgs>
     FutureProvider.autoDispose.family<Fresh<OutstandingReport>, OutstandingArgs>(
   (Ref ref, OutstandingArgs args) =>
       ref.watch(reportsRepositoryProvider).outstanding(args.companyId, kind: args.kind),
+);
+
+final AutoDisposeFutureProviderFamily<Fresh<GroupOutstandingReport>, GroupOutstandingArgs>
+    groupOutstandingProvider = FutureProvider.autoDispose
+        .family<Fresh<GroupOutstandingReport>, GroupOutstandingArgs>(
+  (Ref ref, GroupOutstandingArgs args) =>
+      ref.watch(reportsRepositoryProvider).outstandingByGroup(
+            args.companyId,
+            kind: args.kind,
+            group: args.group,
+          ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<StockReport>, StockArgs> stockProvider =

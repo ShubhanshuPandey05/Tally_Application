@@ -1,0 +1,85 @@
+# TallyFlow UAT stack: Postgres + API + Caddy (automatic TLS).
+#
+# One command brings up everything a pilot customer needs to reach:
+#
+#     docker compose --env-file uat.env up -d --build
+#
+# Deliberate choices for UAT:
+#
+#   * Images are BUILT here rather than pulled. UAT should run the commit in
+#     front of you, and a registry is one more thing to stand up today.
+#   * Migrations run as their own one-shot service that the API waits on. An
+#     unmigrated Postgres does not fail at startup -- the app starts cleanly and
+#     then fails on the first query, which reads as "the app is broken".
+#   * The API publishes no host port. Caddy owns 443 and is the only way in;
+#     the container terminates no TLS and trusts X-Forwarded-For blindly, so it
+#     must never be directly reachable.
+#   * One uvicorn worker, from the image's CMD. Do not add --workers: connectors
+#     hold long-lived WebSockets to a specific process, and forks would each
+#     hold a different set of sockets with no way to route between them.
+
+name: tallyflow-uat
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tallyflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in uat.env}
+      POSTGRES_DB: ${POSTGRES_DB:-tallyflow}
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    # No published port. Reach it with `docker compose exec db psql` instead of
+    # exposing a database to the internet for the sake of one query.
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tallyflow} -d ${POSTGRES_DB:-tallyflow}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/backend/Dockerfile
+      target: migrator
+    env_file: [uat.env]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: "no"
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/backend/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    env_file: [uat.env]
+    depends_on:
+      db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    expose: ["8000"]
+    # 30s graceful shutdown lets in-flight jobs finish and gives connectors time
+    # to notice the socket closing and re-dial.
+    stop_grace_period: 40s
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on: [api]
+    environment:
+      # The public hostname connectors and phones dial. `localhost` gives a
+      # local-only certificate, which is what a smoke test on this machine wants.
+      UAT_DOMAIN: ${UAT_DOMAIN:-localhost}
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

@@ -6,7 +6,8 @@ Subcommands:
 ``diagnose``   check Tally locally and print what is wrong, in plain language
 ``pair``       store the credentials the app's pairing wizard produced
 ``install``    pair, then register the connector to start at logon
-``uninstall``  remove it from startup
+``configure``  change the server address or the credentials of an installed one
+``uninstall``  remove it from startup (``--purge`` also unpairs the machine)
 ``status``     report whether the background connector is registered and running
 """
 
@@ -21,6 +22,7 @@ import signal
 import sys
 from pathlib import Path
 
+from pydantic import ValidationError
 from tally_core.tally import TallyClient, get_query, registry_manifest
 from tally_core.tally.errors import TallyError
 
@@ -214,11 +216,76 @@ def install(args: argparse.Namespace) -> int:
     return 0
 
 
-def uninstall(_: argparse.Namespace) -> int:
+def configure(args: argparse.Namespace) -> int:
+    """Change where this PC connects, or which credentials it uses.
+
+    The reason this exists as its own command: both values genuinely change
+    after a working install. A backend that moves address, or a secret reissued
+    from the app because the old one was lost, would otherwise mean uninstalling
+    and reinstalling a shop's connector -- and re-pairing from scratch is how a
+    company ends up linked twice.
+
+    Nothing is written until the merged result validates, so a mistyped URL is
+    an error message rather than a connector that starts and never dials home.
+    """
+    values = _pairing_values(args)
+    if not values and args.log_level is None:
+        print("error: nothing to change; pass --backend-url, --id, --secret "
+              "or --log-level", file=sys.stderr)
+        return 2
+
+    updates: dict[str, object] = {
+        "connector_id": values.get("id"),
+        "connector_secret": values.get("secret"),
+        "backend_url": values.get("backend_url"),
+        "log_level": args.log_level,
+    }
+    updates = {key: value for key, value in updates.items() if value is not None}
+
+    current = load_settings(args.config)
+    candidate = current.model_dump()
+    candidate.update(updates)
+    try:
+        ConnectorSettings(
+            **{k: v for k, v in candidate.items() if k in ConnectorSettings.model_fields}
+        )
+    except ValidationError as exc:
+        # One line per problem: this is read by a shop owner on a phone call,
+        # not by someone who will go and read a stack trace.
+        for error in exc.errors():
+            field = ".".join(str(part) for part in error["loc"]) or "value"
+            print(f"error: {field}: {error['msg']}", file=sys.stderr)
+        return 2
+
+    path = save_settings(updates, args.config)
+    # Never the secret itself -- this output lands in screenshots and tickets.
+    changed = ", ".join(sorted("secret" if k == "connector_secret" else k for k in updates))
+    print(f"Updated {changed} in {path}")
+
+    if autostart.task_status() is None:
+        print("Start the connector with: tally-connector run")
+        return 0
+
+    # A running connector holds the old settings in memory, so a change nobody
+    # restarts is a change that appears not to have worked.
+    try:
+        autostart.stop()
+        autostart.start()
+    except (autostart.TaskError, OSError) as exc:
+        print(f"Settings saved, but the background connector could not be restarted: {exc}")
+        print("Restart it from Task Scheduler, or log out and back in.")
+        return 1
+    print("Restarted the background connector so the change takes effect.")
+    return 0
+
+
+def uninstall(args: argparse.Namespace) -> int:
     """Stop the background connector and remove it from startup.
 
-    Leaves connector.json alone: the Windows uninstaller removes it, and a
-    reinstall over the top should not silently unpair the machine.
+    Without ``--purge`` this leaves connector.json alone, because the same
+    command runs during an *upgrade*: the Windows installer stops the old build
+    before overwriting it, and unpairing a working shop mid-upgrade would be a
+    support call for every customer.
     """
     try:
         autostart.unregister()
@@ -226,6 +293,17 @@ def uninstall(_: argparse.Namespace) -> int:
         print(f"Could not remove the startup task: {exc}")
         return 1
     print(f'Removed "{autostart.TASK_NAME}" from startup.')
+
+    if not getattr(args, "purge", False):
+        return 0
+
+    removed = autostart.purge(args.config)
+    if removed:
+        for path in removed:
+            print(f"Deleted {path}")
+        print("This computer is no longer paired.")
+    else:
+        print("Nothing left to delete; this computer was not paired.")
     return 0
 
 
@@ -293,7 +371,34 @@ def build_parser() -> argparse.ArgumentParser:
         "--no-autostart", action="store_true", help="pair only; do not register a startup task"
     )
 
-    sub.add_parser("uninstall", help="stop the connector and remove it from startup")
+    configure_cmd = sub.add_parser(
+        "configure", help="change the server address or the pairing credentials"
+    )
+    configure_cmd.add_argument(
+        "--backend-url", dest="backend_url", help="ws:// or wss:// endpoint"
+    )
+    configure_cmd.add_argument("--id", help="connector id from the app")
+    configure_cmd.add_argument(
+        "--secret",
+        help=(
+            "connector secret from the app; prefer --from-file, since command "
+            "lines are readable by other processes on this machine"
+        ),
+    )
+    configure_cmd.add_argument(
+        "--from-file", type=Path, help="key=value file holding id/secret/backend_url"
+    )
+    configure_cmd.add_argument("--log-level", dest="log_level", help="DEBUG, INFO, WARNING, ERROR")
+
+    uninstall_cmd = sub.add_parser(
+        "uninstall", help="stop the connector and remove it from startup"
+    )
+    uninstall_cmd.add_argument(
+        "--purge",
+        action="store_true",
+        help="also delete the saved credentials and logs, unpairing this computer",
+    )
+
     sub.add_parser("status", help="report whether the background connector is running")
 
     return parser
@@ -317,6 +422,8 @@ def run(argv: list[str] | None = None, *, fallback_log_dir: Path | None = None) 
         return pair(args)
     if args.command == "install":
         return install(args)
+    if args.command == "configure":
+        return configure(args)
     if args.command == "uninstall":
         return uninstall(args)
     if args.command == "status":

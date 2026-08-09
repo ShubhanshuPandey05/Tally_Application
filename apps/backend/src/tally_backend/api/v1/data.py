@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import time
 from datetime import date, timedelta
-from typing import Annotated
+from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
 from tally_core.domain.masters import VoucherTypeKind
@@ -19,7 +19,7 @@ from tally_core.domain.transactions import OutstandingKind
 from ...services import analytics as an
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
-from ...services.reads import FetchMode
+from ...services.reads import DataResult, FetchMode
 from ..deps import (
     CompanyDep,
     DashboardServiceDep,
@@ -38,6 +38,18 @@ MAX_REPORT_DAYS = 400
 
 def _mode(value: FetchModeParam) -> FetchMode:
     return FetchMode(value)
+
+
+def _oldest_meta(results: list[DataResult]) -> dict[str, Any]:
+    """Freshness of the oldest dataset behind a multi-dataset report.
+
+    Quoting the fresher of the two would stamp "just now" over a report whose
+    other half was read hours ago -- the same rule the dashboard header follows.
+    """
+    meta = max(results, key=lambda r: r.age_seconds).meta()
+    meta["is_stale"] = any(r.is_stale for r in results)
+    meta["connector_online"] = any(r.connector_online for r in results)
+    return meta
 
 
 def _clamp_window(from_date: date, to_date: date) -> tuple[date, date]:
@@ -94,16 +106,11 @@ async def daybook(
     kind: Annotated[VoucherTypeKind | None, Query()] = None,
 ) -> DataEnvelope:
     from_date, to_date = _clamp_window(from_date, to_date)
-    result = await reads.fetch(
-        company,
-        dataset="vouchers.list",
-        params={
-            "from_date": from_date.isoformat(),
-            "to_date": to_date.isoformat(),
-            "include_inventory": True,
-        },
-        mode=_mode(mode),
-        heavy=True,
+    # Store-backed when the history sync has covered this window, which is what
+    # makes scrolling back through past months free. Before a backfill, and for
+    # a deliberate live refresh, it falls through to the ordinary snapshot path.
+    result = await reads.fetch_vouchers(
+        company, from_date=from_date, to_date=to_date, mode=_mode(mode)
     )
 
     vouchers = an.effective(an.parse_vouchers(result.payload))
@@ -180,22 +187,72 @@ async def outstanding(
             "as_of": today.isoformat(),
             "kind": str(kind),
             "summary": summary,
-            "bills": [
-                {
-                    "party": bill.party_name,
-                    "bill_name": bill.bill_name,
-                    "bill_date": bill.bill_date.isoformat() if bill.bill_date else None,
-                    "due_date": bill.due_date.isoformat() if bill.due_date else None,
-                    "amount": an.money_out(an.magnitude(bill.pending_amount)),
-                    "days_overdue": bill.days_overdue(today),
-                    "ageing_bucket": bill.ageing_bucket(today),
-                    "is_advance": bill.is_advance,
-                }
-                for bill in relevant
-            ],
+            "bills": [an.bill_line(bill, today) for bill in relevant],
         },
         meta=result.meta(),
     )
+
+
+@router.get("/reports/outstanding/group", response_model=DataEnvelope)
+async def outstanding_by_group(
+    company: CompanyDep,
+    principal: PrincipalDep,
+    session: SessionDep,
+    reads: ReadServiceDep,
+    request: Request,
+    kind: OutstandingKind = OutstandingKind.RECEIVABLE,
+    group: str | None = None,
+    mode: FetchModeParam = "auto",
+    as_of: date | None = None,
+) -> DataEnvelope:
+    """Outstanding for the parties under one ledger group.
+
+    Tally's Group Outstanding, and a genuinely different question from
+    ``/reports/outstanding``: that one classifies each *bill* by the side it
+    closes on, this one classifies each *party* by the group its ledger sits
+    under. A customer advance appears as a payable there and as an advance
+    against a debtor here, and both are correct answers to different questions.
+
+    ``group`` defaults to the stock Indian group for the kind. A company that
+    renamed its groups passes its own name; nothing here assumes the default
+    exists.
+    """
+    today = as_of or date.today()
+    resolved = group or an.DEFAULT_PARTY_GROUP[kind]
+
+    bills_result = await reads.fetch(
+        company,
+        dataset="outstanding.bills",
+        params={"as_of": today.isoformat()},
+        mode=_mode(mode),
+        heavy=True,
+    )
+    # Group membership lives on the ledger master, not on the bill, so this
+    # report needs both datasets. Sequential, not gathered: one AsyncSession.
+    ledgers_result = await reads.fetch(
+        company, dataset="ledgers.list", mode=_mode(mode)
+    )
+
+    data = an.group_outstanding(
+        an.parse_bills(bills_result.payload),
+        an.parse_ledgers(ledgers_result.payload),
+        group=resolved,
+        kind=kind,
+        as_of=today,
+    )
+    data["as_of"] = today.isoformat()
+
+    await record(
+        session,
+        action="report.outstanding_group",
+        org_id=principal.org_id,
+        user_id=principal.user.id,
+        company_id=company.id,
+        detail={"kind": str(kind), "group": resolved},
+        request=request,
+    )
+
+    return DataEnvelope(data=data, meta=_oldest_meta([bills_result, ledgers_result]))
 
 
 @router.get("/reports/stock", response_model=DataEnvelope)
@@ -314,16 +371,11 @@ async def slow_moving(
     stock_result = await reads.fetch(
         company, dataset="stock_items.list", mode=_mode(mode), heavy=True
     )
-    voucher_result = await reads.fetch(
+    voucher_result = await reads.fetch_vouchers(
         company,
-        dataset="vouchers.list",
-        params={
-            "from_date": (today - timedelta(days=days)).isoformat(),
-            "to_date": today.isoformat(),
-            "include_inventory": True,
-        },
+        from_date=today - timedelta(days=days),
+        to_date=today,
         mode=_mode(mode),
-        heavy=True,
     )
 
     items = an.parse_stock(stock_result.payload)

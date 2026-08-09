@@ -112,6 +112,54 @@ def test_warmed_params_match_what_the_dashboard_asks_for() -> None:
     assert _params_for("vouchers.list", today) == voucher_params(today)
 
 
+async def test_a_synced_company_is_kept_current_by_deltas_not_re_exports(
+    app, settings, linked_company, loaded, fake_connector
+) -> None:
+    """The recurring cost of a synced company is one tiny marker read.
+
+    This is the whole economic argument for the sync. Warming re-exported the
+    dashboard's voucher window from the shop's Tally every fifteen minutes,
+    forever, on every company. Once a company has history, that read is replaced
+    by "has anything changed?" -- and on a quiet shop the answer is no.
+    """
+    from datetime import date
+
+    from tally_backend.services.sync import SyncCoordinator
+
+    settings.sync_chunk_pause_seconds = 0
+    sync = SyncCoordinator(app.state.session_factory, app.state.hub, settings)
+    refresher = SnapshotRefresher(app.state.session_factory, app.state.hub, settings, sync)
+
+    fake_connector.set(
+        "company.markers",
+        {
+            "name": "Bhtia Supermarket",
+            "voucher_alter_id": 500,
+            "master_alter_id": 20,
+            "books_from": (date.today() - timedelta(days=200)).isoformat(),
+        },
+    )
+
+    await sync.start_backfill(linked_company["company_id"])
+    task = sync._tasks.get(linked_company["company_id"])
+    if task is not None:
+        await task
+
+    # Age everything so the next sweep genuinely considers the company due.
+    async with app.state.session_factory() as session:
+        for snapshot in (await session.execute(select(Snapshot))).scalars().all():
+            snapshot.refreshed_at = utc_now() - timedelta(hours=12)
+        await session.commit()
+
+    fake_connector.calls.clear()
+    await refresher.sweep()
+
+    assert fake_connector.call_count("company.markers") == 1
+    assert fake_connector.call_count("vouchers.list") == 0, (
+        "an unchanged company must not have its vouchers exported again"
+    )
+
+
 async def test_warming_makes_the_dashboard_a_pure_snapshot_read(
     app, refresher, client, linked_company, loaded, fake_connector
 ) -> None:

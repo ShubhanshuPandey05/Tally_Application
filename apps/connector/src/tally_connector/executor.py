@@ -18,6 +18,7 @@ from tally_core.tally import get_query
 from tally_core.tally.errors import TallyError, UnknownQueryError
 
 from .cache import ResponseCache, cache_key
+from .loaded import LoadedCompanies
 from .pipeline import TallyPipeline
 from .protocol import JobError, JobRequest, JobResult
 
@@ -48,9 +49,18 @@ class JobExecutor:
     allowed to talk to the gateway and does so one request at a time.
     """
 
-    def __init__(self, pipeline: TallyPipeline, cache: ResponseCache | None = None) -> None:
+    def __init__(
+        self,
+        pipeline: TallyPipeline,
+        cache: ResponseCache | None = None,
+        loaded: LoadedCompanies | None = None,
+    ) -> None:
         self._pipeline = pipeline
         self._cache = cache or ResponseCache()
+        #: Refuses reads for a company TallyPrime does not have open. Without
+        #: it those reads come back empty and are indistinguishable from a
+        #: company with no data -- see :mod:`tally_connector.loaded`.
+        self._loaded = loaded or LoadedCompanies(pipeline)
         #: Identical concurrent jobs share one Tally round trip.
         self._in_flight: dict[str, asyncio.Task[Any]] = {}
 
@@ -163,6 +173,12 @@ class JobExecutor:
                 del self._in_flight[key]
 
     async def _call_tally(self, key: str, query: Any, params: BaseModel, job: JobRequest) -> Any:
+        # Before the request, not after: a voucher read for a company that is
+        # not open crashes TallyPrime outright, so there is no reply left to
+        # inspect. Every other read would come back empty and be reported as a
+        # successful read of a company with no sales.
+        await self._loaded.ensure(getattr(params, "company", ""))
+
         # The deadline is handed to the pipeline rather than applied only here,
         # so a job whose caller has already given up is dropped *before* it
         # reaches Tally instead of after -- queue time is the expensive part.

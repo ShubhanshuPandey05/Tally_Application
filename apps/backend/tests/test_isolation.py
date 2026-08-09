@@ -63,6 +63,11 @@ async def test_another_org_cannot_touch_your_connector(
     assert (
         await client.get(f"/v1/connectors/{connector_id}/discover", headers=attacker)
     ).status_code == 404
+    # Rotating someone else's secret would be a takeover, not just a leak: the
+    # attacker would hold the only working credential for that shop's PC.
+    assert (
+        await client.post(f"/v1/connectors/{connector_id}/secret", headers=attacker)
+    ).status_code == 404
 
 
 async def test_company_lists_are_scoped_to_the_caller(

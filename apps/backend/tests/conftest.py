@@ -17,6 +17,7 @@ import pytest
 import pytest_asyncio
 from httpx import ASGITransport, AsyncClient
 from tally_core.protocol import JobResult
+from tally_core.tally.errors import TallyUnreachableError
 
 from tally_backend.config import Settings
 from tally_backend.db.models import Company, Connector, ConnectorStatus
@@ -55,6 +56,13 @@ class FakeConnector:
         self.fail_with: str | None = None
 
     def set(self, query: str, payload: Any) -> None:
+        """Canned answer for a query.
+
+        ``payload`` may be a callable taking the request params, which is what
+        the sync tests need: a chunked backfill sends the same query many times
+        and the whole point is that each one carries a different date window, so
+        a fixed response would let a planner bug pass unnoticed.
+        """
         self.responses[query] = payload
 
     async def run(
@@ -77,11 +85,24 @@ class FakeConnector:
         if self.fail_with:
             return JobResult.failure("job", _error(self.fail_with, "Something failed."))
         if query not in self.responses:
+            # Modelled as a real read failure rather than a bare test artefact.
+            # The dashboard now passes the connector's own wording through to
+            # the phone, so whatever this says lands in the wire fixtures the
+            # app parses -- and "no canned response for outstanding.bills" is
+            # not something a shopkeeper should ever be shown.
             return JobResult.failure(
-                "job", _error("unknown_query", f"no canned response for {query}")
+                "job",
+                _error(
+                    "tally_unreachable",
+                    f"no canned response for {query}",
+                    user_message=TallyUnreachableError.user_message,
+                ),
             )
 
-        return JobResult.success("job", self.responses[query], duration_ms=5)
+        payload = self.responses[query]
+        if callable(payload):
+            payload = payload(params)
+        return JobResult.success("job", payload, duration_ms=5)
 
     async def is_online(self, connector_id: str) -> bool:
         """Mirrors the hub's reachability check.
@@ -96,10 +117,15 @@ class FakeConnector:
         return sum(1 for name, _ in self.calls if name == query)
 
 
-def _error(code: str, message: str):
+def _error(code: str, message: str, *, user_message: str | None = None):
     from tally_core.protocol import JobError
 
-    return JobError(code=code, message=message, user_message=message, retryable=True)
+    return JobError(
+        code=code,
+        message=message,
+        user_message=user_message or message,
+        retryable=True,
+    )
 
 
 @pytest_asyncio.fixture
@@ -223,6 +249,16 @@ def sample_ledgers() -> list[dict[str, Any]]:
             "name": "SARA DISITIBUTOR",
             "parent_group": "Sundry Creditors",
             "closing_balance": money("212600.00", "credit"),
+            "opening_balance": money("0.00", "debit"),
+        },
+        {
+            # A debtor, so the group-outstanding report has a party to place.
+            # Its bill is in `sample_bills`; without the ledger row the party
+            # would be ungrouped, which is a case worth testing but a poor
+            # default for the shape fixtures.
+            "name": "Reliance Retail",
+            "parent_group": "Sundry Debtors",
+            "closing_balance": money("11800.00", "debit"),
             "opening_balance": money("0.00", "debit"),
         },
     ]

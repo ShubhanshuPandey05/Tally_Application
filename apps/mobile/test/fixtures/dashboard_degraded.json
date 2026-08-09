@@ -191,7 +191,7 @@
     },
     "payables": {
       "data": null,
-      "error": "Could not read outstanding bills from Tally.",
+      "error": "TallyPrime isn't responding on this computer. Make sure Tally is open and that Gateway of Tally is set to accept requests.",
       "meta": {},
       "ok": false
     },
@@ -376,7 +376,7 @@
     },
     "receivables": {
       "data": null,
-      "error": "Could not read outstanding bills from Tally.",
+      "error": "TallyPrime isn't responding on this computer. Make sure Tally is open and that Gateway of Tally is set to accept requests.",
       "meta": {},
       "ok": false
     },

@@ -88,6 +88,48 @@ class Settings(BaseSettings):
     #: the fleet after being idle.
     refresh_batch_size: int = 25
 
+    # --- History sync ---------------------------------------------------
+    #: A company's books are read in slices this long, newest first. Six months
+    #: is the setting that decides whether a first sync works at all: asking a
+    #: desktop TallyPrime for four years of vouchers in one export is what wedges
+    #: it, and the shop's till is the same machine. Smaller is safer and slower.
+    #:
+    #: This is the lever to pull if TallyPrime starts dying with ``c0000005
+    #: (Memory Access Violation)`` mid-backfill -- it crashes while *building*
+    #: the collection, so the size of one slice is what decides whether it
+    #: survives. Before reaching for it, note that naming leaf fields instead of
+    #: whole sub-collections in ``vouchers.list`` already cut the bytes Tally
+    #: has to assemble per slice by 7.6x (measured live: 6.83 MB -> 893 KB for
+    #: six months), which is more headroom than halving this could buy and does
+    #: not double the number of exports a shop has to sit through.
+    sync_chunk_months: int = 6
+    #: Ceiling on how far back a backfill reaches, even when the books start
+    #: earlier. Nobody opens a phone to read a six-year-old day book, and every
+    #: extra year is another multi-minute export against a live shop.
+    sync_max_history_years: int = 4
+    #: Breather between slices. TallyPrime is single-threaded and shares a CPU
+    #: with whoever is billing at the counter; back-to-back exports are felt.
+    sync_chunk_pause_seconds: float = 3.0
+    #: Per-slice budget. Generous because it is bounded work on a slow machine,
+    #: and a slice that times out is retried rather than abandoned.
+    sync_chunk_timeout_seconds: float = 300.0
+    sync_chunk_attempts: int = 2
+    #: Slices newer than this carry inventory lines; older ones do not. Stock
+    #: detail is what makes a voucher export large, and no report looks at the
+    #: line items on a three-year-old invoice.
+    sync_inventory_days: int = 400
+    #: Floor between delta syncs for one company.
+    sync_delta_interval_seconds: int = 300
+    #: An AlterID delta reports what changed, never what was deleted, so a
+    #: recent window is re-read in full on this cadence and reconciled.
+    sync_reconcile_days: int = 90
+    sync_reconcile_interval_seconds: int = 24 * 3600
+    #: A run whose heartbeat is older than this had its backend instance killed
+    #: mid-sync. Past it the row stops being a lock and becomes resumable work.
+    sync_run_stale_after_seconds: float = 600.0
+    #: Whether linking a company kicks off its history backfill automatically.
+    sync_auto_start: bool = True
+
     # --- HTTP -----------------------------------------------------------
     cors_origins: list[str] = Field(default_factory=list)
     #: Requests per minute per authenticated user (or per IP when anonymous).

@@ -7,13 +7,14 @@ rather than replace it.
 
 from fastapi import APIRouter
 
-from . import auth, companies, connector_ws, connectors, data, health
+from . import auth, companies, connector_ws, connectors, data, health, sync
 
 api_router = APIRouter()
 api_router.include_router(health.router)
 api_router.include_router(auth.router)
 api_router.include_router(connectors.router)
 api_router.include_router(companies.router)
+api_router.include_router(sync.router)
 api_router.include_router(data.router)
 #: The connector's outbound WebSocket. Not part of the phone-facing surface.
 api_router.include_router(connector_ws.router)

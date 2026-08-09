@@ -21,12 +21,15 @@ from __future__ import annotations
 import logging
 import os
 import platform
+import shutil
 import subprocess
 import sys
 import tempfile
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from xml.sax.saxutils import escape
+
+from .config import CONFIG_FILENAME, install_dir
 
 logger = logging.getLogger(__name__)
 
@@ -294,6 +297,36 @@ def task_status(runner: Runner = _schtasks) -> str | None:
         if candidate in {"Running", "Ready", "Disabled", "Queued"}:
             return candidate
     return None
+
+
+def purge(config_path: Path | None = None) -> list[Path]:
+    """Delete the pairing credential and the per-user data directory.
+
+    Kept separate from :func:`unregister` because they answer different
+    questions. Removing the startup task stops the connector; removing this
+    leaves the machine genuinely unpaired. An *upgrade* wants the first and
+    must never do the second -- reinstalling over the top would otherwise
+    silently unpair a working shop -- which is why ``uninstall`` only purges
+    when asked.
+
+    Returns what it actually removed, so the caller can tell the operator
+    rather than claim a deletion that did not happen. Missing paths are not an
+    error: a half-finished install must still be removable.
+    """
+    removed: list[Path] = []
+
+    config = config_path or install_dir() / CONFIG_FILENAME
+    if config.is_file():
+        config.unlink()
+        removed.append(config)
+
+    # Logs live here. They are diagnostics, not records the shop needs to keep.
+    directory = data_dir()
+    if directory.is_dir():
+        shutil.rmtree(directory, ignore_errors=True)
+        removed.append(directory)
+
+    return removed
 
 
 # --------------------------------------------------------------------------

@@ -81,12 +81,17 @@ Filename: "{app}\check-tally.cmd"; Description: "Check the connection to TallyPr
       Flags: postinstall skipifsilent nowait unchecked
 
 [UninstallRun]
-Filename: "{app}\{#ExeName}"; Parameters: "uninstall"; Flags: runhidden; \
+; --purge, unlike the bare `uninstall` run during an upgrade: removing the
+; product removes the credential with it. The deletion lives in Python because
+; that is where it is unit tested, and because a manual install (no Inno) has
+; to be removable the same way.
+Filename: "{app}\{#ExeName}"; Parameters: "uninstall --purge"; Flags: runhidden; \
       RunOnceId: "RemoveStartupTask"
 
 [UninstallDelete]
-; connector.json holds the pairing secret, so removing the product removes the
-; credential too. Logs go with it -- they are diagnostics, not records.
+; Belt and braces for the case the executable is already gone or failed to run
+; -- the uninstaller must not leave a shop's secret on disk either way. Both
+; entries are no-ops when --purge above succeeded.
 Type: files;           Name: "{app}\connector.json"
 Type: filesandordirs;  Name: "{localappdata}\TallyFlow Connector"
 

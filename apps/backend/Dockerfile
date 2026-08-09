@@ -16,6 +16,35 @@ RUN python -m pip install --no-cache-dir --upgrade pip \
       /build/packages/tally_core /build/apps/backend
 
 
+# Migration stage: the same wheels, plus the two things the runtime image
+# deliberately does not carry.
+#
+# `pyproject.toml` packages `src/` only, so `alembic.ini` and `migrations/` are
+# not in the application wheel and `docker run <runtime> alembic upgrade head`
+# cannot work. Without this stage the only way to migrate is to clone the repo
+# onto the server and build a virtualenv there -- which is the step most likely
+# to be skipped, and an unmigrated Postgres does not fail at startup. It starts
+# cleanly and then fails on the first query, which reads as "the app is broken"
+# rather than "nobody ran the migrations".
+FROM python:3.12-slim AS migrator
+
+RUN useradd --create-home --uid 10001 tallyflow
+
+WORKDIR /app
+COPY --from=builder /wheels /wheels
+RUN python -m pip install --no-cache-dir /wheels/*.whl && rm -rf /wheels
+
+COPY apps/backend/alembic.ini /app/alembic.ini
+COPY apps/backend/migrations /app/migrations
+
+USER tallyflow
+ENV PYTHONUNBUFFERED=1
+
+# Runs to completion and exits; it is not a service. Compose should treat a
+# zero exit as "now start the API".
+CMD ["alembic", "upgrade", "head"]
+
+
 FROM python:3.12-slim AS runtime
 
 # Never run as root: a request-handling process should not be able to modify

@@ -23,6 +23,7 @@ from .core.middleware import RateLimitMiddleware, RequestContextMiddleware
 from .db.session import create_all, create_engine, create_session_factory
 from .hub import ConnectorHub
 from .services.refresher import SnapshotRefresher
+from .services.sync import SyncCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -64,7 +65,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.hub = hub
         await hub.start()
 
-        refresher = SnapshotRefresher(app.state.session_factory, hub, settings)
+        # Constructed before the refresher because the refresher hands companies
+        # to it: a sweep resumes interrupted backfills and runs deltas.
+        sync = SyncCoordinator(app.state.session_factory, hub, settings)
+        app.state.sync = sync
+
+        refresher = SnapshotRefresher(app.state.session_factory, hub, settings, sync)
         app.state.refresher = refresher
         await refresher.start()
 
@@ -79,6 +85,9 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             yield
         finally:
             await refresher.stop()
+            # Stopped after the refresher so a sweep cannot spawn a backfill
+            # into a coordinator that has already shut down.
+            await sync.stop()
             await hub.stop()
             await engine.dispose()
 

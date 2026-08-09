@@ -14,7 +14,15 @@ from sqlalchemy import select
 from ...core.errors import ConflictError, NotFound
 from ...db.models import Company, Role
 from ...services.audit import record
-from ..deps import CompanyDep, ConnectorDep, HubDep, PrincipalDep, SessionDep
+from ..deps import (
+    CompanyDep,
+    ConnectorDep,
+    HubDep,
+    PrincipalDep,
+    SessionDep,
+    SettingsDep,
+    SyncDep,
+)
 from ..schemas import CompanyResponse, DiscoveredCompany, LinkCompanyRequest
 
 router = APIRouter(tags=["companies"])
@@ -77,6 +85,8 @@ async def link_company(
     connector: ConnectorDep,
     principal: PrincipalDep,
     session: SessionDep,
+    settings: SettingsDep,
+    sync: SyncDep,
     request: Request,
 ) -> CompanyResponse:
     principal.require(Role.ACCOUNTANT)
@@ -98,6 +108,7 @@ async def link_company(
         existing.is_active = True
         existing.display_name = payload.display_name or existing.display_name
         await session.flush()
+        await _begin_history(session, sync, settings, existing.id)
         return CompanyResponse.build(existing)
 
     company = Company(
@@ -118,7 +129,28 @@ async def link_company(
         detail={"tally_name": company.tally_name},
         request=request,
     )
+    await _begin_history(session, sync, settings, company.id)
     return CompanyResponse.build(company)
+
+
+async def _begin_history(
+    session: SessionDep, sync: SyncDep, settings: SettingsDep, company_id: str
+) -> None:
+    """Kick off the history backfill for a freshly linked company.
+
+    Here rather than on first dashboard open, because this is the moment the
+    owner is watching and expecting something to happen. Deliberately fired and
+    forgotten: the backfill takes minutes and the linking request must not.
+
+    The commit is not incidental. The coordinator opens its own session, so a
+    company still uncommitted in this one does not exist as far as it is
+    concerned -- and the sync would fail with a "no such company" nobody could
+    explain.
+    """
+    if not settings.sync_auto_start:
+        return
+    await session.commit()
+    await sync.ensure_backfill(company_id)
 
 
 @router.get("/companies", response_model=list[CompanyResponse])

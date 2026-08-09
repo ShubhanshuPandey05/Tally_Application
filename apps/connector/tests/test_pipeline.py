@@ -15,6 +15,7 @@ import httpx
 import pytest
 from tally_core.tally.errors import (
     TallyBusyError,
+    TallyCrashedError,
     TallyResponseError,
     TallyTimeoutError,
     TallyUnreachableError,
@@ -203,6 +204,50 @@ async def test_a_timeout_pauses_the_pipeline(make_pipeline, ok_handler):
     await pipeline.submit(sleeper(0), label="next", deadline_seconds=10)
 
     assert asyncio.get_running_loop().time() - started >= 0.15
+
+
+async def test_a_crash_pauses_the_pipeline_far_longer_than_a_timeout(
+    make_pipeline, ok_handler
+):
+    """A crashed TallyPrime has to be reopened by a human before it can answer.
+
+    The ordinary cooldown is tuned for a Tally that is merely busy. Reusing it
+    after a c0000005 is what produced four crashes in four minutes: each pause
+    ended long before anyone had restarted Tally, and the queue went straight
+    back to the envelope that had killed it.
+    """
+    pipeline = make_pipeline(ok_handler, cooldown_seconds=0.2)
+
+    async def crashes():
+        raise TallyCrashedError("TallyPrime closed the connection")
+
+    with pytest.raises(TallyCrashedError):
+        await pipeline.submit(crashes, label="boom", deadline_seconds=10)
+
+    started = asyncio.get_running_loop().time()
+    await pipeline.submit(sleeper(0), label="next", deadline_seconds=10)
+    paused = asyncio.get_running_loop().time() - started
+
+    # 0.2s cooldown x6, against the 0.2s a plain timeout would have bought.
+    assert paused >= 1.0
+    assert pipeline.stats()["crashes"] == 1
+
+
+async def test_a_crash_marks_tally_offline(make_pipeline, ok_handler):
+    """So the connector reports "Tally is down" instead of a silent stall."""
+    pipeline = make_pipeline(ok_handler, cooldown_seconds=0.0)
+
+    async def crashes():
+        raise TallyCrashedError("TallyPrime closed the connection")
+
+    with pytest.raises(TallyCrashedError):
+        await pipeline.submit(crashes, label="boom", deadline_seconds=10)
+
+    assert pipeline.stats()["tally_online"] is False
+
+
+async def test_a_healthy_pipeline_reports_no_crashes(pipeline):
+    assert pipeline.stats()["crashes"] == 0
 
 
 async def test_a_rejected_envelope_does_not_pause_the_pipeline(make_pipeline, ok_handler):

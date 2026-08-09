@@ -22,6 +22,17 @@ class ConnectorRepository {
     return ConnectorPairing.fromJson(json);
   }
 
+  /// Issues a fresh secret for a PC that is already registered.
+  ///
+  /// The recovery path for a lost secret. Deliberately not "add another PC":
+  /// companies are unique per connector, so pairing a second one links the same
+  /// books again and the shop sees the company twice, each half-synced.
+  Future<ConnectorPairing> rePair(String connectorId) async {
+    final Map<String, Object?> json =
+        await _api.postJson('/v1/connectors/$connectorId/secret');
+    return ConnectorPairing.fromJson(json);
+  }
+
   /// Revokes credentials and drops the live socket immediately.
   Future<void> revoke(String connectorId) => _api.delete('/v1/connectors/$connectorId');
 }

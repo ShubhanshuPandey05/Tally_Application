@@ -23,7 +23,7 @@ class AppConfig {
     if (kIsWeb) return 'http://localhost:8000';
     return defaultTargetPlatform == TargetPlatform.android
         ? 'http://10.209.236.128:8000'
-        : 'http://127.0.0.1:8000';
+        : 'http://10.209.236.128:8000';
   }
 
   factory AppConfig.fromEnvironment() {

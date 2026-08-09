@@ -46,6 +46,18 @@ class ReportsScreen extends ConsumerWidget {
                       route: '${Routes.outstanding}?kind=payable',
                     ),
                     _ReportEntry(
+                      icon: Icons.groups_outlined,
+                      title: 'Debtors by group',
+                      subtitle: 'Every party under Sundry Debtors, net of advances',
+                      route: '${Routes.groupOutstanding}?kind=receivable',
+                    ),
+                    _ReportEntry(
+                      icon: Icons.local_shipping_outlined,
+                      title: 'Creditors by group',
+                      subtitle: 'Every party under Sundry Creditors, net of advances',
+                      route: '${Routes.groupOutstanding}?kind=payable',
+                    ),
+                    _ReportEntry(
                       icon: Icons.account_balance_outlined,
                       title: 'Ledger balances',
                       subtitle: 'Closing balances across all accounts',

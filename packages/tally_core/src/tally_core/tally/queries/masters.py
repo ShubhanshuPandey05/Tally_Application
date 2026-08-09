@@ -12,6 +12,7 @@ from xml.etree import ElementTree as ET
 
 from ...domain.masters import (
     Company,
+    CompanyMarkers,
     Ledger,
     LedgerGroup,
     StockItem,
@@ -19,7 +20,15 @@ from ...domain.masters import (
     VoucherTypeKind,
 )
 from ...domain.money import Money, Side
-from ..codec import find_text, first_text, parse_bool, parse_date, parse_float, text_of
+from ..codec import (
+    find_text,
+    first_text,
+    parse_bool,
+    parse_date,
+    parse_float,
+    parse_int,
+    text_of,
+)
 from ..envelope import Collection, StaticVariables, build_export_envelope
 from ..query import QueryParams, TallyQuery, register
 
@@ -104,6 +113,89 @@ class CompanyListQuery(TallyQuery[CompanyListParams, list[Company]]):
                 )
             )
         return companies
+
+
+# --------------------------------------------------------------------------
+# Company change markers
+# --------------------------------------------------------------------------
+
+
+class CompanyMarkersParams(QueryParams):
+    pass
+
+
+@register
+class CompanyMarkersQuery(TallyQuery[CompanyMarkersParams, CompanyMarkers]):
+    """One company's change counters and book date range.
+
+    The cheapest read in the product and the one the sync loop leans on hardest:
+    it is what lets the backend ask "is there anything new?" without exporting a
+    single voucher. A shop whose Tally has been idle since the last sweep costs
+    one small request rather than a multi-minute day-book export -- which is the
+    difference between a background refresh the owner never notices and one that
+    freezes the till.
+
+    Deliberately separate from ``companies.list``: that one is unscoped
+    discovery used during pairing and must stay cheap and company-agnostic,
+    while this is scoped to a single company and is called on every sweep.
+    """
+
+    name = "company.markers"
+    params_model = CompanyMarkersParams
+
+    def build(self, params: CompanyMarkersParams) -> str:
+        return build_export_envelope(
+            request_type="Collection",
+            request_id="TFCompanyMarkers",
+            static_variables=StaticVariables(company=params.company),
+            collections=[
+                Collection(
+                    name="TFCompanyMarkers",
+                    type="Company",
+                    native_methods=[
+                        "Name",
+                        "StartingFrom",
+                        "BooksFrom",
+                        "EndingAt",
+                        # The change counters. Older TallyPrime builds do not
+                        # know these names and drop them silently, which is why
+                        # `CompanyMarkers` treats a missing value as "unknown"
+                        # rather than as zero.
+                        "AltMstId",
+                        "AltVchId",
+                    ],
+                )
+            ],
+        )
+
+    def parse(self, root: ET.Element, params: CompanyMarkersParams) -> CompanyMarkers:
+        for el in _iter_objects(root, "COMPANY"):
+            name = first_text(el, "NAME", "DSPDISPNAME") or el.get("NAME")
+            if not name:
+                # The nameless placeholder every Tally collection opens with.
+                continue
+            # Only the company the request was scoped to. A Tally with several
+            # companies loaded still answers with just this one, but matching
+            # defensively costs nothing and stops a cursor from being advanced
+            # using a neighbouring company's counter.
+            if params.company and name.strip() != params.company.strip():
+                continue
+            return _markers_from(el, name)
+
+        # No match: report the company by the name we asked for, with no
+        # counters. Callers read that as "fall back to a date-window sync".
+        return CompanyMarkers(name=params.company)
+
+
+def _markers_from(el: ET.Element, name: str) -> CompanyMarkers:
+    return CompanyMarkers(
+        name=name,
+        master_alter_id=parse_int(first_text(el, "ALTMSTID", "LASTALTERIDMASTER")),
+        voucher_alter_id=parse_int(first_text(el, "ALTVCHID", "LASTALTERIDVOUCHER")),
+        books_from=parse_date(find_text(el, "BOOKSFROM")),
+        financial_year_from=parse_date(find_text(el, "STARTINGFROM")),
+        ending_at=parse_date(find_text(el, "ENDINGAT")),
+    )
 
 
 # --------------------------------------------------------------------------

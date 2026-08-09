@@ -41,6 +41,7 @@ from pydantic import BaseModel
 from tally_core.tally import TallyClient
 from tally_core.tally.errors import (
     TallyBusyError,
+    TallyCrashedError,
     TallyError,
     TallyTimeoutError,
     TallyUnreachableError,
@@ -53,7 +54,19 @@ ResultT = TypeVar("ResultT")
 
 #: Errors that say something about Tally's health rather than about the request.
 #: A malformed envelope tells us nothing -- Tally answered, it just said no.
-_LIVENESS_FAILURES = (TallyUnreachableError, TallyTimeoutError)
+#:
+#: A crash belongs here for the strongest reason of the three: Tally is not
+#: merely slow, it is *gone*, and the next request cannot be served until the
+#: operator reopens it. Without the cooldown the queue simply re-sent the
+#: envelope that had just killed it.
+_LIVENESS_FAILURES = (TallyUnreachableError, TallyTimeoutError, TallyCrashedError)
+
+#: How long to leave a crashed Tally alone, as a multiple of the ordinary
+#: cooldown. Restarting TallyPrime and reloading a company takes an operator
+#: tens of seconds at best; probing through that window only produces refused
+#: connections and burns the deadlines of jobs that could have been served
+#: from the snapshot instead.
+_CRASH_COOLDOWN_MULTIPLIER = 6.0
 
 
 @dataclass
@@ -117,6 +130,7 @@ class TallyPipeline:
         self._failed = 0
         self._rejected = 0
         self._expired = 0
+        self._crashes = 0
         self._abandoned = 0
         self._peak_depth = 0
         self._peak_wait = 0.0
@@ -372,10 +386,21 @@ class TallyPipeline:
         turns into a connector that never recovers.
         """
         loop = asyncio.get_running_loop()
-        self._cooldown_until = loop.time() + self._cooldown_seconds
+        pause = self._cooldown_seconds
+        if isinstance(exc, TallyCrashedError):
+            pause *= _CRASH_COOLDOWN_MULTIPLIER
+            self._crashes += 1
+            logger.error(
+                "TallyPrime crashed while running a query (%d time(s) this session). "
+                "This is a fault inside tally.exe, not a connector error -- see "
+                "tallyerr.log next to tally.exe. Pausing %.0fs for it to be reopened.",
+                self._crashes,
+                pause,
+            )
+        self._cooldown_until = loop.time() + pause
         logger.warning(
             "pausing Tally requests for %.0fs after %s: %s",
-            self._cooldown_seconds,
+            pause,
             exc.code,
             exc,
         )
@@ -424,6 +449,10 @@ class TallyPipeline:
             # backend gave up first, which is usually the network.
             "rejected": self._rejected,
             "expired": self._expired,
+            # Nonzero means TallyPrime itself died mid-query. That is a Tally
+            # bug, not a connector one, and it is the first number to ask for
+            # when a shop reports "the dashboard keeps going blank".
+            "crashes": self._crashes,
             "abandoned": self._abandoned,
             "peak_queued": self._peak_depth,
             "peak_wait_seconds": round(self._peak_wait, 1),

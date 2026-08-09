@@ -1,0 +1,36 @@
+# TLS termination and the only route into the UAT stack.
+#
+# Caddy obtains and renews a Let's Encrypt certificate for {$UAT_DOMAIN} on its
+# own, provided the domain's A record points here and ports 80 and 443 are open.
+# With UAT_DOMAIN=localhost it issues a local certificate instead, which is what
+# a smoke test on the build machine wants.
+
+{$UAT_DOMAIN} {
+	encode zstd gzip
+
+	# WebSockets need no special handling in Caddy 2 -- reverse_proxy upgrades
+	# transparently. What does matter is the timeout: a connector holds one
+	# socket open for days, and a proxy that reaps idle connections turns that
+	# into a reconnect loop nobody can explain.
+	reverse_proxy api:8000 {
+		# Long enough for a heavy Tally export (heavy_job_timeout is 180s) plus
+		# the queue wait in front of it.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+
+	# The API sets its own security headers; these cover what a proxy owns.
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+
+	log {
+		output stdout
+		format console
+	}
+}

@@ -1,0 +1,22 @@
+{
+  "completed_chunks": 0,
+  "current_label": null,
+  "elapsed_seconds": 0.0,
+  "error": null,
+  "eta_seconds": null,
+  "finished_at": null,
+  "history": {
+    "from_date": null,
+    "has_history": false,
+    "last_delta_at": null,
+    "supports_incremental": false,
+    "to_date": null
+  },
+  "phase": null,
+  "progress": 0.0,
+  "running": false,
+  "started_at": null,
+  "state": "idle",
+  "total_chunks": 0,
+  "vouchers_ingested": 0
+}

@@ -183,10 +183,12 @@ void main() {
     // Sales still rendered...
     expect(_kpiAmount("Today's sales", '₹11,800'), findsOneWidget);
     // ...and receivables says why it is missing, rather than the whole screen
-    // becoming an error page.
+    // becoming an error page. The reason shown is the connector's own -- a
+    // generic "could not read" would send the owner after the wrong problem
+    // when the fix is to open Tally.
     await _scrollTo(tester, find.text('Receivables'));
     expect(find.text('Receivables'), findsOneWidget);
-    expect(find.textContaining('Could not read'), findsWidgets);
+    expect(find.textContaining("TallyPrime isn't responding"), findsWidgets);
   });
 
   testWidgets('never renders zeroes when nothing could be read',

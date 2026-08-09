@@ -192,7 +192,10 @@ async def test_a_real_connector_handshakes_and_serves_a_job(live_backend) -> Non
         # The live-verified convention survives the whole round trip.
         assert payload[0]["closing_balance"]["side"] == "debit"
         assert payload[0]["closing_balance"]["amount"] == "344220.00"
-        assert tally.calls == ["ledgers.list"]
+        # The connector checks the company is actually open before reading it:
+        # Tally answers a read for a closed company with an empty collection and
+        # no error, which the dashboard would render as a shop with no data.
+        assert tally.calls == ["companies.list", "ledgers.list"]
     finally:
         await session.stop()
         runner.cancel()

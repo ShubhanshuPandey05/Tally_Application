@@ -12,6 +12,7 @@ import '../features/connectors/presentation/connectors_screen.dart';
 import '../features/connectors/presentation/pair_connector_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/reports/presentation/daybook_screen.dart';
+import '../features/reports/presentation/group_outstanding_screen.dart';
 import '../features/reports/presentation/ledgers_screen.dart';
 import '../features/reports/presentation/outstanding_screen.dart';
 import '../features/reports/presentation/reports_screen.dart';
@@ -35,6 +36,7 @@ class Routes {
   static const String pairConnector = '/connectors/new';
   static const String daybook = '/reports/daybook';
   static const String outstanding = '/reports/outstanding';
+  static const String groupOutstanding = '/reports/outstanding/group';
   static const String stock = '/reports/stock';
   static const String ledgers = '/reports/ledgers';
   static const String slowMoving = '/reports/slow-moving';
@@ -109,6 +111,19 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         path: Routes.daybook,
         parentNavigatorKey: _rootKey,
         builder: (BuildContext context, GoRouterState state) => const DaybookScreen(),
+      ),
+      // The longer path is declared first. Both are literal so today's matcher
+      // does not care, but the ordering means a later change to either -- a
+      // path parameter on `outstanding`, say -- cannot silently swallow this.
+      GoRoute(
+        path: Routes.groupOutstanding,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => GroupOutstandingScreen(
+          kind: state.uri.queryParameters['kind'] == 'payable'
+              ? OutstandingKind.payable
+              : OutstandingKind.receivable,
+          group: state.uri.queryParameters['group'],
+        ),
       ),
       GoRoute(
         path: Routes.outstanding,

@@ -30,10 +30,11 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings
 from ..core.errors import AppError
-from ..db.models import Company, Snapshot
+from ..db.models import Company, CompanySyncState, Snapshot, as_utc, utc_now
 from ..hub import ConnectorHub
 from .dashboard import voucher_params
 from .reads import FetchMode, ReadService
+from .sync import SyncCoordinator
 
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,11 @@ WARM_DATASETS: list[tuple[str, bool]] = [
     ("stock_items.list", True),
 ]
 
+#: Datasets the history sync takes over once a company has been backfilled.
+#: Only vouchers: outstanding bills and stock are point-in-time balances with no
+#: change id to sync against, so they stay on the ordinary warming path.
+SYNC_OWNED_DATASETS = {"vouchers.list"}
+
 
 class SnapshotRefresher:
     """Periodically refreshes stale snapshots for reachable connectors."""
@@ -58,10 +64,15 @@ class SnapshotRefresher:
         session_factory: async_sessionmaker[AsyncSession],
         hub: ConnectorHub,
         settings: Settings,
+        sync: SyncCoordinator | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._hub = hub
         self._settings = settings
+        #: Optional so a test can drive plain warming in isolation. In the app
+        #: it is always present, and companies with a synced history take the
+        #: incremental path instead of re-exporting their vouchers.
+        self._sync = sync
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
 
@@ -114,13 +125,61 @@ class SnapshotRefresher:
             if not await self._hub.is_online(company.connector_id):
                 continue
 
+            synced = await self._advance_sync(company)
+
             for dataset, heavy in WARM_DATASETS:
                 if self._stopping.is_set():
                     return refreshed
+                # A synced company's vouchers come from its history store, kept
+                # current by an AlterID delta. Warming them here as well would
+                # re-export the dashboard's whole window every sweep -- the
+                # exact repeated cost the sync exists to remove.
+                if synced and dataset in SYNC_OWNED_DATASETS:
+                    continue
                 if await self._refresh_one(company, dataset, heavy, today):
                     refreshed += 1
 
         return refreshed
+
+    async def _advance_sync(self, company: Company) -> bool:
+        """Move a company's history sync along. Returns whether it owns vouchers.
+
+        Three states, and the sweep is where each one is noticed:
+
+        * **Never backfilled** -- start (or resume) one. A company linked while
+          its PC was asleep would otherwise sit without history forever.
+        * **Backfill in progress** -- leave it alone. It is already running, and
+          a second read against the same Tally is precisely what chunking avoids.
+        * **Backfilled** -- run a delta, which on a quiet company costs one tiny
+          request and returns "nothing changed".
+        """
+        if self._sync is None:
+            return False
+
+        async with self._session_factory() as session:
+            state = await session.get(CompanySyncState, company.id)
+            has_history = state is not None and state.has_history
+            last_delta = state.last_delta_at if state is not None else None
+
+        if self._sync.is_running(company.id):
+            return True
+
+        if not has_history:
+            started = await self._sync.ensure_backfill(company.id)
+            # A backfill in flight owns the vouchers even before it finishes:
+            # its first slice will publish them.
+            return started is not None
+
+        if last_delta is not None:
+            age = (utc_now() - as_utc(last_delta)).total_seconds()
+            if age < self._settings.sync_delta_interval_seconds:
+                return True
+
+        try:
+            await self._sync.delta(company.id)
+        except Exception:  # noqa: BLE001 - one company must not stop the sweep
+            logger.exception("delta sync failed for company %s", company.id)
+        return True
 
     async def _refresh_one(
         self, company: Company, dataset: str, heavy: bool, today: date

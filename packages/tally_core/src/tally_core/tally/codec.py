@@ -140,6 +140,25 @@ def parse_float(value: str | None, *, default: float = 0.0) -> float:
         return default
 
 
+def parse_int(value: str | None) -> int | None:
+    """Parse a Tally integer identifier (AlterID, MasterID).
+
+    Returns ``None`` rather than ``0`` for a missing value, because the two mean
+    very different things to an incremental sync: "Tally did not tell us" must
+    fall back to a date-based read, whereas ``0`` would read as "nothing has
+    ever been altered" and skip the fetch entirely.
+    """
+    if value is None:
+        return None
+    match = re.search(r"-?\d+", value.replace(",", ""))
+    if not match:
+        return None
+    try:
+        return int(match.group())
+    except ValueError:
+        return None
+
+
 #: Formats Tally emits for dates, in the order they are worth trying.
 #: Which one appears depends on the object's field and on the operator's
 #: configured date format, so all of them must be handled.

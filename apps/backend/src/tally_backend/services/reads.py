@@ -27,7 +27,7 @@ import hashlib
 import json
 import logging
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from enum import StrEnum
 from typing import Any
 
@@ -37,8 +37,9 @@ from tally_core.protocol import JobResult
 
 from ..config import Settings
 from ..core.errors import NoDataYet
-from ..db.models import Company, JobStat, Snapshot, utc_now
+from ..db.models import Company, CompanySyncState, JobStat, Snapshot, as_utc, utc_now
 from ..hub import ConnectorHub
+from .voucher_store import VoucherStore
 
 logger = logging.getLogger(__name__)
 
@@ -80,7 +81,10 @@ class DataResult:
 
     def meta(self) -> dict[str, Any]:
         return {
-            "refreshed_at": self.refreshed_at.isoformat(),
+            # as_utc, not a bare isoformat: this value comes back from SQLite
+            # naive, and an offset-less string is read by the app as *local*
+            # time -- which showed data refreshed seconds ago as hours old.
+            "refreshed_at": as_utc(self.refreshed_at).isoformat(),
             "age_seconds": round(self.age_seconds, 1),
             "from_snapshot": self.from_snapshot,
             "is_stale": self.is_stale,
@@ -220,6 +224,98 @@ class ReadService:
 
         raise NoDataYet(
             f"{dataset} unavailable and never snapshotted", user_message=message
+        )
+
+    async def fetch_vouchers(
+        self,
+        company: Company,
+        *,
+        from_date: date,
+        to_date: date,
+        mode: FetchMode = FetchMode.AUTO,
+        include_inventory: bool = True,
+    ) -> DataResult:
+        """Vouchers for a window, from the history store when it has them.
+
+        This is where the chunked backfill pays off. A snapshot only ever holds
+        the one window it was fetched with, so before the store existed a report
+        for last October meant a fresh export of last October from the shop's
+        Tally -- the expensive read this product is built to avoid, triggered by
+        somebody idly scrolling back a few months.
+
+        The store is only consulted when it covers the *whole* requested window.
+        A partial answer would be worse than a slow one: a day book that quietly
+        omits the half of a range it does not have is indistinguishable, on
+        screen, from a month with no trade in it.
+        """
+        sync_state = await self._session.get(CompanySyncState, company.id)
+        if mode is not FetchMode.LIVE and sync_state is not None and sync_state.covers(
+            from_date, to_date
+        ):
+            payload = await VoucherStore(self._session).read(
+                company.id, from_date=from_date, to_date=to_date
+            )
+            return await self._from_store(sync_state, payload, company)
+
+        return await self.fetch(
+            company,
+            dataset="vouchers.list",
+            params={
+                "from_date": from_date.isoformat(),
+                "to_date": to_date.isoformat(),
+                "include_inventory": include_inventory,
+            },
+            mode=mode,
+            heavy=True,
+        )
+
+    async def _from_store(
+        self, sync_state: CompanySyncState, payload: Any, company: Company
+    ) -> DataResult:
+        """Freshness for a store-backed read.
+
+        Dated by the last sync, not by ``now``: the rows may have been written
+        months ago and the whole point of the freshness contract is that the
+        screen says so. ``from_snapshot`` is true because it is exactly that --
+        stored data, not a live read -- and the app's staleness banner is keyed
+        off it.
+        """
+        stamp = sync_state.last_delta_at or sync_state.updated_at
+        age = (utc_now() - as_utc(stamp)).total_seconds()
+        return DataResult(
+            payload=payload,
+            refreshed_at=as_utc(stamp),
+            from_snapshot=True,
+            is_stale=age > self._settings.snapshot_stale_after_seconds,
+            # Observed, never assumed. This flag decides whether the app tells
+            # an owner their PC is switched off, and a stored read says nothing
+            # either way about whether it is.
+            connector_online=await self._connector_online(company.connector_id),
+            age_seconds=age,
+        )
+
+    async def put_snapshot(
+        self,
+        company: Company,
+        *,
+        dataset: str,
+        params: dict[str, Any] | None = None,
+        payload: Any,
+        duration_ms: int = 0,
+    ) -> Snapshot:
+        """Publish a dataset the backend assembled itself.
+
+        The history sync builds the dashboard's voucher window out of its own
+        store rather than by asking Tally again, and this is how that result
+        reaches the screens. Deliberately routed through the same ``_store`` as
+        a live read so the params key, row count and freshness stamp are derived
+        identically -- a snapshot written by a second code path is a snapshot
+        the read path can fail to find.
+        """
+        params = {"company": company.tally_name, **(params or {})}
+        result = JobResult.success("local", None, duration_ms=duration_ms)
+        return await self._store(
+            company.id, dataset, params_key(params), payload, result
         )
 
     # -- snapshot storage -------------------------------------------------

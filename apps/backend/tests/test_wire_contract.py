@@ -20,12 +20,14 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date
+from datetime import date, datetime
 from pathlib import Path
 from typing import Any
 
 import pytest
 from httpx import AsyncClient
+
+from tally_backend.db.models import Connector, utc_now
 
 FIXTURES = (
     Path(__file__).resolve().parents[3] / "apps" / "mobile" / "test" / "fixtures"
@@ -39,6 +41,20 @@ AS_OF = date(2026, 3, 15)
 #: tested separately. Only the *shape* is pinned here.
 _PLACEHOLDER_TIME = "2026-03-15T00:00:00+00:00"
 
+#: What a *naive* timestamp normalises to. Deliberately distinct, so a
+#: regression back to offset-less timestamps fails the contract diff loudly
+#: instead of being papered over.
+_NAIVE_TIME = "2026-03-15T00:00:00-NAIVE-NO-OFFSET"
+
+
+def _is_aware(value: Any) -> bool:
+    if not isinstance(value, str):
+        return False
+    try:
+        return datetime.fromisoformat(value).tzinfo is not None
+    except ValueError:
+        return False
+
 
 def normalise(value: Any) -> Any:
     """Strip the parts that legitimately change between runs."""
@@ -46,7 +62,13 @@ def normalise(value: Any) -> Any:
         result: dict[str, Any] = {}
         for key, item in value.items():
             if key in {"refreshed_at", "last_seen_at"} and item is not None:
-                result[key] = _PLACEHOLDER_TIME
+                # The instant is replaced but *whether it carries a UTC offset*
+                # is not: that is part of the contract, not run-to-run noise.
+                # Dart reads an offset-less string as local time, so a naive
+                # timestamp reaches the phone wrong by the device's offset --
+                # and this normaliser used to stamp an offset onto naive values,
+                # which is precisely why the fixtures never caught it.
+                result[key] = _PLACEHOLDER_TIME if _is_aware(item) else _NAIVE_TIME
             elif key == "age_seconds":
                 result[key] = 0.0
             elif key in {"id", "company_id", "connector_id", "org_id"} and isinstance(
@@ -143,6 +165,24 @@ async def test_outstanding_shape(
     check(f"outstanding_{kind}", response.json())
 
 
+@pytest.mark.parametrize("kind", ["receivable", "payable"])
+async def test_outstanding_group_shape(
+    client: AsyncClient, linked_company, dated, kind: str
+) -> None:
+    """The group report's own shape.
+
+    Nested parties rather than a flat bill list, so it cannot share the flat
+    report's fixture -- and the app decodes it with a separate parser.
+    """
+    response = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/reports/outstanding/group"
+        f"?kind={kind}&as_of={AS_OF.isoformat()}",
+        headers=linked_company["headers"],
+    )
+    assert response.status_code == 200, response.text
+    check(f"outstanding_group_{kind}", response.json())
+
+
 async def test_stock_shape(client: AsyncClient, linked_company, dated) -> None:
     response = await client.get(
         f"/v1/companies/{linked_company['company_id']}/reports/stock",
@@ -186,6 +226,57 @@ async def test_company_and_connector_shapes(
     check("me", me.json())
 
 
+async def test_sync_status_shapes(
+    app, client: AsyncClient, linked_company, dated, settings
+) -> None:
+    """Both states the progress screen has to render.
+
+    Idle-with-no-history is the first-run screen; running-mid-backfill is the
+    determinate bar. They are pinned together because the app switches between
+    them on fields (``running``, ``history.has_history``) that a careless rename
+    would leave decoding to ``false`` rather than failing.
+    """
+    company_id = linked_company["company_id"]
+
+    idle = await client.get(f"/v1/companies/{company_id}/sync", headers=linked_company["headers"])
+    assert idle.status_code == 200, idle.text
+    check("sync_idle", idle.json())
+
+    from tally_backend.db.models import SyncRun, SyncState, utc_now
+    from tally_backend.services.sync import SyncService
+
+    async with app.state.session_factory() as session:
+        run = SyncRun(
+            company_id=company_id,
+            state=SyncState.RUNNING,
+            total_chunks=8,
+            completed_chunks=3,
+            current_label="Oct 2024 - Mar 2025",
+            vouchers_ingested=14_820,
+            started_at=utc_now(),
+            heartbeat_at=utc_now(),
+        )
+        session.add(run)
+        state = await SyncService(session, settings).state_for(company_id)
+        state.books_from = date(2022, 4, 1)
+        state.backfilled_from = date(2024, 10, 1)
+        state.backfilled_to = AS_OF
+        state.supports_incremental = True
+        await session.commit()
+
+    running = await client.get(
+        f"/v1/companies/{company_id}/sync", headers=linked_company["headers"]
+    )
+    assert running.status_code == 200
+    body = running.json()
+    assert body["running"] is True
+    # Elapsed and ETA are wall-clock; only their presence and type are pinned.
+    body["elapsed_seconds"] = 0.0
+    body["eta_seconds"] = 0.0
+    body["started_at"] = _PLACEHOLDER_TIME
+    check("sync_running", body)
+
+
 async def test_error_envelope_shape(client: AsyncClient, registered) -> None:
     """The one error shape the app parses.
 
@@ -207,3 +298,53 @@ async def test_error_envelope_shape(client: AsyncClient, registered) -> None:
     )
     assert invalid.status_code == 422
     check("error_invalid_request", invalid.json())
+
+
+async def test_every_timestamp_reaches_the_app_with_a_utc_offset(
+    app, client: AsyncClient, linked_company, dated
+) -> None:
+    """A naive timestamp is not a neutral one -- it is a wrong one.
+
+    Dart's ``DateTime.parse`` treats an offset-less string as *local* time, so
+    ``.toLocal()`` does nothing and the value lands wrong by exactly the
+    device's UTC offset. On an IST phone this rendered a connector last seen one
+    second ago as "seen 5 hours ago", and stamped every dashboard as refreshed
+    five and a half hours before it was.
+
+    SQLite returns naive datetimes even from ``DateTime(timezone=True)``
+    columns, so this is one missing ``as_utc`` away at all times.
+    """
+    # Stamped the way a real handshake stamps it: aware in Python, stored into
+    # a column SQLite will hand back naive.
+    async with app.state.session_factory() as session:
+        connector = await session.get(Connector, linked_company["connector_id"])
+        connector.last_seen_at = utc_now()
+        await session.commit()
+
+    connectors = await client.get("/v1/connectors", headers=linked_company["headers"])
+    assert connectors.status_code == 200
+    seen = connectors.json()[0]["last_seen_at"]
+    assert seen is not None
+    assert datetime.fromisoformat(seen).tzinfo is not None, (
+        f"last_seen_at must carry a UTC offset, got {seen!r}"
+    )
+
+    dashboard = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/dashboard"
+        f"?as_of={AS_OF.isoformat()}",
+        headers=linked_company["headers"],
+    )
+    assert dashboard.status_code == 200
+    body = dashboard.json()
+
+    stamps = [body["freshness"]["refreshed_at"]]
+    stamps += [
+        section["meta"]["refreshed_at"]
+        for section in body["sections"].values()
+        if section["ok"] and section["meta"].get("refreshed_at")
+    ]
+    assert stamps, "expected at least one freshness stamp to check"
+    for stamp in stamps:
+        assert datetime.fromisoformat(stamp).tzinfo is not None, (
+            f"refreshed_at must carry a UTC offset, got {stamp!r}"
+        )

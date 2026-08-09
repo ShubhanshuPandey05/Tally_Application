@@ -30,6 +30,41 @@ class Company(BaseModel):
     base_currency: str = "INR"
 
 
+class CompanyMarkers(BaseModel):
+    """A company's change counters, used to decide what needs re-reading.
+
+    TallyPrime stamps every master and every voucher with a monotonically
+    increasing ``AlterID``, and a company exposes the highest value it has
+    issued for each. Comparing those two numbers against what was last synced
+    answers "has anything changed?" for the price of one tiny export, instead of
+    re-reading four years of vouchers to find out that nothing has.
+
+    Every field is optional on purpose. A Tally build that does not recognise
+    ``AltMstId``/``AltVchId`` returns the element empty rather than erroring
+    (unknown native methods are silently ignored), so the absence of a number
+    must degrade to a date-window read rather than to a crash or, worse, to a
+    sync that believes nothing changed.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    #: Highest AlterID issued to any master (ledger, stock item, voucher type).
+    master_alter_id: int | None = None
+    #: Highest AlterID issued to any voucher.
+    voucher_alter_id: int | None = None
+    #: Earliest date the books hold data for -- the floor for a backfill.
+    books_from: date | None = None
+    financial_year_from: date | None = None
+    #: Last date Tally will accept for this company.
+    ending_at: date | None = None
+
+    @property
+    def supports_incremental(self) -> bool:
+        """Whether this Tally told us enough to sync by change id."""
+        return self.voucher_alter_id is not None
+
+
 class LedgerGroup(BaseModel):
     """A Tally group (the tree that ledgers hang off)."""
 

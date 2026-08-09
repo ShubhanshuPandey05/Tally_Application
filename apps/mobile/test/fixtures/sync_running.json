@@ -1,0 +1,22 @@
+{
+  "completed_chunks": 3,
+  "current_label": "Oct 2024 - Mar 2025",
+  "elapsed_seconds": 0.0,
+  "error": null,
+  "eta_seconds": 0.0,
+  "finished_at": null,
+  "history": {
+    "from_date": "2024-10-01",
+    "has_history": true,
+    "last_delta_at": null,
+    "supports_incremental": true,
+    "to_date": "2026-03-15"
+  },
+  "phase": "backfill",
+  "progress": 0.375,
+  "running": true,
+  "started_at": "2026-03-15T00:00:00+00:00",
+  "state": "running",
+  "total_chunks": 8,
+  "vouchers_ingested": 14820
+}

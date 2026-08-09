@@ -14,6 +14,7 @@ import '../../companies/domain/company.dart';
 import '../application/connector_providers.dart';
 import '../domain/connector.dart';
 import 'connectors_screen.dart';
+import 'pair_connector_screen.dart';
 
 class ConnectorDetailScreen extends ConsumerWidget {
   const ConnectorDetailScreen({super.key, required this.connectorId});
@@ -156,6 +157,14 @@ class _Body extends ConsumerWidget {
                   : 'PC must be online to add companies',
             ),
           ),
+        if (role.canManageConnectors) ...<Widget>[
+          const SizedBox(height: 12),
+          TextButton.icon(
+            onPressed: () => _rePair(context, ref, connector),
+            icon: const Icon(Icons.key_outlined),
+            label: const Text('Re-pair this computer'),
+          ),
+        ],
         const SizedBox(height: 24),
         Text('Details', style: theme.textTheme.titleSmall),
         const SizedBox(height: 8),
@@ -184,6 +193,96 @@ class _Body extends ConsumerWidget {
           ),
         ),
       ],
+    );
+  }
+
+  /// Issue a fresh secret for this same PC.
+  ///
+  /// The alternative a shop reaches for -- adding a second Tally PC -- links
+  /// the same books twice, because a company belongs to one connector. They
+  /// then see the company duplicated, each copy with half a history.
+  Future<void> _rePair(
+    BuildContext context,
+    WidgetRef ref,
+    Connector connector,
+  ) async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('Re-pair this computer?'),
+        content: const Text(
+          'A new secret key will be issued for this same PC. Its companies and '
+          'their synced history are kept.\n\n'
+          'The current key stops working immediately, so this PC will go '
+          'offline until you enter the new one on it.',
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Issue new key'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    try {
+      final ConnectorPairing pairing =
+          await ref.read(connectorRepositoryProvider).rePair(connector.id);
+      ref.invalidate(connectorsProvider);
+      ref.invalidate(connectorStatusProvider(connector.id));
+      if (context.mounted) await _showNewKey(context, pairing);
+    } on ApiException catch (error) {
+      if (context.mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.message)));
+      }
+    }
+  }
+
+  Future<void> _showNewKey(BuildContext context, ConnectorPairing pairing) {
+    return showDialog<void>(
+      context: context,
+      // Not dismissible by tapping outside: the secret is shown once, and
+      // losing it here means going round this loop again.
+      barrierDismissible: false,
+      builder: (BuildContext context) => AlertDialog(
+        title: const Text('New pairing key'),
+        content: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: <Widget>[
+              const Text(
+                'On the shop PC, run:\n'
+                'tally-connector configure --secret <key>',
+              ),
+              const SizedBox(height: 12),
+              CopyField(label: 'Connector ID', value: pairing.connectorId),
+              const SizedBox(height: 8),
+              CopyField(
+                label: 'Secret key',
+                value: pairing.secret,
+                sensitive: true,
+              ),
+              const SizedBox(height: 12),
+              const Text(
+                'This key is shown once and cannot be retrieved again.',
+              ),
+            ],
+          ),
+        ),
+        actions: <Widget>[
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(),
+            child: const Text('Done'),
+          ),
+        ],
+      ),
     );
   }
 }

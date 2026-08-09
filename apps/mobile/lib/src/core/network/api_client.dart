@@ -100,6 +100,15 @@ class ApiClient {
     await _send<Object?>(() => _dio.delete<Object?>(path));
   }
 
+  /// A DELETE whose response body matters -- cancelling a sync answers with the
+  /// state it left the job in, which is what the screen renders next.
+  Future<Map<String, Object?>> deleteJson(String path) async {
+    final Object? body = await _send<Object?>(
+      () => _dio.delete<Object?>(path),
+    );
+    return _asMap(body);
+  }
+
   Future<T?> _send<T>(Future<Response<T>> Function() request) async {
     try {
       final Response<T> response = await request();

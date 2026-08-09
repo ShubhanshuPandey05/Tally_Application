@@ -13,11 +13,13 @@ eventually gets skipped on a hot path.
 from __future__ import annotations
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    BigInteger,
     Boolean,
+    Date,
     DateTime,
     Float,
     ForeignKey,
@@ -323,6 +325,259 @@ class Snapshot(Base):
     @property
     def age_seconds(self) -> float:
         return (utc_now() - as_utc(self.refreshed_at)).total_seconds()
+
+
+# --------------------------------------------------------------------------
+# The voucher store and its sync
+# --------------------------------------------------------------------------
+
+
+class VoucherRecord(Base):
+    """One voucher, kept row-per-voucher rather than inside a snapshot blob.
+
+    :class:`Snapshot` answers "what did this dataset look like at 9:15?", which
+    is the right shape for a dashboard window and the wrong shape for history. A
+    company with four years of books cannot be read in one export -- TallyPrime
+    serves one request at a time and the attempt is what freezes the shop's till
+    -- so the backfill arrives in date-ordered slices, and slices have to merge
+    into something. This table is that something.
+
+    Row-per-voucher is also what makes incremental sync expressible at all.
+    Tally hands back "vouchers altered since change id N"; merging that into a
+    blob would mean reading megabytes of JSON, splicing, and writing it back on
+    every edit, whereas here it is an upsert on ``record_key``.
+
+    ``payload`` is the serialised domain :class:`~tally_core.domain.transactions
+    .Voucher`, so the analytics layer parses store rows and connector responses
+    with the same code and cannot drift between them.
+    """
+
+    __tablename__ = "voucher_records"
+    __table_args__ = (
+        UniqueConstraint("company_id", "record_key", name="uq_voucher_company_key"),
+        # The shape of every read: one company, one date window, newest first.
+        Index("ix_voucher_records_window", "company_id", "voucher_date"),
+        # How the delta cursor is recomputed after a sync.
+        Index("ix_voucher_records_alter", "company_id", "alter_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    #: Tally's GUID where it gives one. Identity has to survive an edit -- a
+    #: voucher whose number or date changed is the same voucher, and keying on
+    #: either would leave the old copy behind as a duplicate in every total.
+    record_key: Mapped[str] = mapped_column(String(128))
+    voucher_date: Mapped[date] = mapped_column(Date)
+    #: BigInteger because AlterID counts every edit ever made to the books and
+    #: a busy company will outgrow 2^31 long before it outgrows this product.
+    alter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    payload: Mapped[dict] = mapped_column(JSON)
+    #: Denormalised from the payload so the day book can page without parsing.
+    voucher_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Cancelled and optional vouchers are stored, never dropped: they belong in
+    #: the day book for audit. Analytics filters on this instead.
+    is_effective: Mapped[bool] = mapped_column(Boolean, default=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+
+class SyncPhase(StrEnum):
+    """Which half of the sync a run is doing.
+
+    Distinct rather than a flag because they have different costs and the app
+    says different things about them: a backfill is a one-off that takes minutes
+    and earns a progress bar, a delta is seconds and should stay invisible.
+    """
+
+    BACKFILL = "backfill"
+    DELTA = "delta"
+
+
+class SyncState(StrEnum):
+    PENDING = "pending"
+    RUNNING = "running"
+    SUCCEEDED = "succeeded"
+    #: Ran out of chunks it could complete. Resumable -- the finished slices are
+    #: kept, so a retry picks up where the connector dropped rather than
+    #: re-reading everything the shop's Tally already gave us.
+    FAILED = "failed"
+    CANCELLED = "cancelled"
+
+    @property
+    def is_terminal(self) -> bool:
+        return self in {SyncState.SUCCEEDED, SyncState.FAILED, SyncState.CANCELLED}
+
+
+class CompanySyncState(Base):
+    """Where a company's history sync has got to. One row per company.
+
+    Separate from :class:`SyncRun` because a run is an attempt and this is the
+    accumulated result of all of them: the cursors survive a failed run, and a
+    resumed backfill reads them to know which years it can skip.
+    """
+
+    __tablename__ = "company_sync_states"
+
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True
+    )
+    #: Earliest date Tally holds books for. The floor of the backfill, and the
+    #: reason it is read from Tally rather than assumed: guessing five years
+    #: back on a company that opened last year means five wasted exports.
+    books_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: The contiguous window actually in :class:`VoucherRecord`. A read outside
+    #: it must go to Tally; a read inside it is a database query.
+    backfilled_from: Mapped[date | None] = mapped_column(Date, nullable=True)
+    backfilled_to: Mapped[date | None] = mapped_column(Date, nullable=True)
+    #: Highest voucher AlterID ingested. The next delta asks for what is above.
+    voucher_alter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    #: Highest master AlterID seen. Masters are small enough to re-read whole,
+    #: so this is only used to decide *whether* to re-read them at all.
+    master_alter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    last_delta_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: An AlterID delta reports what changed but not what was *deleted*, so a
+    #: recent window is periodically re-read in full and reconciled. Without it
+    #: a voucher deleted in Tally would sit in the store forever.
+    last_reconcile_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Set when Tally does not report change ids at all. The sync then keeps
+    #: working, by re-reading a recent date window instead.
+    supports_incremental: Mapped[bool] = mapped_column(Boolean, default=False)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+
+    @property
+    def has_history(self) -> bool:
+        return self.backfilled_from is not None and self.backfilled_to is not None
+
+    def covers(self, from_date: date, to_date: date) -> bool:
+        """Whether the store can answer a window without touching Tally."""
+        if not self.has_history:
+            return False
+        assert self.backfilled_from is not None and self.backfilled_to is not None
+        return self.backfilled_from <= from_date and to_date <= self.backfilled_to
+
+
+class SyncRun(Base):
+    """One attempt at bringing a company's history up to date.
+
+    Exists mostly so the phone has something honest to render. A first sync
+    takes minutes, and a spinner for minutes is indistinguishable from a hang --
+    so the run counts its chunks up front and reports them, which is what turns
+    "please wait" into "reading Oct-Mar 2024, 3 of 8".
+    """
+
+    __tablename__ = "sync_runs"
+    __table_args__ = (Index("ix_sync_runs_company_time", "company_id", "started_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    phase: Mapped[SyncPhase] = mapped_column(
+        SAEnum(SyncPhase, native_enum=False, length=20, values_callable=_enum_values),
+        default=SyncPhase.BACKFILL,
+    )
+    state: Mapped[SyncState] = mapped_column(
+        SAEnum(SyncState, native_enum=False, length=20, values_callable=_enum_values),
+        default=SyncState.PENDING,
+        index=True,
+    )
+    #: Known before the first chunk runs, which is what makes the bar determinate.
+    total_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    completed_chunks: Mapped[int] = mapped_column(Integer, default=0)
+    #: Human-readable, written for a shop owner: "Apr - Sep 2024".
+    current_label: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    vouchers_ingested: Mapped[int] = mapped_column(Integer, default=0)
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    finished_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: Refreshed as each chunk completes. A run whose owning backend instance was
+    #: killed mid-sync stops updating this, which is how the next sweep tells a
+    #: genuinely running sync from an abandoned row holding the company's lock.
+    heartbeat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Phrased for the owner; `error` is for the support call.
+    user_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    #: Set by a cancel request. The runner checks it between chunks rather than
+    #: aborting mid-export, because a half-read export still costs Tally the
+    #: whole read.
+    cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+
+    chunks: Mapped[list[SyncChunk]] = relationship(
+        back_populates="run", cascade="all, delete-orphan", order_by="SyncChunk.seq"
+    )
+
+    @property
+    def progress(self) -> float:
+        """0.0 - 1.0. Chunk-counted, so it only ever moves forwards."""
+        if self.total_chunks <= 0:
+            return 1.0 if self.state is SyncState.SUCCEEDED else 0.0
+        return min(self.completed_chunks / self.total_chunks, 1.0)
+
+    @property
+    def elapsed_seconds(self) -> float:
+        end = as_utc(self.finished_at) if self.finished_at else utc_now()
+        return (end - as_utc(self.started_at)).total_seconds()
+
+    @property
+    def eta_seconds(self) -> float | None:
+        """Projected from chunks already done, or ``None`` before the first one.
+
+        Deliberately not a guess: showing "about 4 minutes left" before a single
+        chunk has finished would be a number invented from nothing, and the app
+        renders the absence of an estimate rather than a fabricated one.
+        """
+        if self.state.is_terminal or self.completed_chunks == 0:
+            return None
+        remaining = self.total_chunks - self.completed_chunks
+        if remaining <= 0:
+            return 0.0
+        return (self.elapsed_seconds / self.completed_chunks) * remaining
+
+
+class SyncChunk(Base):
+    """One date slice of a run: the unit of work, and the unit of resume.
+
+    Slicing is the whole point of the design. A single ``vouchers.list`` over
+    four years is one export that TallyPrime may never finish -- and a request
+    it is still working on when the deadline passes leaves the gateway busy long
+    after nobody is waiting. Eight bounded reads with a pause between them are
+    the same data at a load a desktop can actually serve.
+    """
+
+    __tablename__ = "sync_chunks"
+    __table_args__ = (
+        UniqueConstraint("run_id", "seq", name="uq_sync_chunk_run_seq"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    run_id: Mapped[str] = mapped_column(
+        ForeignKey("sync_runs.id", ondelete="CASCADE"), index=True
+    )
+    #: Execution order. Newest slice first -- see ``sync.plan_backfill``.
+    seq: Mapped[int] = mapped_column(Integer)
+    from_date: Mapped[date] = mapped_column(Date)
+    to_date: Mapped[date] = mapped_column(Date)
+    label: Mapped[str] = mapped_column(String(200), default="")
+    state: Mapped[SyncState] = mapped_column(
+        SAEnum(SyncState, native_enum=False, length=20, values_callable=_enum_values),
+        default=SyncState.PENDING,
+    )
+    vouchers: Mapped[int] = mapped_column(Integer, default=0)
+    duration_ms: Mapped[int] = mapped_column(Integer, default=0)
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    run: Mapped[SyncRun] = relationship(back_populates="chunks")
 
 
 # --------------------------------------------------------------------------

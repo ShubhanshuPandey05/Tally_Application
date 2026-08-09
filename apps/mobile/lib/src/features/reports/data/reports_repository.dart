@@ -47,6 +47,25 @@ class ReportsRepository {
     );
   }
 
+  /// [group] is left null so the backend picks the stock group for [kind]. A
+  /// company that renamed its groups passes its own name; the response always
+  /// echoes back which group was actually read.
+  Future<Fresh<GroupOutstandingReport>> outstandingByGroup(
+    String companyId, {
+    OutstandingKind kind = OutstandingKind.receivable,
+    String? group,
+    FetchMode mode = FetchMode.auto,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/outstanding/group',
+      query: <String, Object?>{'kind': kind.wire, 'group': group, 'mode': mode.wire},
+    );
+    return Fresh<GroupOutstandingReport>(
+      GroupOutstandingReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
   Future<Fresh<StockReport>> stock(
     String companyId, {
     FetchMode mode = FetchMode.auto,

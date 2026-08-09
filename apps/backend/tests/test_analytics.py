@@ -213,6 +213,136 @@ def test_ageing_buckets_always_sum_to_the_total(samples) -> None:
 
 
 # --------------------------------------------------------------------------
+# Group outstanding
+# --------------------------------------------------------------------------
+
+
+def _advance(party: str, amount: str) -> dict:
+    """A customer prepayment: a credit-side bill sitting in a debtor's ledger."""
+    return {
+        "party_name": party,
+        "bill_name": "ADV-1",
+        "kind": "payable",
+        "bill_date": (TODAY - timedelta(days=5)).isoformat(),
+        "pending_amount": {"amount": amount, "side": "credit", "currency": "INR"},
+        "opening_amount": {"amount": amount, "side": "credit", "currency": "INR"},
+        "is_advance": True,
+    }
+
+
+def test_group_outstanding_places_parties_by_their_ledger_group(samples) -> None:
+    report = an.group_outstanding(
+        an.parse_bills(samples.bills(TODAY)),
+        an.parse_ledgers(samples.ledgers()),
+        group="Sundry Debtors",
+        kind=OutstandingKind.RECEIVABLE,
+        as_of=TODAY,
+    )
+
+    assert [party["party"] for party in report["parties"]] == ["Reliance Retail"]
+    assert report["summary"]["total"]["amount"] == "11800.00"
+    assert report["summary"]["party_count"] == 1
+    # The creditor's bill is in the same dataset and must not leak in.
+    assert report["summary"]["bill_count"] == 1
+
+
+def test_group_outstanding_is_a_different_axis_from_bill_side(samples) -> None:
+    """The distinction the whole report exists for.
+
+    An advance from a customer closes on the credit side, so
+    ``outstanding_summary`` correctly calls it a payable. It is still money
+    sitting against a Sundry Debtor, so the group report must show it -- as an
+    advance that reduces the net, not as debt that inflates the total.
+    """
+    bills = an.parse_bills(samples.bills(TODAY) + [_advance("Reliance Retail", "1800.00")])
+    ledgers = an.parse_ledgers(samples.ledgers())
+
+    flat = an.outstanding_summary(bills, OutstandingKind.RECEIVABLE, as_of=TODAY)
+    assert flat["total"]["amount"] == "11800.00", "the advance is not a receivable"
+
+    report = an.group_outstanding(
+        bills, ledgers, group="Sundry Debtors", kind=OutstandingKind.RECEIVABLE, as_of=TODAY
+    )
+    summary = report["summary"]
+    assert summary["total"]["amount"] == "11800.00"
+    assert summary["advances"]["amount"] == "1800.00"
+    assert summary["net"]["amount"] == "10000.00"
+    assert summary["net"]["side"] == "debit"
+    assert summary["bill_count"] == 2
+
+    party = report["parties"][0]
+    assert party["net"]["amount"] == "10000.00"
+    assert party["advances"]["amount"] == "1800.00"
+
+
+def test_group_outstanding_ageing_ignores_advances(samples) -> None:
+    """An advance has no due date to be overdue against."""
+    bills = an.parse_bills(samples.bills(TODAY) + [_advance("Reliance Retail", "1800.00")])
+    report = an.group_outstanding(
+        bills,
+        an.parse_ledgers(samples.ledgers()),
+        group="Sundry Debtors",
+        kind=OutstandingKind.RECEIVABLE,
+        as_of=TODAY,
+    )
+    summary = report["summary"]
+    bucketed = sum(Decimal(bucket["amount"]) for bucket in summary["ageing"].values())
+    assert bucketed == Decimal(summary["total"]["amount"])
+
+
+def test_group_outstanding_counts_parties_it_could_not_place(samples) -> None:
+    """A party with no ledger row is reported, not silently dropped.
+
+    Under-reporting a receivables total without saying so is the failure mode
+    worth guarding: the owner reads a smaller number and believes it.
+    """
+    report = an.group_outstanding(
+        an.parse_bills(samples.bills(TODAY)),
+        an.parse_ledgers([led for led in samples.ledgers() if led["name"] != "Reliance Retail"]),
+        group="Sundry Debtors",
+        kind=OutstandingKind.RECEIVABLE,
+        as_of=TODAY,
+    )
+    assert report["parties"] == []
+    assert report["ungrouped_party_count"] == 1
+
+
+def test_group_outstanding_matches_party_names_tally_spelled_differently(samples) -> None:
+    """Tally keeps whatever was typed; the same party arrives spaced two ways."""
+    ledgers = an.parse_ledgers(
+        [
+            {
+                "name": "reliance   retail",
+                "parent_group": "Sundry Debtors",
+                "closing_balance": {"amount": "11800.00", "side": "debit"},
+            }
+        ]
+    )
+    report = an.group_outstanding(
+        an.parse_bills(samples.bills(TODAY)),
+        ledgers,
+        group="sundry debtors",
+        kind=OutstandingKind.RECEIVABLE,
+        as_of=TODAY,
+    )
+    assert report["summary"]["party_count"] == 1
+
+
+def test_group_payable_reads_the_creditors_group(samples) -> None:
+    report = an.group_outstanding(
+        an.parse_bills(samples.bills(TODAY)),
+        an.parse_ledgers(samples.ledgers()),
+        group="Sundry Creditors",
+        kind=OutstandingKind.PAYABLE,
+        as_of=TODAY,
+    )
+    party = report["parties"][0]
+    assert party["party"] == "SARA DISITIBUTOR"
+    assert party["days_overdue"] == 113
+    assert report["summary"]["net"]["side"] == "credit"
+
+
+# --------------------------------------------------------------------------
 # Inventory
 # --------------------------------------------------------------------------
 

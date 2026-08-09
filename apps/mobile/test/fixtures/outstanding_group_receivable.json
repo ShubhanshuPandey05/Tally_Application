@@ -1,0 +1,139 @@
+{
+  "data": {
+    "as_of": "2026-03-15",
+    "group": "Sundry Debtors",
+    "kind": "receivable",
+    "parties": [
+      {
+        "advances": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "bill_count": 1,
+        "bills": [
+          {
+            "ageing_bucket": "not_due",
+            "amount": {
+              "amount": "11800.00",
+              "currency": "INR",
+              "display": "11,800.00 Dr",
+              "side": "debit",
+              "signed": "11800.00"
+            },
+            "bill_date": "2026-03-05",
+            "bill_name": "INV-9",
+            "days_overdue": 0,
+            "due_date": "2026-04-04",
+            "is_advance": false,
+            "party": "Reliance Retail"
+          }
+        ],
+        "days_overdue": 0,
+        "group": "Sundry Debtors",
+        "net": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "party": "Reliance Retail",
+        "total": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        }
+      }
+    ],
+    "summary": {
+      "advances": {
+        "amount": "0.00",
+        "currency": "INR",
+        "display": "0.00 Dr",
+        "side": "debit",
+        "signed": "0.00"
+      },
+      "ageing": {
+        "180_plus": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "1_30": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "31_60": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "61_90": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "91_180": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "not_due": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        }
+      },
+      "bill_count": 1,
+      "net": {
+        "amount": "11800.00",
+        "currency": "INR",
+        "display": "11,800.00 Dr",
+        "side": "debit",
+        "signed": "11800.00"
+      },
+      "overdue": {
+        "amount": "0.00",
+        "currency": "INR",
+        "display": "0.00 Dr",
+        "side": "debit",
+        "signed": "0.00"
+      },
+      "party_count": 1,
+      "total": {
+        "amount": "11800.00",
+        "currency": "INR",
+        "display": "11,800.00 Dr",
+        "side": "debit",
+        "signed": "11800.00"
+      }
+    },
+    "ungrouped_party_count": 0
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": false,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

@@ -203,6 +203,9 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
             all(v.date for v in vouchers), "every voucher has a parsed date"
         )
 
+    # -- incremental sync ----------------------------------------------
+    await check_incremental(client, target, period, len(vouchers), report)
+
     # -- stock ----------------------------------------------------------
     section("Stock")
     items = await run(client, "stock_items.list", {"company": target}, report)
@@ -281,22 +284,116 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
     return len(report.failed)
 
 
-async def run(
+async def check_incremental(
+    client: TallyClient,
+    company: str,
+    period: dict[str, date],
+    total_vouchers: int,
+    report: Report,
+) -> None:
+    """Verify the change-id sync end to end, because its failure is silent.
+
+    Incremental sync rests on two claims about the customer's Tally that no
+    fixture can settle: that it reports a highest voucher ``AlterID``, and that
+    it honours ``$AlterID > n`` as a collection filter. If the first is false the
+    backend must fall back to date windows; if the *second* is false while the
+    first is true, every "fetch only what changed" read quietly returns the
+    entire history instead -- the exact multi-minute export this whole mechanism
+    exists to avoid, and nothing else in the system would notice.
+
+    The probe asks for vouchers altered after the newest one that exists. The
+    honest answer is none.
+    """
+    section("Incremental sync")
+    markers = await run_one(client, "company.markers", {"company": company}, report)
+    if markers is None:
+        return
+
+    if not markers.supports_incremental:
+        report.skip(
+            "this TallyPrime does not report AltVchId; the backend will sync by "
+            "date window instead (correct, just slower)"
+        )
+        return
+
+    report.ok(
+        f"change ids reported: vouchers up to {markers.voucher_alter_id}, "
+        f"masters up to {markers.master_alter_id}"
+    )
+    if markers.books_from:
+        report.ok(f"books start {markers.books_from} -- the floor for a backfill")
+
+    changed = await run(
+        client,
+        "vouchers.list",
+        {
+            "company": company,
+            **period,
+            "include_inventory": False,
+            "alter_id_min": markers.voucher_alter_id,
+        },
+        report,
+        label="vouchers.list (delta)",
+    )
+
+    if not changed:
+        report.ok("$AlterID filter honoured: nothing newer than the newest voucher")
+        return
+
+    if total_vouchers and len(changed) >= total_vouchers:
+        report.fail(
+            f"$AlterID filter appears to be ignored: asked for vouchers newer "
+            f"than {markers.voucher_alter_id} and got {len(changed)} of "
+            f"{total_vouchers}. Daily syncs would re-export the whole history."
+        )
+        return
+
+    # A handful can legitimately come back: an operator editing a voucher while
+    # the check runs bumps its AlterID past the marker we read a moment ago.
+    report.ok(
+        f"$AlterID filter honoured: {len(changed)} voucher(s) changed since the "
+        f"marker was read"
+    )
+
+
+async def run_one(
     client: TallyClient, query_name: str, params: dict[str, Any], report: Report
-) -> list[Any]:
-    """Execute one query, converting failure into a reported check."""
+) -> Any | None:
+    """Execute a query that returns a single object rather than a collection."""
     started = time.monotonic()
     try:
         query = get_query(query_name)
         return await client.execute(query, query.validate_params(params))
-    except TallyError as exc:
-        report.fail(f"{query_name}: {exc.user_message} ({exc})")
-        return []
     except Exception as exc:  # noqa: BLE001 - a livecheck must never abort early
-        report.fail(f"{query_name}: {type(exc).__name__}: {exc}")
-        return []
+        message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc}"
+        report.fail(f"{query_name}: {message}")
+        return None
     finally:
         report.timings[query_name] = time.monotonic() - started
+
+
+async def run(
+    client: TallyClient,
+    query_name: str,
+    params: dict[str, Any],
+    report: Report,
+    *,
+    label: str | None = None,
+) -> list[Any]:
+    """Execute one query, converting failure into a reported check."""
+    started = time.monotonic()
+    name = label or query_name
+    try:
+        query = get_query(query_name)
+        return await client.execute(query, query.validate_params(params))
+    except TallyError as exc:
+        report.fail(f"{name}: {exc.user_message} ({exc})")
+        return []
+    except Exception as exc:  # noqa: BLE001 - a livecheck must never abort early
+        report.fail(f"{name}: {type(exc).__name__}: {exc}")
+        return []
+    finally:
+        report.timings[name] = time.monotonic() - started
 
 
 def report_timings(report: Report) -> None:

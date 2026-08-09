@@ -16,7 +16,15 @@ from ...domain.transactions import (
     OutstandingKind,
     Voucher,
 )
-from ..codec import find_text, first_text, parse_bool, parse_date, parse_float, text_of
+from ..codec import (
+    find_text,
+    first_text,
+    parse_bool,
+    parse_date,
+    parse_float,
+    parse_int,
+    text_of,
+)
 from ..envelope import Collection, StaticVariables, build_export_envelope
 from ..query import QueryParams, TallyQuery, register
 
@@ -33,6 +41,91 @@ _INVENTORY_ENTRY_PATHS = (
     "./ALLINVENTORYENTRIES.LIST",
     "./INVENTORYENTRIES.LIST",
 )
+
+#: The leaf methods the mapper below actually reads out of each voucher line.
+#:
+#: These are named individually, as ``Wrapper.Method``, rather than by asking
+#: for the wrapper alone. ``<FETCH>AllLedgerEntries</FETCH>`` is not a cheap
+#: shorthand for "that wrapper's fields": it makes Tally materialise and
+#: serialise the *entire* sub-object graph hanging off every line -- GST rate
+#: details, VAT classifications, tax-object allocations, interest collections,
+#: old audit entry ids -- none of which this module parses.
+#:
+#: Measured on a live TallyPrime (D.D Enterprises, six months of books): the
+#: wrapper form returned 6.83 MB, the explicit form 893 KB for byte-identical
+#: parsed output. That is 7.6x less for Tally to walk, allocate and encode.
+#:
+#: This matters beyond bandwidth. TallyPrime dies with ``c0000005 (Memory
+#: Access Violation)`` while building these collections -- crash dumps taken on
+#: this machine fault on a NULL read at offset 0x18 inside tally.exe, with our
+#: own ``TFVouchers`` envelope still in process memory. That is a bug inside
+#: Tally which no client can patch; the only lever this side of the wire is to
+#: stop asking it to build the enormous object graph in the first place.
+_LEDGER_ENTRY_FIELDS = (
+    "LedgerName",
+    "Amount",
+    "IsDeemedPositive",
+    "IsPartyLedger",
+    "BillAllocations.Name",
+    "CategoryAllocations.Category",
+)
+_INVENTORY_ENTRY_FIELDS = (
+    "StockItemName",
+    "Rate",
+    "BilledQty",
+    "ActualQty",
+    "Amount",
+    "BatchAllocations.GodownName",
+    "BatchAllocations.BatchName",
+)
+
+#: Both wrappers are still requested, for the same reason the parser still
+#: reads both: accounting-only vouchers put their lines under LEDGERENTRIES and
+#: invoices under ALLLEDGERENTRIES. Naming the leaves of both costs 2% more
+#: payload than naming only the ``All`` ones and keeps the existing fallback
+#: honest for voucher types this fix was not measured against.
+_LEDGER_WRAPPERS = ("AllLedgerEntries", "LedgerEntries")
+_INVENTORY_WRAPPERS = ("AllInventoryEntries", "InventoryEntries")
+
+
+def _leaf_fetch(wrappers: tuple[str, ...], fields: tuple[str, ...]) -> list[str]:
+    return [f"{wrapper}.{field}" for wrapper in wrappers for field in fields]
+
+
+def _tally_date(value: date) -> str:
+    """A date literal TDL will accept inside ``$$Date:"..."``.
+
+    ``yyyymmdd`` deliberately, not ``1-Aug-2026``: the month-name form depends on
+    Tally's interface language, and ``dd-mm-yyyy`` is indistinguishable from
+    ``mm-dd-yyyy`` to anyone reading the envelope. All three were verified to
+    filter identically on a live TallyPrime; only this one cannot be
+    misinterpreted.
+    """
+    return f"{value:%Y%m%d}"
+
+
+def _date_window_filter(from_date: date, to_date: date) -> str:
+    """Restrict a Voucher collection to a date range.
+
+    **``SVFROMDATE``/``SVTODATE`` do not do this.** They are still sent -- they
+    set the period other parts of the response are computed against -- but a
+    custom ``<COLLECTION><TYPE>Voucher</TYPE>`` ignores them for membership and
+    yields the company's *current period* whatever the envelope asks for.
+    Verified live 2026-08-09 against company "Bhtia Supermarket": asking for
+    1--9 Aug, for the whole of April, and for a two-year span all returned the
+    identical 21 vouchers spanning 2026-04-01 to 2026-08-09. With this filter
+    the same three windows return 1, 15 and 21 vouchers, every one inside the
+    window asked for.
+
+    That silent widening is why this matters beyond correctness: the dashboard
+    asks for about 40 days and the history sync asks for six months at a time,
+    and both were being served the entire open financial year on every call --
+    so the chunking that exists to keep exports small was doing nothing.
+    """
+    return (
+        f'$Date >= $$Date:"{_tally_date(from_date)}" '
+        f'AND $Date <= $$Date:"{_tally_date(to_date)}"'
+    )
 
 
 class DateRangeParams(QueryParams):
@@ -54,6 +147,12 @@ class DateRangeParams(QueryParams):
 class VoucherListParams(DateRangeParams):
     voucher_type: str | None = None
     include_inventory: bool = True
+    #: Return only vouchers whose ``AlterID`` is greater than this -- everything
+    #: created or edited since the sync that recorded it. This is what turns the
+    #: daily read from "export the year again" into "export today's twenty
+    #: edits". ``None`` means the whole window, which is what a first backfill
+    #: and any Tally that does not report change ids both need.
+    alter_id_min: int | None = None
 
 
 @register
@@ -75,23 +174,38 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
             "Date",
             "VoucherNumber",
             "VoucherTypeName",
-            "PersistedView",
+            # NOT PersistedView. The mapper deliberately ignores it (it holds a
+            # UI view name, not an accounting class), so requesting it was pure
+            # weight in TDL running on a customer's machine.
             "PartyLedgerName",
             "Narration",
             "Reference",
             "IsCancelled",
             "IsOptional",
             "Amount",
-            "AllLedgerEntries",
-            "LedgerEntries",
+            # AlterID and MasterID are deliberately NOT requested. Live Tally
+            # already returns MASTERID on a Voucher collection without being
+            # asked (see tests/fixtures/live/vouchers.xml), the parser reads
+            # both when they arrive, and the incremental cursor comes from
+            # `company.markers` rather than from any individual voucher -- so
+            # naming them here buys nothing and puts two more field lookups
+            # into TDL that runs on a customer's machine.
+            *_leaf_fetch(_LEDGER_WRAPPERS, _LEDGER_ENTRY_FIELDS),
         ]
         if params.include_inventory:
-            fetch += ["AllInventoryEntries", "InventoryEntries"]
+            fetch += _leaf_fetch(_INVENTORY_WRAPPERS, _INVENTORY_ENTRY_FIELDS)
 
-        filters = {}
+        # Always present. Tally will happily return the whole open year without
+        # it -- see _date_window_filter.
+        filters = {"TFDateFilter": _date_window_filter(params.from_date, params.to_date)}
         if params.voucher_type:
             escaped = params.voucher_type.replace('"', "")
             filters["TFVoucherTypeFilter"] = f'$VoucherTypeName = "{escaped}"'
+        if params.alter_id_min is not None:
+            # int() on an already-typed field, but the value is interpolated
+            # into TDL that runs on a customer's machine, so it is re-forced to
+            # a plain integer here rather than trusted to be one.
+            filters["TFAlterIdFilter"] = f"$AlterID > {int(params.alter_id_min)}"
 
         return build_export_envelope(
             request_type="Collection",
@@ -137,6 +251,8 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
                     kind=VoucherTypeKind.from_parent(parent_class),
                     date=voucher_date,
                     guid=find_text(el, "GUID"),
+                    alter_id=parse_int(find_text(el, "ALTERID")),
+                    master_id=parse_int(find_text(el, "MASTERID")),
                     party_name=first_text(el, "PARTYLEDGERNAME", "PARTYNAME"),
                     narration=find_text(el, "NARRATION"),
                     reference=find_text(el, "REFERENCE"),
@@ -304,7 +420,11 @@ class OutstandingQuery(TallyQuery[OutstandingParams, list[OutstandingBill]]):
                         "ClosingBalance",
                         "BillCreditPeriod",
                         "IsAdvance",
-                        "FinalBalance",
+                        # NOT FinalBalance. Nothing parses it -- the mapper reads
+                        # ClosingBalance -- and it is a derived aggregate, the
+                        # most expensive kind of method for Tally to evaluate
+                        # across the whole window. A live TallyPrime crashed with
+                        # c0000005 on this collection while it was requested.
                     ],
                 )
             ],

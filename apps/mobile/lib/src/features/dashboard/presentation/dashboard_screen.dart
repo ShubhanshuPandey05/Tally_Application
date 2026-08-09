@@ -10,6 +10,9 @@ import '../../../core/widgets/freshness_banner.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../companies/domain/company.dart';
+import '../../sync/application/sync_providers.dart';
+import '../../sync/domain/sync_status.dart';
+import '../../sync/presentation/widgets/sync_progress.dart';
 import '../application/dashboard_providers.dart';
 import '../domain/dashboard.dart';
 import 'widgets/company_switcher.dart';
@@ -54,6 +57,7 @@ class _Dashboard extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AsyncValue<Dashboard> state = ref.watch(dashboardProvider(company.id));
+    final SyncStatus? sync = ref.watch(syncStatusProvider(company.id)).valueOrNull;
 
     return Scaffold(
       appBar: AppBar(
@@ -69,7 +73,14 @@ class _Dashboard extends ConsumerWidget {
           ),
         ],
       ),
-      body: RefreshIndicator(
+      // The first read of a real set of books takes minutes, so it gets the
+      // whole screen and a determinate bar. Everything after it -- including
+      // the rest of the same backfill, once its newest slice has landed -- goes
+      // above the figures instead, because by then there are figures worth
+      // looking at and the history is filling in behind them.
+      body: sync != null && sync.ownsTheScreen
+          ? SyncProgressPanel(companyId: company.id)
+          : RefreshIndicator(
         onRefresh: () => ref.read(dashboardProvider(company.id).notifier).refresh(),
         child: state.when(
           // `skipLoadingOnRefresh` keeps the previous figures on screen while a
@@ -88,6 +99,7 @@ class _Dashboard extends ConsumerWidget {
           ),
           data: (Dashboard dashboard) => _DashboardBody(
             dashboard: dashboard,
+            companyId: company.id,
             onRefresh: () =>
                 ref.read(dashboardProvider(company.id).notifier).refresh(),
           ),
@@ -97,14 +109,19 @@ class _Dashboard extends ConsumerWidget {
   }
 }
 
-class _DashboardBody extends StatelessWidget {
-  const _DashboardBody({required this.dashboard, required this.onRefresh});
+class _DashboardBody extends ConsumerWidget {
+  const _DashboardBody({
+    required this.dashboard,
+    required this.companyId,
+    required this.onRefresh,
+  });
 
   final Dashboard dashboard;
+  final String companyId;
   final VoidCallback onRefresh;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     if (dashboard.isEmpty) {
       return ListView(
         children: <Widget>[
@@ -120,10 +137,23 @@ class _DashboardBody extends StatelessWidget {
                     'company is loaded on your PC.'
                 : 'Your Tally PC is offline, and we have nothing saved for this '
                     'company yet.',
-            action: FilledButton.tonalIcon(
-              onPressed: onRefresh,
-              icon: const Icon(Icons.refresh),
-              label: const Text('Try again'),
+            action: Column(
+              children: <Widget>[
+                FilledButton.tonalIcon(
+                  onPressed: onRefresh,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('Try again'),
+                ),
+                const SizedBox(height: 8),
+                // The way out for a company whose books were never read --
+                // linked before this existed, or linked while the PC was off,
+                // so nothing ever kicked the backfill off in the background.
+                TextButton(
+                  onPressed: () =>
+                      ref.read(syncStatusProvider(companyId).notifier).start(),
+                  child: const Text('Read my history from Tally'),
+                ),
+              ],
             ),
           ),
         ],
@@ -137,6 +167,9 @@ class _DashboardBody extends StatelessWidget {
       padding: const EdgeInsets.only(bottom: 28),
       children: <Widget>[
         FreshnessBanner(freshness: dashboard.freshness, onRefresh: onRefresh),
+        // Renders nothing at all unless a sync is actually in flight or has
+        // stopped short, so a settled company keeps a clean dashboard.
+        SyncProgressStrip(companyId: companyId),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16),
           child: _KpiGrid(dashboard: dashboard),

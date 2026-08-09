@@ -147,7 +147,13 @@ async def connector_socket(websocket: WebSocket) -> None:
         with contextlib.suppress(asyncio.CancelledError):
             await heartbeat
         await hub.detach(link)
-        await _mark_offline(session_factory, hello.connector_id)
+        # Guarded for the same reason `detach` guards itself: a reconnect may
+        # already have installed a newer link. Marking offline unconditionally
+        # let a *replaced* session, unwinding seconds later, stamp the live
+        # connector as "Tally not responding" -- which the app renders as
+        # "Open TallyPrime and load the company" over a perfectly healthy PC.
+        if hub.local_link(hello.connector_id) is None:
+            await _mark_offline(session_factory, hello.connector_id)
 
 
 def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool:
