@@ -1,4 +1,11 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <!-- Required here, not only in the debug manifest. Flutter injects INTERNET
+         into debug and profile builds automatically, so a release APK without
+         this line runs fine on the developer's machine and then cannot make a
+         single request on a customer's phone: the app reports "no internet
+         connection" while the browser on the same device reaches the API. -->
+    <uses-permission android:name="android.permission.INTERNET"/>
+
     <application
         android:label="tallyflow"
         android:name="${applicationName}"
