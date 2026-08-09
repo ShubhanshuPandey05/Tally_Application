@@ -64,7 +64,11 @@ services:
     stop_grace_period: 40s
 
   caddy:
-    image: caddy:2-alpine
+    # Built, not pulled: the image carries the download site, which is a build
+    # artefact and therefore not in git. See web.Dockerfile.
+    build:
+      context: ../..
+      dockerfile: deploy/uat/web.Dockerfile
     restart: unless-stopped
     depends_on: [api]
     environment:
@@ -76,6 +80,10 @@ services:
       - "443:443"
     volumes:
       - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Where the connector installer and the APK are dropped. Kept outside the
+      # site build so publishing a new installer does not mean rebuilding the
+      # site -- only the version strings in downloads.js do.
+      - ./downloads:/srv/downloads:ro
       - caddy-data:/data
       - caddy-config:/config
 

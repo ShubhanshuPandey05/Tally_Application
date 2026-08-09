@@ -64,7 +64,9 @@ python3 -c "import secrets;print('POSTGRES_PASSWORD =',secrets.token_urlsafe(24)
 python3 -c "import secrets;print('JWT_SECRET        =',secrets.token_urlsafe(48))"
 python3 -c "import secrets;print('SECRET_KEYS       =',secrets.token_urlsafe(32))"
 ```
-
+POSTGRES_PASSWORD = Zt3l3bePV91HjYqC4YMaxO1PPcO68E1d
+JWT_SECRET        = KJP1EwjmqE5dhXDj9KEphUY8NPqmf-fK_tTOaV1bKKsbCzolfw6Rc25NpNr2XG_X
+SECRET_KEYS       = 3uHBkfrpIfDVk7D_39nhFsfnEuL0Crkfev3V4MCfuBQ
 - `UAT_DOMAIN` — your hostname
 - `POSTGRES_PASSWORD` — and paste the same password into
   `TALLYFLOW_DATABASE_URL`
@@ -159,7 +161,87 @@ and no `CORS_ORIGINS` (native apps send no Origin).
 
 ---
 
-## 3. Onboard a pilot shop
+## 3. Publish the site and the download artefacts
+
+One hostname serves three things, so a pilot customer has one address to
+remember:
+
+| Path | Served by |
+|---|---|
+| `/v1/*` | the API and the connector WebSocket |
+| `/downloads/*` | the connector installer and the Android APK |
+| everything else | the download site (`apps/website`) |
+
+### Build the artefacts
+
+**The APK is the one that matters.** `run.py release` also produces an `.aab`,
+but an app bundle **cannot be installed on a phone** — it is a Play Store upload
+format. A pilot downloading from your own site needs the APK.
+
+```powershell
+# Windows, because PyInstaller and Inno Setup do not cross-compile
+python run.py connector
+# -> apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
+
+python run.py release https://uat.example.com
+# -> apps\mobile\build\app\outputs\flutter-apk\app-release.apk
+```
+
+The API URL is compiled into the app. Get it wrong and the build points at
+somebody's laptop, which you find out about from users.
+
+> The APK is **debug-signed** (see DEPLOYMENT.md C3). That is fine for
+> sideloading a pilot — it installs — but it cannot go to the Play Store, and
+> Android will warn the user about an unknown source.
+
+### Publish them
+
+Copy both into `deploy/uat/downloads/`, named exactly as the site links them:
+
+```bash
+cp TallyFlowConnector-Setup-0.1.0.exe  deploy/uat/downloads/
+cp app-release.apk                     deploy/uat/downloads/TallyFlow-0.1.0.apk
+```
+
+The names come from `apps/website/src/data/downloads.js`. If you bump a version
+there, rename the files to match — the site is a static build and the links are
+compiled in.
+
+### The site builds itself
+
+Nothing to do. `apps/website/dist` is gitignored — a build artefact does not
+belong in git — so the Caddy image builds the site from source at
+`docker compose ... --build` (see `web.Dockerfile`). The UAT host needs no Node
+installed, and there is no "remember to run npm" step whose failure mode is a
+blank page.
+
+Rebuild the stack after changing anything under `apps/website/`, including the
+version strings in `downloads.js`. Dropping a **new installer or APK** into
+`downloads/` needs no rebuild at all — that directory is a bind mount.
+
+### Verify
+
+```bash
+curl -o /dev/null -w '%{http_code}\n' https://uat.example.com/
+curl -o /dev/null -w '%{http_code}\n' https://uat.example.com/downloads/TallyFlowConnector-Setup-0.1.0.exe
+curl -o /dev/null -w '%{http_code}\n' https://uat.example.com/downloads/TallyFlow-0.1.0.apk
+curl -o /dev/null -w '%{http_code}\n' https://uat.example.com/downloads/
+# 200, 200, 200, 404  <- the last one is correct: no directory listing
+```
+
+### Before you show it to anyone
+
+Two things on that page are not true yet:
+
+- **The Google Play and App Store buttons are `href: '#'`** — they render as
+  real buttons and do nothing. For a sideload pilot, either remove them in
+  `Downloads.jsx` or tell testers to use "Or download the APK directly".
+- **`pricing.js` contains invented figures.** They render as real prices to
+  anyone who loads the page. Fix or remove the section before a customer sees it.
+
+---
+
+## 4. Onboard a pilot shop
 
 **On your phone / the app**
 
@@ -169,11 +251,8 @@ and no `CORS_ORIGINS` (native apps send no Origin).
 
 **On the shop PC**
 
-3. Build the installer (Windows only, see [INSTALL.md](apps/connector/INSTALL.md)):
-
-   ```powershell
-   python run.py connector
-   ```
+3. Download the installer from `https://uat.example.com` on the shop PC
+   (built and published in section 3).
 
 4. Run `TallyFlowConnector-Setup-<version>.exe` and enter the ID, the secret,
    and the server address:
@@ -210,7 +289,59 @@ half the time.
 
 ---
 
-## 4. Day-to-day
+## 5. Shipping a change to the UAT host
+
+Three things never travel through git, so "pull and rebuild" is the whole story
+only for code:
+
+| | Travels via git? | |
+|---|---|---|
+| Backend, connector, website **source** | yes | rebuilt by compose |
+| `uat.env` | **no** — gitignored | created once on the host |
+| Installer `.exe` and `.apk` | **no** — gitignored, built on Windows | copied with `scp` |
+
+### First deploy
+
+```bash
+# on the host
+git clone <repo> && cd "Tally Application/deploy/uat"
+cp uat.env.example uat.env && $EDITOR uat.env     # the four required values
+docker compose --env-file uat.env up -d --build
+```
+
+```powershell
+# on a Windows machine, then copy the results across
+python run.py connector
+python run.py release https://uat.example.com
+scp TallyFlowConnector-Setup-0.1.0.exe user@host:"Tally Application/deploy/uat/downloads/"
+scp app-release.apk user@host:"Tally Application/deploy/uat/downloads/TallyFlow-0.1.0.apk"
+```
+
+### Every deploy after that
+
+```bash
+cd "Tally Application" && git pull
+cd deploy/uat && docker compose --env-file uat.env up -d --build
+```
+
+That rebuilds the API and the site, re-runs any new migrations before the API
+starts, and leaves the database and the published artefacts alone. `uat.env`
+survives because it was never in git.
+
+Only re-copy the `.exe` / `.apk` when you have actually rebuilt them — a new
+backend commit does not change them.
+
+### Check it landed
+
+```bash
+docker compose --env-file uat.env ps          # api healthy, migrate exited 0
+docker compose --env-file uat.env logs migrate --tail 5
+curl https://uat.example.com/v1/ready
+```
+
+---
+
+## 6. Day-to-day
 
 ```bash
 cd deploy/uat
@@ -247,7 +378,7 @@ is the point, and also why the key needs its own backup.
 
 ---
 
-## 5. When a customer reports a problem
+## 7. When a customer reports a problem
 
 Ask two questions first: **is TallyPrime open, with the company loaded?** and
 **what does `tally-connector status` say?** They resolve most reports.
@@ -269,7 +400,7 @@ Connector logs: `%LOCALAPPDATA%\TallyFlow Connector\logs`.
 
 ---
 
-## 6. What UAT will not tell you
+## 8. What UAT will not tell you
 
 Do not read a clean UAT as production readiness:
 
@@ -290,8 +421,9 @@ Do not read a clean UAT as production readiness:
 ## Appendix — what runs where
 
 ```
-Phone ──HTTPS──▶ Caddy :443 ──▶ api :8000 ──▶ db :5432
-                   │                (uvicorn, 1 worker)
+                       ┌── /v1/*        ──▶ api :8000 ──▶ db :5432
+Phone   ──HTTPS──▶ Caddy ── /downloads/* ──▶ installer + APK   (1 worker)
+                   :443 └── /*           ──▶ website (static)
 Shop PC ──WSS──────┘
    └── connector ──▶ TallyPrime 127.0.0.1:9000   (never exposed)
 ```
@@ -302,6 +434,8 @@ Shop PC ──WSS──────┘
 | `migrate` | built, `migrator` stage | Runs once, must exit 0 before `api` starts |
 | `api` | built, `runtime` stage | No published port; one worker, on purpose |
 | `caddy` | `caddy:2-alpine` | Owns 80/443, automatic TLS, 300s proxy timeouts |
+| website | built into the caddy image | `web.Dockerfile`; no Node needed on the host |
+| downloads | none — static files | `deploy/uat/downloads/`, no directory listing |
 
 The API publishes no host port. It terminates no TLS and trusts
 `X-Forwarded-For` unconditionally, so Caddy must remain the only way in.

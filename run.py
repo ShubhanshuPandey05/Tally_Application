@@ -355,10 +355,17 @@ def cmd_release(argv: list[str]) -> int:
         f"--dart-define=TALLYFLOW_API_URL={api_url}",
         "--dart-define=TALLYFLOW_ENV=prod",
     ]
-    for target in (["appbundle"], ["web"]):
+    # apk as well as appbundle: an .aab cannot be installed on a phone. It is
+    # a Play Store upload format, so a pilot that downloads the app from our own
+    # site -- which is how UAT works before any store listing exists -- needs the
+    # apk or it has nothing to install.
+    for target in (["apk"], ["appbundle"], ["web"]):
         if run([flutter, "build", *target, "--release", *defines], cwd=MOBILE) != 0:
             return 1
-    print("\nBuilt build/app/outputs/bundle/release/ and build/web/ in apps/mobile.")
+    print("\nBuilt in apps/mobile:")
+    print("  build/app/outputs/flutter-apk/app-release.apk   (sideload / website)")
+    print("  build/app/outputs/bundle/release/               (Play Store upload)")
+    print("  build/web/                                      (Flutter web)")
     return 0
 
 

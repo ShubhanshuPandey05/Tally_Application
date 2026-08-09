@@ -4,21 +4,47 @@
 # own, provided the domain's A record points here and ports 80 and 443 are open.
 # With UAT_DOMAIN=localhost it issues a local certificate instead, which is what
 # a smoke test on the build machine wants.
+#
+# One hostname serves three things, because a pilot customer should have exactly
+# one address to remember:
+#
+#   /v1/*        the API and the connector WebSocket
+#   /downloads/* the connector installer and the Android APK
+#   everything   the marketing/download site
 
 {$UAT_DOMAIN} {
 	encode zstd gzip
 
-	# WebSockets need no special handling in Caddy 2 -- reverse_proxy upgrades
-	# transparently. What does matter is the timeout: a connector holds one
-	# socket open for days, and a proxy that reaps idle connections turns that
-	# into a reconnect loop nobody can explain.
-	reverse_proxy api:8000 {
-		# Long enough for a heavy Tally export (heavy_job_timeout is 180s) plus
-		# the queue wait in front of it.
-		transport http {
-			read_timeout 300s
-			write_timeout 300s
+	# --- API and connector socket ----------------------------------------
+	handle /v1/* {
+		# WebSockets need no special handling in Caddy 2 -- reverse_proxy
+		# upgrades transparently. What does matter is the timeout: a connector
+		# holds one socket open for days, and a proxy that reaps idle
+		# connections turns that into a reconnect loop nobody can explain.
+		reverse_proxy api:8000 {
+			# Long enough for a heavy Tally export (heavy_job_timeout is 180s)
+			# plus the queue wait in front of it.
+			transport http {
+				read_timeout 300s
+				write_timeout 300s
+			}
 		}
+	}
+
+	# --- Installer and APK ------------------------------------------------
+	# Served straight off disk. `browse` is deliberately off: the directory
+	# listing would advertise every build ever dropped there.
+	handle /downloads/* {
+		root * /srv
+		header Cache-Control "public, max-age=300"
+		file_server
+	}
+
+	# --- The site ---------------------------------------------------------
+	handle {
+		root * /srv/site
+		try_files {path} /index.html
+		file_server
 	}
 
 	# The API sets its own security headers; these cover what a proxy owns.
