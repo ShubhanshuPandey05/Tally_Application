@@ -54,7 +54,7 @@ class ConnectorSettings(BaseSettings):
     connector_secret: str = ""
 
     # --- Backend --------------------------------------------------------
-    backend_url: str = "wss://api.tallyflow.app/v1/connector"
+    backend_url: str = "wss://uat-tallyflow.theshubhanshu.dev/v1/connector"
     #: Only ever disabled for local development against a plaintext backend.
     verify_tls: bool = True
     reconnect_initial_seconds: float = 1.0

@@ -24,7 +24,7 @@
 #define AppPublisher     "TallyFlow"
 #define ExeName          "tally-connector.exe"
 #define ServiceExeName   "tally-connector-service.exe"
-#define DefaultBackend   "wss://api.tallyflow.app/v1/connector"
+#define DefaultBackend   "wss://uat-tallyflow.theshubhanshu.dev/v1/connector"
 
 ; Overridden by the build script (ISCC /DAppVersion=...) so the installer name
 ; cannot drift from tally_connector.__version__.

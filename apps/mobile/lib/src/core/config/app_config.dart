@@ -1,4 +1,3 @@
-import 'package:flutter/foundation.dart';
 
 /// Build-time configuration.
 ///
@@ -16,15 +15,16 @@ class AppConfig {
 
   bool get isProduction => environment == 'prod';
 
-  /// `10.0.2.2` is the host machine as seen from the Android emulator;
-  /// `localhost` there is the emulator itself, which is the single most common
-  /// "why can't the app reach my backend" question.
-  static String get _defaultBaseUrl {
-    if (kIsWeb) return 'http://localhost:8000';
-    return defaultTargetPlatform == TargetPlatform.android
-        ? 'http://10.209.236.128:8000'
-        : 'http://10.209.236.128:8000';
-  }
+  /// The UAT backend, so a build made without `--dart-define` still reaches a
+  /// real server over TLS instead of a LAN address that stopped existing when
+  /// somebody's router handed out a new lease.
+  ///
+  /// Release builds should still pass `TALLYFLOW_API_URL` explicitly --
+  /// `run.py release <url>` does -- because this default follows whichever
+  /// environment was current when the app was cut.
+  static const String _uatBaseUrl = 'https://uat-tallyflow.theshubhanshu.dev';
+
+  static String get _defaultBaseUrl => _uatBaseUrl;
 
   factory AppConfig.fromEnvironment() {
     const String url = String.fromEnvironment('TALLYFLOW_API_URL');
