@@ -24,6 +24,8 @@ from tally_core.domain.money import Side
 from tally_core.tally import TallyClient, get_query, registry_manifest
 from tally_core.tally.errors import TallyError
 
+from .loaded import GuardedClient, company_key
+
 logger = logging.getLogger(__name__)
 
 #: Group name -> the side a balance in it must naturally fall on. Only groups
@@ -89,8 +91,15 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
     """Run the full verification. Returns the number of failures."""
     report = Report()
 
+    # Every read below goes through the company guard rather than straight at
+    # the client. The one-off check further down settles whether the company is
+    # open *now*; this check runs for minutes, and an operator who closes it
+    # partway through would otherwise take TallyPrime down with c0000005 on the
+    # next voucher read -- the exact crash the guard exists to prevent.
+    tally = GuardedClient(client)
+
     section("Connection")
-    if not await client.is_alive():
+    if not await tally.is_alive():
         report.fail(
             "TallyPrime is not responding. If Tally is open, check for a modal "
             "dialog in its window -- an open dialog blocks all requests."
@@ -100,7 +109,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
     # -- companies ------------------------------------------------------
     section("Companies")
-    companies = await run(client, "companies.list", {}, report)
+    companies = await run(tally, "companies.list", {}, report)
     if not companies:
         report.fail("no company is open in Tally; open one and re-run")
         return len(report.failed)
@@ -108,12 +117,16 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
     names = [c.name for c in companies]
     report.ok(f"{len(companies)} company/companies open: {', '.join(names)}")
 
-    target = company or names[0]
-    if target not in names:
-        report.fail(f"company {target!r} is not open (open: {', '.join(names)})")
+    # Matched the way the guard matches, so a --company that differs only in
+    # case or spacing is not accepted here and then refused on every read. The
+    # name Tally spells is what the reads are scoped with from here on.
+    asked = company or names[0]
+    selected = next((c for c in companies if company_key(c.name) == company_key(asked)), None)
+    if selected is None:
+        report.fail(f"company {asked!r} is not open (open: {', '.join(names)})")
         return len(report.failed)
 
-    selected = next(c for c in companies if c.name == target)
+    target = selected.name
     report.ok(f"using {target!r}")
 
     books_from = selected.books_from or selected.financial_year_from or date.today()
@@ -121,7 +134,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
     # -- groups ---------------------------------------------------------
     section("Groups")
-    groups = await run(client, "groups.list", {"company": target}, report)
+    groups = await run(tally, "groups.list", {"company": target}, report)
     report.check(bool(groups), f"{len(groups)} group(s) returned")
     report.check(
         all(g.name for g in groups), "every group has a name (NAME attribute parsed)"
@@ -129,7 +142,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
     # -- ledgers: the sign convention -----------------------------------
     section("Ledgers and the debit/credit convention")
-    ledgers = await run(client, "ledgers.list", {"company": target}, report)
+    ledgers = await run(tally, "ledgers.list", {"company": target}, report)
     report.check(bool(ledgers), f"{len(ledgers)} ledger(s) returned")
     report.check(all(lg.name for lg in ledgers), "every ledger has a name")
 
@@ -157,7 +170,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
     # -- voucher types --------------------------------------------------
     section("Voucher types")
-    types = await run(client, "voucher_types.list", {"company": target}, report)
+    types = await run(tally, "voucher_types.list", {"company": target}, report)
     if types:
         classified = [t for t in types if t.kind is not VoucherTypeKind.OTHER]
         report.ok(f"{len(types)} type(s), {len(classified)} classified")
@@ -166,7 +179,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
     # -- vouchers -------------------------------------------------------
     section("Vouchers")
-    vouchers = await run(client, "vouchers.list", {"company": target, **period}, report)
+    vouchers = await run(tally, "vouchers.list", {"company": target, **period}, report)
     if not vouchers:
         report.skip("no vouchers in the period; skipping voucher checks")
     else:
@@ -204,11 +217,11 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
         )
 
     # -- incremental sync ----------------------------------------------
-    await check_incremental(client, target, period, len(vouchers), report)
+    await check_incremental(tally, target, period, len(vouchers), report)
 
     # -- stock ----------------------------------------------------------
     section("Stock")
-    items = await run(client, "stock_items.list", {"company": target}, report)
+    items = await run(tally, "stock_items.list", {"company": target}, report)
     if not items:
         report.skip("no stock items in this company")
     else:
@@ -247,7 +260,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
     # -- outstanding ----------------------------------------------------
     section("Outstanding bills")
     bills = await run(
-        client, "outstanding.bills", {"company": target, "as_of": date.today()}, report
+        tally, "outstanding.bills", {"company": target, "as_of": date.today()}, report
     )
     if not bills:
         billwise = [lg for lg in ledgers if lg.is_bill_wise]
@@ -285,7 +298,7 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
 
 
 async def check_incremental(
-    client: TallyClient,
+    tally: GuardedClient,
     company: str,
     period: dict[str, date],
     total_vouchers: int,
@@ -305,7 +318,7 @@ async def check_incremental(
     honest answer is none.
     """
     section("Incremental sync")
-    markers = await run_one(client, "company.markers", {"company": company}, report)
+    markers = await run_one(tally, "company.markers", {"company": company}, report)
     if markers is None:
         return
 
@@ -324,7 +337,7 @@ async def check_incremental(
         report.ok(f"books start {markers.books_from} -- the floor for a backfill")
 
     changed = await run(
-        client,
+        tally,
         "vouchers.list",
         {
             "company": company,
@@ -357,13 +370,13 @@ async def check_incremental(
 
 
 async def run_one(
-    client: TallyClient, query_name: str, params: dict[str, Any], report: Report
+    tally: GuardedClient, query_name: str, params: dict[str, Any], report: Report
 ) -> Any | None:
     """Execute a query that returns a single object rather than a collection."""
     started = time.monotonic()
     try:
         query = get_query(query_name)
-        return await client.execute(query, query.validate_params(params))
+        return await tally.execute(query, query.validate_params(params))
     except Exception as exc:  # noqa: BLE001 - a livecheck must never abort early
         message = getattr(exc, "user_message", None) or f"{type(exc).__name__}: {exc}"
         report.fail(f"{query_name}: {message}")
@@ -373,7 +386,7 @@ async def run_one(
 
 
 async def run(
-    client: TallyClient,
+    tally: GuardedClient,
     query_name: str,
     params: dict[str, Any],
     report: Report,
@@ -385,7 +398,7 @@ async def run(
     name = label or query_name
     try:
         query = get_query(query_name)
-        return await client.execute(query, query.validate_params(params))
+        return await tally.execute(query, query.validate_params(params))
     except TallyError as exc:
         report.fail(f"{name}: {exc.user_message} ({exc})")
         return []

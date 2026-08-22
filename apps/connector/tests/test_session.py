@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import json
+import logging
 
 import httpx
 import pytest
@@ -24,6 +25,7 @@ from tally_connector.protocol import (
     Ping,
     verify_handshake,
 )
+from tally_connector.remote_logs import RemoteLogHandler
 from tally_connector.session import AuthenticationRejected, ConnectorSession
 
 SECRET = "test-secret"
@@ -40,6 +42,7 @@ class FakeBackend:
         self.results: list[dict] = []
         self.pongs: list[dict] = []
         self.status_events: list[dict] = []
+        self.log_batches: list[dict] = []
         #: Frame kinds in arrival order, for tests about what blocks what.
         self.order: list[str] = []
         self.connections = 0
@@ -50,6 +53,7 @@ class FakeBackend:
         #: Set once the server has seen everything a test is waiting for.
         self.done = asyncio.Event()
         self.expected_results = 0
+        self.expected_log_batches = 0
         self.drop_after_handshake = False
 
     async def handler(self, socket) -> None:
@@ -87,8 +91,15 @@ class FakeBackend:
                 self.pongs.append(message)
             elif kind == "status":
                 self.status_events.append(message)
+            elif kind == "log_batch":
+                self.log_batches.append(message)
 
             if len(self.results) >= self.expected_results and self.expected_results:
+                self.done.set()
+            if (
+                self.expected_log_batches
+                and len(self.log_batches) >= self.expected_log_batches
+            ):
                 self.done.set()
 
 
@@ -123,9 +134,16 @@ def fake_tally(handler=None) -> TallyClient:
     )
 
 
-async def run_session(settings, backend, *, timeout=5.0, tally=None) -> ConnectorSession:
+async def run_session(
+    settings, backend, *, timeout=5.0, tally=None, log_handler=None
+) -> ConnectorSession:
     """Run a session until the backend says it has what it needs."""
-    session = ConnectorSession(settings, version="0.1.0-test", tally=tally or fake_tally())
+    session = ConnectorSession(
+        settings,
+        version="0.1.0-test",
+        tally=tally or fake_tally(),
+        log_handler=log_handler,
+    )
     runner = asyncio.create_task(session.run_forever())
     try:
         await asyncio.wait_for(backend.done.wait(), timeout=timeout)
@@ -360,3 +378,100 @@ async def test_reconnects_after_the_backend_drops_the_connection():
         await session.aclose()
 
     assert backend.connections >= 3, "connector should keep retrying after a drop"
+
+
+# --------------------------------------------------------------------------
+# Remote logs
+# --------------------------------------------------------------------------
+
+
+async def test_buffered_log_lines_are_shipped_over_the_socket():
+    """The support view's whole supply of connector logs."""
+    handler = RemoteLogHandler(capacity=100)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    for index in range(3):
+        handler.emit(
+            logging.LogRecord(
+                "tally_connector.session", logging.INFO, __file__, 1,
+                "line %d", (index,), None,
+            )
+        )
+
+    backend = FakeBackend()
+    backend.expected_log_batches = 1
+
+    async with running(backend) as url:
+        await run_session(
+            make_settings(url, remote_log_interval_seconds=0.05),
+            backend,
+            log_handler=handler,
+        )
+
+    batch = backend.log_batches[0]
+    assert [entry["message"] for entry in batch["entries"]] == ["line 0", "line 1", "line 2"]
+    # Stamped like every other client frame, so the backend can re-evaluate the
+    # build on a connector that sends nothing but logs.
+    assert batch["connector_version"] == "0.1.0-test"
+
+
+async def test_a_reconnect_does_not_lose_buffered_lines():
+    """The lines explaining why a connection dropped must survive it.
+
+    The buffer is owned by `main`, not by the session, precisely so that a
+    dropped socket does not take the explanation with it.
+    """
+    handler = RemoteLogHandler(capacity=100)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.emit(
+        logging.LogRecord(
+            "tally_connector.session", logging.ERROR, __file__, 1,
+            "the socket died", (), None,
+        )
+    )
+
+    backend = FakeBackend()
+    backend.expected_log_batches = 1
+    # First connection is dropped immediately; the shipper on it never runs.
+    backend.drop_after_handshake = True
+
+    async with running(backend) as url:
+        session = ConnectorSession(
+            make_settings(url, remote_log_interval_seconds=0.05),
+            version="0.1.0-test",
+            tally=fake_tally(),
+            log_handler=handler,
+        )
+        runner = asyncio.create_task(session.run_forever())
+        await asyncio.sleep(0.15)
+        backend.drop_after_handshake = False
+        try:
+            await asyncio.wait_for(backend.done.wait(), timeout=5.0)
+        finally:
+            await session.stop()
+            runner.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await runner
+            await session.aclose()
+
+    messages = [
+        entry["message"]
+        for batch in backend.log_batches
+        for entry in batch["entries"]
+    ]
+    assert "the socket died" in messages
+
+
+async def test_a_session_without_a_log_handler_ships_nothing():
+    """Remote logging off is a connector that simply never sends the frame."""
+    backend = FakeBackend()
+    backend.expected_results = 1
+    backend.script = [
+        JobRequest(job_id="j1", query="companies.list").model_dump(mode="json")
+    ]
+
+    async with running(backend) as url:
+        await run_session(
+            make_settings(url, remote_log_interval_seconds=0.05), backend, log_handler=None
+        )
+
+    assert backend.log_batches == []

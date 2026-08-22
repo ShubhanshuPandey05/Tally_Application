@@ -1,0 +1,42 @@
+{
+  "_comment": [
+    "Release policy: the half of the update manifest a human decides.",
+    "",
+    "`python run.py publish` merges this with the facts it measures from the",
+    "built artefacts -- version, sha256, size -- and writes",
+    "deploy/uat/downloads/manifest.json. Facts are never typed here, because a",
+    "hand-copied checksum is how you ship an update every client refuses.",
+    "",
+    "READ THIS BEFORE CHANGING EITHER FLAG. The backend now serves the answer on",
+    "every API response and every connector frame, so what you write here",
+    "reaches the whole fleet within one request rather than within six hours.",
+    "There is no longer a poll interval standing between a mistake and everyone.",
+    "",
+    "min_supported_version is the kill switch. A client older than this is",
+    "refused with 426 and told to update, rather than failing in whatever way",
+    "the wire change happens to break it. Raise it only when an old client",
+    "genuinely cannot be served -- it locks people out of their own accounting",
+    "data until they act. If you raise it wrongly, the recovery is",
+    "TALLYFLOW_ENFORCE_MIN_APP_VERSION=false, which restores service without",
+    "waiting for a corrected manifest to reach every phone.",
+    "",
+    "mandatory means the update installs without asking (connector) or blocks",
+    "the app until taken (mobile). Reserve it for security fixes and wire",
+    "breaks; a shop that gets an unrequested restart mid-day remembers it.",
+    "",
+    "Note for the connector: mandatory -- or being below the floor -- installs",
+    "even where the operator set auto_update:false. That setting means 'do not",
+    "interrupt my shop for routine releases', not 'leave me on a build that",
+    "reports the wrong figures'."
+  ],
+  "connector": {
+    "mandatory": false,
+    "min_supported_version": "0.1.0",
+    "notes": "Checks the company is open in TallyPrime before every read."
+  },
+  "android": {
+    "mandatory": false,
+    "min_supported_version": "0.1.0",
+    "notes": "Period picker on the dashboard and reports."
+  }
+}

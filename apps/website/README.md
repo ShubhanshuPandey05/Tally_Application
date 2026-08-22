@@ -1,11 +1,9 @@
 # TallyFlow marketing site
 
-The public site: what the product is, how it works, and where customers get the
-two things they need — the **Windows connector** and the **mobile app**.
+The public site: what the product is, how it works, where to get the two things
+a customer installs, and — at `/docs` — how to set them up.
 
-React 18 + Vite, no UI framework and no runtime dependencies beyond React. The
-visual language follows the app (`apps/mobile/lib/src/app/theme.dart`): indigo
-`#3A5AF0` as the anchor, tabular figures on every amount, Indian digit grouping.
+React 18 + Vite, no UI framework and no runtime dependency beyond React itself.
 
 ```powershell
 cd apps\website
@@ -19,38 +17,101 @@ npm run preview  # serve the build
 
 ```
 src/
-  App.jsx                 section order
-  hooks.js                scroll reveal, count-up, pointer glow, INR formatting
-  styles/base.css         design tokens, buttons, cards, reveal, ambience
-  data/pricing.js         PLACEHOLDER plans + FAQ
-  data/downloads.js       installer/app artefact names, versions, setup steps
+  App.jsx                 chrome + which page
+  router.jsx              two routes, thirty lines, no dependency
+  hooks.js                scroll state, release manifest, live stats, formatting
+  styles/base.css         tokens, buttons, panels, section headings
+  data/site.js            contact address, the report list
+  data/downloads.js       fallback release facts + the three setup steps
+  pages/Home.jsx          the pitch
+  pages/Docs.jsx          the setup guide
   components/*.jsx|.css   one section per file, styles beside the component
 ```
 
-## The two things you will want to change
+`/docs` is a client-side route. Caddy serves `index.html` for any unmatched
+path, so a refresh or a shared link resolves; a static host without that
+fallback would 404 it.
 
-**Pricing is fake.** `src/data/pricing.js` holds placeholder figures so the
-section could be designed and reviewed — nothing there is commercially agreed.
-When billing is real, replace that module (or fetch the same shape from the
-backend); no component reads a price from anywhere else.
+## Everything on the page has to be true
 
-**Download URLs are placeholders.** `src/data/downloads.js` points at
-`/downloads/…` with the filenames the build actually produces:
+This site was rewritten once because it was not. It claimed seventeen reports
+(there are ten), eighteen dashboard widgets, a dashboard that opens in 0.4
+seconds, store listings that did not exist, and three price tiers nobody had
+agreed to. Marketing copy that outruns the build is not optimism; it is the
+first support ticket.
 
-| Artefact | Produced by |
-|---|---|
-| `TallyFlowConnector-Setup-<version>.exe` | `python run.py connector` → `apps\connector\dist\installer\` |
-| Android/iOS bundles | `python run.py release <api-url>` → `apps\mobile\build\` |
+Two rules keep it honest:
 
-Publishing is copying those files to `/downloads` on the host or CDN and
-updating the version, size and checksum constants in that file. The store
-buttons are `href: '#'` until the listings exist.
+**Release facts come from the manifest, not from a person.** `useManifest()`
+fetches `/downloads/manifest.json` — the file `python run.py publish` generates
+by measuring the bytes actually being served — and takes version, size and
+SHA-256 from it. `PUBLISHED` in `data/downloads.js` is only the fallback for
+before that resolves and for a dev server with no manifest, and it describes the
+**last published build**, which is not necessarily the version in the source
+tree. If a fetch fails the page still offers the download; it just stops
+claiming a version.
 
-## Notes
+**The hero's figures come from the database.** `useStats()` fetches
+`/v1/public/stats` — four aggregate counts, no names, no identifiers. `null` and
+`0` are kept apart deliberately: zero businesses is a fact worth printing, and
+"we could not ask" is not, so a failed or disabled endpoint drops the row rather
+than falling back to zeros. In production Caddy serves the site and the API from
+one hostname so the request is same-origin; `vite.config.js` proxies `/v1` in
+development so that stays true there. Turn the endpoint off with
+`TALLYFLOW_PUBLIC_STATS_ENABLED=false` and the row disappears with no rebuild.
 
-- Everything animates through CSS; JS only toggles classes and drives the
-  count-up. `prefers-reduced-motion` disables the lot in `base.css`.
-- Copy is deliberately specific — read-only enforcement, outbound-only
-  connections, freshness stamps, per-branch connector status. Those are the
-  claims that distinguish this from a remote-desktop app, and each one is true
-  of the shipped code. Keep them accurate if the backend changes.
+**Product claims match the shipped app.** The report list in `data/site.js` is
+the app's report index. The security section states only what the code does. If
+one of those stops being true, it comes off this page in the same change — a
+claim that has quietly drifted is worse than no claim.
+
+## Design
+
+White page, soft grey for anything that *contains* something rather than being
+content, one near-black card per screen, and a single blue for action. Inter
+throughout; IBM Plex Mono only for filenames, checksums and commands, where
+monospace is information rather than style. The same tokens exist in the Flutter
+app (`apps/mobile/lib/src/app/theme.dart`) — change one and change the other,
+because a customer sees both in the same afternoon.
+
+**The logo** is the name set in Caveat over a straight rule, on a tile — white
+on black, or black on white via `<Logo light />`. Two constraints produced it
+and both are worth keeping:
+
+- The mark before it (bars in a squircle) was the shape half the analytics
+  industry already uses, and a logo that makes a reader think of another product
+  is doing the opposite of its job.
+- It is deliberately **not** a version of TallyPrime's own logo. Theirs is a
+  script "Tally" over a swoosh over a plain second word; rebuilding that lockup
+  with "Flow" in place of "Prime" would produce a mark readers would reasonably
+  take for an official Tally Solutions product, which is the exact claim the
+  footer on this site disclaims. Hence a straight rule rather than a swoosh, one
+  handwriting face throughout rather than a script word above a typeset one, and
+  letterforms that look nothing like theirs.
+
+There is a second, **stacked** form — `Tally` with `Flow` beneath it — for
+square icons, where the name across a 32px tile gives each letter about two
+pixels. It is not a component: an icon cannot load a webfont, so it lives as
+outlines in `tools/brand` and is generated into `public/favicon.svg`,
+`public/apple-touch-icon.png` and the app's launcher icons. **Both files in
+`public/` are generated — edit `tools/brand` and re-run it, never the output.**
+
+The favicon wears the white tile and the app wears the black one, and they are
+not interchangeable: a browser tab strip is already white, so a black square
+there reads as a hole punched in it, while on a home screen full of colour the
+black square is the one that reads as a piece of software.
+
+The same face is bundled with the Flutter app (`assets/fonts/Caveat-Bold.ttf`,
+SIL OFL) rather than fetched at runtime, so the mark does not fall back to a
+system script on exactly the days the shop's connection is down. No gradients,
+glows, orbs, emoji or scroll animation: an accounting tool is bought on trust,
+and the visual language of a template landing page works against that.
+
+## Not on the page
+
+- **Pricing.** There is no published price list and no self-service billing —
+  accounts are activated by hand in the management portal. The site says that
+  instead of quoting figures.
+- **Store buttons.** The app is not on Google Play and there is no iOS build.
+  The APK is downloaded directly; the iPhone button is a disabled "coming
+  later".

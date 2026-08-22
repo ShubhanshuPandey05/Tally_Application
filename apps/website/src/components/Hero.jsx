@@ -1,95 +1,78 @@
-import PhoneMock from './PhoneMock.jsx';
-import { useCountUp } from '../hooks.js';
+import AppPreview from './AppPreview.jsx';
+import { Link } from '../router.jsx';
+import { useManifest, useStats, mb } from '../hooks.js';
 import './hero.css';
 
-const ROTATING = [
-  'How much did I sell today?',
-  'Who owes me money?',
-  'What is my cash position?',
-  'Which products are running out?',
-  'What happened since yesterday?',
+/*
+ * The four counts, in the order they answer "is anyone actually using this?".
+ * Every one comes from /v1/public/stats and is whatever the database says,
+ * including zero. Nothing here is rounded up, and nothing is a target.
+ */
+const STAT_ROW = [
+  ['businesses', 'Businesses'],
+  ['tally_pcs', 'Tally PCs paired'],
+  ['companies', 'Companies read'],
+  ['connected_now', 'Online right now'],
 ];
 
-function Stat({ to, suffix = '', prefix = '', label, decimals = 0 }) {
-  const [ref, value] = useCountUp(to, { decimals });
+function Stats() {
+  const stats = useStats();
+
+  // No row at all until the real numbers arrive. Rendering zeros while the
+  // request is in flight would put the worst possible claim on the page for
+  // anyone whose connection is slow, and it would be a claim we had not checked.
+  if (!stats) return null;
+
   return (
-    <div className="hero-stat" ref={ref}>
-      <p className="hero-stat-value num">
-        {prefix}
-        {decimals ? value.toFixed(decimals) : value}
-        {suffix}
-      </p>
-      <p className="hero-stat-label">{label}</p>
-    </div>
+    <dl className="hero-stats">
+      {STAT_ROW.map(([key, label]) => (
+        <div key={key}>
+          <dd>{stats[key]}</dd>
+          <dt>{label}</dt>
+        </div>
+      ))}
+    </dl>
   );
 }
 
 export default function Hero() {
+  const { connector } = useManifest();
+
   return (
     <section className="hero" id="top">
-      <div className="grid-lines" />
-      <div className="orb hero-orb-1" />
-      <div className="orb hero-orb-2" />
-      <div className="orb hero-orb-3" />
-
       <div className="shell hero-grid">
-        <div className="hero-copy">
-          <span className="eyebrow reveal">
-            <span className="dot" />
-            Read-only by design · Tally never touches the internet
-          </span>
+        <div>
+          <span className="chip chip-accent">Early access</span>
 
-          <h1 className="reveal" style={{ '--delay': '80ms' }}>
-            Your whole business,
-            <br />
-            <span className="grad-text">on the phone in your pocket.</span>
-          </h1>
+          <h1 style={{ marginTop: 18 }}>Your TallyPrime numbers, on your phone.</h1>
 
-          <p className="hero-sub reveal" style={{ '--delay': '160ms' }}>
-            TallyFlow turns TallyPrime into a modern mobile dashboard. Sales, cash,
-            receivables and stock — live from your own Tally, in the time it takes to
-            unlock your phone. No remote desktop. No data entry. Nothing to break.
+          <p className="hero-sub">
+            TallyFlow shows you sales, cash, receivables and stock from your own
+            TallyPrime — without opening Tally, and without exposing it to the
+            internet. It can only read. Nothing it does can change a voucher.
           </p>
 
-          <div className="hero-rotator reveal" style={{ '--delay': '220ms' }}>
-            <span className="hero-rotator-label">Answers in 10 seconds:</span>
-            <span className="hero-rotator-track">
-              {ROTATING.map((line, i) => (
-                <em key={line} style={{ '--i': i, '--n': ROTATING.length }}>
-                  {line}
-                </em>
-              ))}
+          <div className="hero-cta">
+            <a className="btn btn-primary" href={connector.url} download>
+              Download for Windows
+            </a>
+            <Link className="btn btn-ghost" to="/docs">
+              Read the setup guide
+            </Link>
+          </div>
+
+          <Stats />
+
+          <div className="hero-strip">
+            <span>
+              <b>Windows connector</b> · v{connector.version} · {mb(connector.size_bytes)}
             </span>
-          </div>
-
-          <div className="hero-cta reveal" style={{ '--delay': '300ms' }}>
-            <a className="btn btn-primary btn-lg" href="#download">
-              Download for Windows &amp; mobile
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
-                <path
-                  d="M12 4v12m0 0 5-5m-5 5-5-5M4 20h16"
-                  stroke="currentColor"
-                  strokeWidth="2.2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                />
-              </svg>
-            </a>
-            <a className="btn btn-ghost btn-lg" href="#how">
-              See how it works
-            </a>
-          </div>
-
-          <div className="hero-stats reveal" style={{ '--delay': '380ms' }}>
-            <Stat to={0.4} decimals={1} suffix="s" label="Dashboard open time" />
-            <Stat to={17} label="Reports on day one" />
-            <Stat to={0} label="Ports opened on your PC" />
-            <Stat to={100} suffix="%" label="Read-only, enforced" />
+            <span>Needs TallyPrime on the same PC</span>
           </div>
         </div>
 
-        <div className="hero-device reveal" style={{ '--delay': '200ms' }}>
-          <PhoneMock />
+        <div className="hero-art">
+          <AppPreview />
         </div>
       </div>
     </section>

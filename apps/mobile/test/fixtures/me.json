@@ -2,7 +2,20 @@
   "email": "owner@bhatiastores.in",
   "full_name": "Shop Owner",
   "id": "<id>",
+  "must_change_password": false,
   "org_id": "<org_id>",
   "org_name": "Bhatia Supermarket",
-  "role": "owner"
+  "role": "admin",
+  "subscription": {
+    "allows_changes": true,
+    "allows_data": true,
+    "companies_used": 1,
+    "expires_at": null,
+    "is_expired": false,
+    "max_companies": 50,
+    "max_users": 50,
+    "message": "",
+    "status": "active",
+    "users_used": 1
+  }
 }

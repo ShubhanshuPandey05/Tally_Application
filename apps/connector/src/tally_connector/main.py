@@ -9,6 +9,7 @@ Subcommands:
 ``configure``  change the server address or the credentials of an installed one
 ``uninstall``  remove it from startup (``--purge`` also unpairs the machine)
 ``status``     report whether the background connector is registered and running
+``update``     check for a newer build (``--apply`` installs it)
 """
 
 from __future__ import annotations
@@ -26,12 +27,15 @@ from pydantic import ValidationError
 from tally_core.tally import TallyClient, get_query, registry_manifest
 from tally_core.tally.errors import TallyError
 
-from . import __version__
+from . import __version__, remote_logs
 from . import install as autostart
 from .config import ConnectorSettings, load_settings, save_pairing, save_settings
 from .livecheck import livecheck, print_manifest
+from .loaded import GuardedClient
 from .logging_setup import setup_logging
 from .session import AuthenticationRejected, ConnectorSession
+from .updater import UpdateError, UpdateManager
+from .updater import supported as updater_supported
 
 logger = logging.getLogger(__name__)
 
@@ -44,7 +48,23 @@ async def serve(settings: ConnectorSettings) -> int:
         )
         return 2
 
-    session = ConnectorSession(settings, version=__version__)
+    # Installed before the session so the lines describing a *failed* first
+    # connection are already buffered when the socket finally comes up.
+    #
+    # Never below `log_level`: the root logger filters before any handler is
+    # consulted, so a remote level of INFO under a file level of WARNING would
+    # not ship INFO -- it would ship nothing and look like remote logging was
+    # broken. Remote can be quieter than the file, never noisier.
+    log_handler = (
+        remote_logs.install(
+            level=remote_logs.effective_level(settings.log_level, settings.remote_log_level),
+            capacity=settings.remote_log_buffer,
+        )
+        if settings.remote_logs
+        else None
+    )
+
+    session = ConnectorSession(settings, version=__version__, log_handler=log_handler)
     stop = asyncio.Event()
 
     loop = asyncio.get_running_loop()
@@ -94,7 +114,12 @@ async def diagnose(settings: ConnectorSettings) -> int:
     print(f"Queries        : {len(registry_manifest())} registered")
     print()
 
-    client = TallyClient(settings.tally_config())
+    # Guarded like every other read path, even though the only query below is
+    # company discovery -- which the guard passes straight through, being the
+    # one read that is not scoped to a company. It costs nothing today and means
+    # a scoped read added here later is guarded by default rather than by
+    # someone remembering that a closed company crashes Tally.
+    client = GuardedClient(TallyClient(settings.tally_config()))
     try:
         if not await client.is_alive():
             print("[FAIL] TallyPrime is not responding.")
@@ -149,6 +174,65 @@ async def verify(settings: ConnectorSettings, company: str | None) -> int:
     return 1 if failures else 0
 
 
+async def update(settings: ConnectorSettings, *, apply: bool) -> int:
+    """Report -- or install -- the current connector build.
+
+    The manual half of the updater. Support needs a way to answer "what version
+    is that shop on, and why hasn't it moved?" without waiting out the six-hour
+    check, and a shop with automatic updates turned off needs a way to take one.
+    """
+    manager = UpdateManager(
+        current_version=__version__,
+        manifest_url=settings.manifest_url,
+        auto_update=False,
+        verify_tls=settings.verify_tls,
+    )
+    print(f"Installed : {__version__}")
+    print(f"Manifest  : {settings.manifest_url}")
+
+    try:
+        release = await manager.available()
+    except UpdateError as exc:
+        print(f"\n[FAIL] {exc}")
+        return 1
+    finally:
+        await manager.aclose()
+
+    if release is None:
+        print("\nUp to date.")
+        return 0
+
+    print(f"\nAvailable : {release.version}{'  (required)' if release.mandatory else ''}")
+    if release.notes:
+        print(f"Notes     : {release.notes}")
+    print(f"Size      : {release.size_bytes / 1e6:.1f} MB")
+
+    if not apply:
+        print("\nInstall it with: tally-connector update --apply")
+        return 0
+
+    if not updater_supported():
+        print("\n[FAIL] Self-update needs the installed Windows build.")
+        print("       Download and run the installer instead.")
+        return 1
+
+    # Recreated with auto_update on; the reporting instance above is closed.
+    installer = UpdateManager(
+        current_version=__version__,
+        manifest_url=settings.manifest_url,
+        verify_tls=settings.verify_tls,
+    )
+    try:
+        # Does not return: apply() hands over to setup and exits this process.
+        await installer.apply(release)
+    except UpdateError as exc:
+        print(f"\n[FAIL] {exc}")
+        return 1
+    finally:
+        await installer.aclose()
+    return 0
+
+
 def pair(args: argparse.Namespace) -> int:
     path = save_pairing(args.id, args.secret, args.config)
     print(f"Pairing saved to {path}")
@@ -177,6 +261,15 @@ def install(args: argparse.Namespace) -> int:
     """
     values = _pairing_values(args)
     connector_id, secret = values.get("id", ""), values.get("secret", "")
+
+    # An upgrade has no credentials to offer: the secret is shown once, in the
+    # app, at pairing time. Reusing what is already on disk is what makes an
+    # unattended re-install possible at all -- without it a silent upgrade
+    # leaves the connector installed but never registered to start, which looks
+    # to the shop exactly like the connector dying for no reason.
+    if not connector_id and not secret and load_settings(args.config).is_paired:
+        return _reinstall(args)
+
     if not connector_id or not secret:
         print("error: both a connector id and a secret are required", file=sys.stderr)
         return 2
@@ -213,6 +306,40 @@ def install(args: argparse.Namespace) -> int:
 
     print(f'Registered "{autostart.TASK_NAME}" to start at logon, and started it now.')
     print(f"Logs: {autostart.default_log_dir()}")
+    return 0
+
+
+def _reinstall(args: argparse.Namespace) -> int:
+    """Re-register an already-paired connector after its files were replaced.
+
+    The upgrade path, reached two ways: the installer running over an existing
+    install, and the connector updating itself. Both have already stopped the
+    old build and overwritten the executables; all that is left is to point the
+    startup task at them again and start it.
+
+    Deliberately does not touch connector.json. The credentials in it are the
+    ones being preserved, and rewriting them from empty inputs is the failure
+    this whole branch exists to prevent.
+    """
+    settings = load_settings(args.config)
+    print(f"Upgrading in place; keeping the existing pairing ({settings.connector_id}).")
+
+    if getattr(args, "no_autostart", False):
+        print("Skipping startup registration (--no-autostart).")
+        return 0
+
+    command, arguments = autostart.service_command()
+    try:
+        autostart.register(
+            command=command, arguments=arguments, working_dir=str(autostart.install_root())
+        )
+        autostart.start()
+    except (autostart.TaskError, RuntimeError, OSError) as exc:
+        print(f"Could not register the startup task: {exc}")
+        print("The connector is still paired; start it manually with: tally-connector run")
+        return 1
+
+    print(f'Re-registered "{autostart.TASK_NAME}" and started it.')
     return 0
 
 
@@ -352,6 +479,11 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--company", help="company to test (default: first one open)")
 
+    update_cmd = sub.add_parser("update", help="check for a newer connector build")
+    update_cmd.add_argument(
+        "--apply", action="store_true", help="download and install it now"
+    )
+
     pair_cmd = sub.add_parser("pair", help="save pairing credentials")
     pair_cmd.add_argument("--id", required=True, help="connector id from the app")
     pair_cmd.add_argument("--secret", required=True, help="connector secret from the app")
@@ -439,6 +571,8 @@ def run(argv: list[str] | None = None, *, fallback_log_dir: Path | None = None) 
     try:
         if args.command == "livecheck":
             return asyncio.run(verify(settings, args.company))
+        if args.command == "update":
+            return asyncio.run(update(settings, apply=args.apply))
         handler = serve if args.command == "run" else diagnose
         return asyncio.run(handler(settings))
     except KeyboardInterrupt:

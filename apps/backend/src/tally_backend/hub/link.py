@@ -28,10 +28,13 @@ from tally_core.protocol import (
     JobError,
     JobRequest,
     JobResult,
+    LogBatch,
     Message,
     Ping,
     Pong,
+    ServerMessage,
     StatusEvent,
+    UpdateCommand,
 )
 
 logger = logging.getLogger(__name__)
@@ -49,7 +52,29 @@ class SocketLike(Protocol):
     async def close(self, code: int = 1000, reason: str = "") -> None: ...
 
 
+class ReleaseView(Protocol):
+    """What the link needs to know about published connector builds.
+
+    Narrow on purpose. This module is transport plumbing; it should not know
+    what a release manifest is, only how to ask "what should this connector be
+    running?". ``services.releases.ConnectorReleaseView`` is the implementation.
+    """
+
+    @property
+    def latest_version(self) -> str: ...
+    @property
+    def min_version(self) -> str: ...
+    def outdated(self, version: str) -> tuple[str, bool]:
+        """``(target_version, mandatory)``; ``("", False)`` when current."""
+        ...
+
+
 StatusCallback = Callable[["ConnectorLink"], Awaitable[None]]
+
+#: ``(link, batch) -> None``. Synchronous by design: log ingestion sits on the
+#: socket's receive loop, and an awaitable here would put a database round trip
+#: between two frames on the connection a customer's reports come back on.
+LogCallback = Callable[["ConnectorLink", LogBatch], None]
 
 
 class LinkClosed(Exception):
@@ -69,6 +94,9 @@ class ConnectorLink:
         heartbeat_interval_seconds: float = 30.0,
         heartbeat_grace_seconds: float = 90.0,
         on_status_change: StatusCallback | None = None,
+        on_logs: LogCallback | None = None,
+        releases: ReleaseView | None = None,
+        push_updates: bool = True,
     ) -> None:
         self.connector_id = connector_id
         self.org_id = org_id
@@ -79,6 +107,9 @@ class ConnectorLink:
         self._heartbeat_interval = heartbeat_interval_seconds
         self._heartbeat_grace = heartbeat_grace_seconds
         self._on_status_change = on_status_change
+        self._on_logs = on_logs
+        self._releases = releases
+        self._push_updates = push_updates
 
         self._pending: dict[str, asyncio.Future[JobResult]] = {}
         self._slots = asyncio.Semaphore(max_concurrent_jobs)
@@ -93,6 +124,14 @@ class ConnectorLink:
         #: Set once the connector answers a ping; before that we know it is
         #: connected but not whether Tally behind it is actually running.
         self.status_known: bool = False
+        #: The build this connector reported on its most recent frame. Every
+        #: frame carries it, so this is never more than one message stale.
+        self.connector_version: str = ""
+        #: The version we last told it to install, so a busy connector gets one
+        #: instruction rather than one per job result. Cleared by a version
+        #: change, which is what makes a *failed* update get re-ordered on the
+        #: next reconnect instead of being silently forgotten.
+        self._update_ordered: str = ""
 
     # -- state -----------------------------------------------------------
 
@@ -115,6 +154,7 @@ class ConnectorLink:
             "companies_open": list(self.companies_open),
             "in_flight": self.in_flight,
             "host": self.host,
+            "connector_version": self.connector_version,
         }
 
     def supports(self, query: str) -> bool:
@@ -127,10 +167,37 @@ class ConnectorLink:
     async def send(self, message: Message) -> None:
         if self.is_closed:
             raise LinkClosed(f"connector {self.connector_id} is not connected")
+        message = self._stamp(message)
         # Serialised: two coroutines interleaving frames on one WebSocket
         # produces a corrupt stream that is very hard to diagnose later.
         async with self._send_lock:
             await self._socket.send_text(message.model_dump_json())
+
+    def _stamp(self, message: Message) -> Message:
+        """Attach the current release floor to any frame going out.
+
+        Done here, once, rather than at each construction site: a ping built in
+        the heartbeat loop and a job built in ``_await_result`` must carry the
+        same answer, and the version to stamp is only known to the link. Missing
+        it on one message type would mean an idle connector -- which sees nothing
+        but pings -- never hearing about a release.
+
+        Read fresh on every send rather than cached at construction, so a
+        ``run.py publish`` reaches connectors that are already connected.
+        """
+        if self._releases is None or not isinstance(message, ServerMessage):
+            return message
+        latest = self._releases.latest_version
+        if not latest:
+            return message
+        # A copy, never a mutation: callers own their message objects, and the
+        # hub broadcasts one built object to several links.
+        return message.model_copy(
+            update={
+                "latest_connector_version": latest,
+                "min_connector_version": self._releases.min_version,
+            }
+        )
 
     async def run_job(
         self,
@@ -227,6 +294,7 @@ class ConnectorLink:
     async def handle_message(self, message: dict[str, Any]) -> None:
         """Route one decoded inbound frame."""
         self.last_seen = time.time()
+        await self._note_version(message)
         kind = message.get("type")
 
         if kind == "job_result":
@@ -235,10 +303,86 @@ class ConnectorLink:
             await self._handle_pong(message)
         elif kind == "status":
             await self._handle_status(message)
+        elif kind == "log_batch":
+            self._handle_logs(message)
         else:
             # Forward compatibility: a newer connector may send frames this
             # backend predates. Ignoring beats dropping a working session.
             logger.debug("ignoring connector frame of type %r", kind)
+
+    async def _note_version(self, message: dict[str, Any]) -> None:
+        """Check the version on an inbound frame and order an update if needed.
+
+        Runs on *every* frame, which is the whole point: a connector that stays
+        up for a week used to be re-evaluated once, at handshake. Now the answer
+        is refreshed on each heartbeat, so a release published mid-session
+        reaches it in seconds rather than at its next six-hourly poll.
+
+        Cheap enough to sit on this path -- a dict lookup, a tuple compare, and a
+        stat() on a cached manifest -- and it sends at most one instruction per
+        target version per session, so a connector returning fifty job results
+        does not receive fifty update commands.
+        """
+        reported = message.get("connector_version")
+        if not isinstance(reported, str) or not reported:
+            # An older connector that predates the stamped field. Its handshake
+            # still told us a version, so leave whatever we already know intact.
+            return
+        await self.review_version(reported)
+
+    async def review_version(self, reported: str) -> None:
+        """Record the build a connector is running; order an update if it is old.
+
+        Public so the handshake can call it directly. Waiting for the first
+        heartbeat instead would leave a connector that reconnects on an outdated
+        build running it for another 30 seconds for no reason -- and on a flapping
+        connection, possibly forever.
+        """
+        if not reported:
+            return
+
+        if reported != self.connector_version:
+            if self.connector_version:
+                # The interesting transition: it came back on a different build.
+                logger.info(
+                    "connector %s is now running %s (was %s)",
+                    self.connector_id,
+                    reported,
+                    self.connector_version,
+                )
+            self.connector_version = reported
+            # A version change means any previous instruction is spent, whether
+            # it succeeded or not. Re-arming here is what gets a *failed* update
+            # retried rather than remembered as done.
+            self._update_ordered = ""
+            self.host = {**self.host, "connector_version": reported}
+
+        if self._releases is None or not self._push_updates:
+            return
+
+        target, mandatory = self._releases.outdated(reported)
+        if not target or target == self._update_ordered:
+            return
+
+        self._update_ordered = target
+        logger.info(
+            "telling connector %s to install %s (running %s%s)",
+            self.connector_id,
+            target,
+            reported,
+            ", required" if mandatory else "",
+        )
+        # Failure is not worth propagating: the connector still has the version
+        # stamped on every other frame and will act on that by itself, so a lost
+        # command costs nothing but a slightly later install.
+        with contextlib.suppress(Exception):
+            await self.send(
+                UpdateCommand(
+                    version=target,
+                    mandatory=mandatory,
+                    reason="a newer connector build is published",
+                )
+            )
 
     def _resolve(self, message: dict[str, Any]) -> None:
         job_id = message.get("job_id")
@@ -252,6 +396,26 @@ class ConnectorLink:
             future.set_result(JobResult.model_validate(message))
         except Exception as exc:  # noqa: BLE001 - a bad frame must not kill the loop
             future.set_exception(exc)
+
+    def _handle_logs(self, message: dict[str, Any]) -> None:
+        """Hand a pushed log batch to whoever is storing them.
+
+        Every failure path here is a swallow, and that is the point: this is a
+        diagnostic side-channel on a socket whose actual job is serving a
+        customer's reports. A malformed batch, or a full ingest buffer, must
+        cost the support view some lines and cost the customer nothing.
+        """
+        if self._on_logs is None:
+            return
+        try:
+            batch = LogBatch.model_validate(message)
+        except Exception as exc:  # noqa: BLE001 - a bad frame is not a dead session
+            logger.debug("connector %s sent a malformed log batch: %s", self.connector_id, exc)
+            return
+        try:
+            self._on_logs(self, batch)
+        except Exception:  # noqa: BLE001
+            logger.warning("could not accept logs from %s", self.connector_id, exc_info=True)
 
     async def _handle_pong(self, message: dict[str, Any]) -> None:
         pong = Pong.model_validate(message)

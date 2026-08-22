@@ -91,13 +91,13 @@ async def test_unauthenticated_requests_are_refused(
     assert (await client.post("/v1/connectors", json={"name": "x"})).status_code == 401
 
 
-async def test_a_viewer_cannot_create_or_revoke_connectors(
+async def test_staff_cannot_create_or_revoke_connectors(
     app, client: AsyncClient, registered
 ) -> None:
     """Roles are re-read from the database, not trusted from the token."""
     async with app.state.session_factory() as session:
         membership = (await session.execute(_all_memberships())).scalars().first()
-        membership.role = Role.VIEWER
+        membership.role = Role.STAFF
         await session.commit()
 
     headers = registered["headers"]
@@ -109,9 +109,9 @@ async def test_a_viewer_cannot_create_or_revoke_connectors(
 async def test_role_downgrade_takes_effect_without_a_new_token(
     app, client: AsyncClient, linked_company
 ) -> None:
-    """A revoked accountant must lose access inside the access token's lifetime.
+    """A demoted admin must lose access inside the access token's lifetime.
 
-    The token still says "owner" for up to 15 minutes; the database is the
+    The token still says "admin" for up to 15 minutes; the database is the
     authority, which is why the role is re-read on every request.
     """
     headers = linked_company["headers"]
@@ -121,7 +121,7 @@ async def test_role_downgrade_takes_effect_without_a_new_token(
 
     async with app.state.session_factory() as session:
         membership = (await session.execute(_all_memberships())).scalars().first()
-        membership.role = Role.VIEWER
+        membership.role = Role.STAFF
         await session.commit()
 
     # Same token, no re-login.

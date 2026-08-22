@@ -59,6 +59,22 @@ services:
       db: {condition: service_healthy}
       migrate: {condition: service_completed_successfully}
     expose: ["8000"]
+    volumes:
+      # The same directory Caddy serves, mounted so the API can read
+      # manifest.json. The backend now answers "is this client current?" inline
+      # -- on every HTTP response to the app and every WebSocket frame to a
+      # connector -- instead of each client polling the file for itself.
+      #
+      # Read-only, and the manifest stays the single source of truth: it is
+      # generated from the bytes actually staged for download, so its checksums
+      # cannot disagree with what is served. Duplicating the version numbers into
+      # uat.env would create a second place to forget on release day, and the
+      # failure mode is locking clients out over a build that was never published.
+      #
+      # If the mount is missing the API starts normally and version checks are
+      # simply off. That is deliberate: a config mistake must never be able to
+      # brick the fleet.
+      - ./downloads:/srv/downloads:ro
     # 30s graceful shutdown lets in-flight jobs finish and gives connectors time
     # to notice the socket closing and re-dial.
     stop_grace_period: 40s
@@ -69,6 +85,11 @@ services:
     build:
       context: ../..
       dockerfile: deploy/uat/web.Dockerfile
+      args:
+        # One hostname serves everything here, so the portal lives under a path
+        # prefix and the bundle has to be built knowing it. Production gives the
+        # portal its own hostname and builds with '/' instead.
+        PORTAL_BASE: /portal/
     restart: unless-stopped
     depends_on: [api]
     environment:

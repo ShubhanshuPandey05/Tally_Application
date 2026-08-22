@@ -14,8 +14,13 @@ final Provider<ReportsRepository> reportsRepositoryProvider =
 /// Family arguments are records: structural equality comes for free, so two
 /// screens asking for the same window share one request instead of racing.
 typedef DaybookArgs = ({String companyId, DateRange range, String? kind});
-typedef OutstandingArgs = ({String companyId, OutstandingKind kind});
-typedef GroupOutstandingArgs = ({String companyId, OutstandingKind kind, String? group});
+typedef OutstandingArgs = ({String companyId, OutstandingKind kind, DateTime? asOf});
+typedef GroupOutstandingArgs = ({
+  String companyId,
+  OutstandingKind kind,
+  String? group,
+  DateTime? asOf,
+});
 typedef StockArgs = ({String companyId, String? only});
 typedef LedgerArgs = ({String companyId, String? group});
 typedef SlowMovingArgs = ({String companyId, int days});
@@ -33,8 +38,9 @@ final AutoDisposeFutureProviderFamily<Fresh<DaybookReport>, DaybookArgs>
 final AutoDisposeFutureProviderFamily<Fresh<OutstandingReport>, OutstandingArgs>
     outstandingProvider =
     FutureProvider.autoDispose.family<Fresh<OutstandingReport>, OutstandingArgs>(
-  (Ref ref, OutstandingArgs args) =>
-      ref.watch(reportsRepositoryProvider).outstanding(args.companyId, kind: args.kind),
+  (Ref ref, OutstandingArgs args) => ref
+      .watch(reportsRepositoryProvider)
+      .outstanding(args.companyId, kind: args.kind, asOf: args.asOf),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<GroupOutstandingReport>, GroupOutstandingArgs>
@@ -45,6 +51,7 @@ final AutoDisposeFutureProviderFamily<Fresh<GroupOutstandingReport>, GroupOutsta
             args.companyId,
             kind: args.kind,
             group: args.group,
+            asOf: args.asOf,
           ),
 );
 

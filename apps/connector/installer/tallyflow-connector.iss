@@ -24,7 +24,7 @@
 #define AppPublisher     "TallyFlow"
 #define ExeName          "tally-connector.exe"
 #define ServiceExeName   "tally-connector-service.exe"
-#define DefaultBackend   "wss://uat-tallyflow.theshubhanshu.dev/v1/connector"
+#define DefaultBackend   "wss://api-tallyflow.theshubhanshu.dev/v1/connector"
 
 ; Overridden by the build script (ISCC /DAppVersion=...) so the installer name
 ; cannot drift from tally_connector.__version__.
@@ -39,7 +39,9 @@ AppId={{C0466045-89F3-4616-A864-20597F034E26}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-AppSupportURL=https://tallyflow.app/support
+; Points at the site's setup guide, which is a page that exists. A dead
+; support link in Add/Remove Programs is found by the one person already stuck.
+AppSupportURL=https://tallyflow.theshubhanshu.dev/docs
 DefaultDirName={autopf}\TallyFlow Connector
 DefaultGroupName=TallyFlow
 DisableProgramGroupPage=yes
@@ -76,7 +78,14 @@ Name: "{group}\Uninstall {#AppName}";   Filename: "{uninstallexe}"
 ; any process on the machine can read another process's arguments.
 Filename: "{app}\{#ExeName}"; Parameters: "install --from-file ""{tmp}\pairing.txt"""; \
       StatusMsg: "Pairing this computer and starting the connector..."; \
-      Flags: runhidden waituntilterminated
+      Flags: runhidden waituntilterminated; Check: not IsUpgrade
+; An upgrade has no credentials to pass -- the secret is shown once, at pairing
+; time, and is not recoverable here. `install` with no id/secret re-registers
+; the startup task against the pairing already on disk. Without this branch a
+; silent self-update would replace the executables and never start them again.
+Filename: "{app}\{#ExeName}"; Parameters: "install"; \
+      StatusMsg: "Updating the connector..."; \
+      Flags: runhidden waituntilterminated; Check: IsUpgrade
 Filename: "{app}\check-tally.cmd"; Description: "Check the connection to TallyPrime now"; \
       Flags: postinstall skipifsilent nowait unchecked
 
@@ -98,9 +107,42 @@ Type: filesandordirs;  Name: "{localappdata}\TallyFlow Connector"
 [Code]
 var
   PairPage: TInputQueryWizardPage;
+  UpgradeChecked: Boolean;
+  UpgradeCached: Boolean;
+
+function IsUpgrade: Boolean;
+begin
+  // An existing connector.json means this machine is already paired, so there
+  // is nothing to ask for and nothing to overwrite. Decided from the file
+  // rather than from Inno's own upgrade detection because a self-update reaches
+  // this code exactly the way a hand-run installer does.
+  //
+  // Resolved on first use, not at startup: the {app} constant is not
+  // expandable until Inno has settled the install directory. Cached so every
+  // later caller -- the two [Run] entries, ShouldSkipPage, CurStepChanged --
+  // gets one consistent answer rather than re-reading a directory that setup
+  // is midway through writing.
+  //
+  // Two reasons this comment uses // and keeps its brackets off the start of
+  // a line, both learned by the compiler refusing to build:
+  //
+  //   * A { } comment ends at the FIRST closing brace, and Pascal comments do
+  //     not nest -- so an Inno constant like the one named above terminates
+  //     the comment early and everything after it is parsed as code.
+  //   * The section scanner strips leading whitespace before looking for a
+  //     header, so a line whose first text is [Something] is read as a section
+  //     tag even inside a comment, and the compile aborts with "Invalid
+  //     section tag" pointing at a line that is pure documentation.
+  if not UpgradeChecked then begin
+    UpgradeCached := FileExists(ExpandConstant('{app}\connector.json'));
+    UpgradeChecked := True;
+  end;
+  Result := UpgradeCached;
+end;
 
 procedure InitializeWizard;
 begin
+
   PairPage := CreateInputQueryPage(wpWelcome,
     'Connect to your TallyFlow account',
     'Enter the pairing details shown in the TallyFlow app.',
@@ -127,10 +169,12 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  { Nothing to ask when both were supplied on the command line. }
+  { Nothing to ask when both were supplied on the command line, and nothing to
+    ask on an upgrade -- the pairing being preserved is already on disk. }
   Result := (PageID = PairPage.ID) and
-            (ExpandConstant('{param:ID|}') <> '') and
-            (ExpandConstant('{param:SECRET|}') <> '');
+            (IsUpgrade or
+             ((ExpandConstant('{param:ID|}') <> '') and
+              (ExpandConstant('{param:SECRET|}') <> '')));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -138,7 +182,7 @@ var
   Server: String;
 begin
   Result := True;
-  if CurPageID <> PairPage.ID then
+  if (CurPageID <> PairPage.ID) or IsUpgrade then
     exit;
 
   if Trim(PairPage.Values[0]) = '' then begin
@@ -188,7 +232,9 @@ var
 begin
   PairingFile := ExpandConstant('{tmp}\pairing.txt');
 
-  if CurStep = ssInstall then begin
+  { Never written on an upgrade: the values would be blank, and `install`
+    treats a blank id as a fatal error rather than as "keep what you have". }
+  if (CurStep = ssInstall) and not IsUpgrade then begin
     SetArrayLength(Lines, 3);
     Lines[0] := 'id=' + Trim(PairPage.Values[0]);
     Lines[1] := 'secret=' + Trim(PairPage.Values[1]);

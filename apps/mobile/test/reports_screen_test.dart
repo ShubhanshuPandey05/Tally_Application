@@ -67,7 +67,7 @@ void main() {
       const OutstandingScreen(kind: OutstandingKind.payable),
       <Override>[
         outstandingProvider(
-          (companyId: 'company-1', kind: OutstandingKind.payable),
+          (companyId: 'company-1', kind: OutstandingKind.payable, asOf: null),
         ).overrideWith((Ref ref) async => _fresh(report)),
       ],
     );
@@ -87,7 +87,7 @@ void main() {
       const OutstandingScreen(kind: OutstandingKind.receivable),
       <Override>[
         outstandingProvider(
-          (companyId: 'company-1', kind: OutstandingKind.receivable),
+          (companyId: 'company-1', kind: OutstandingKind.receivable, asOf: null),
         ).overrideWith(
           (Ref ref) async => _fresh(
             OutstandingReport.fromJson(<String, Object?>{
@@ -116,7 +116,7 @@ void main() {
       const GroupOutstandingScreen(kind: OutstandingKind.payable),
       <Override>[
         groupOutstandingProvider(
-          (companyId: 'company-1', kind: OutstandingKind.payable, group: null),
+          (companyId: 'company-1', kind: OutstandingKind.payable, group: null, asOf: null),
         ).overrideWith((Ref ref) async => _fresh(report)),
       ],
     );
@@ -167,7 +167,7 @@ void main() {
       const GroupOutstandingScreen(kind: OutstandingKind.receivable),
       <Override>[
         groupOutstandingProvider(
-          (companyId: 'company-1', kind: OutstandingKind.receivable, group: null),
+          (companyId: 'company-1', kind: OutstandingKind.receivable, group: null, asOf: null),
         ).overrideWith((Ref ref) async => _fresh(report)),
       ],
     );

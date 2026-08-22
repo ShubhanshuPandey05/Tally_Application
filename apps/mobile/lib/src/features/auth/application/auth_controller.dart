@@ -50,6 +50,24 @@ class AuthController extends Notifier<AuthState> {
 
   AuthRepository get _repository => ref.read(authRepositoryProvider);
 
+  /// Re-read the signed-in account.
+  ///
+  /// Needed after anything that changes what the *server* thinks of this user
+  /// rather than what the app is showing -- clearing `mustChangePassword` is the
+  /// case that matters, because the router gate reads it and would otherwise
+  /// hold someone on the password screen after they had already changed it.
+  ///
+  /// Failure is swallowed on purpose: the change itself already succeeded, and
+  /// turning a stale local copy into a sign-out would be a worse outcome than
+  /// one more launch before it catches up.
+  Future<void> refreshUser() async {
+    try {
+      state = AuthState(status: AuthStatus.signedIn, user: await _repository.me());
+    } on ApiException {
+      // Left as-is; the next `restore()` will pick it up.
+    }
+  }
+
   /// Cold start: do we have a usable session on this device?
   Future<void> restore() async {
     final TokenStore store = ref.read(apiClientProvider).tokens;

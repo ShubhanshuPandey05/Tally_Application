@@ -25,7 +25,7 @@ class ConnectorDetailScreen extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final AsyncValue<Connector> state = ref.watch(connectorStatusProvider(connectorId));
     final UserRole role =
-        ref.watch(authControllerProvider).user?.role ?? UserRole.viewer;
+        ref.watch(authControllerProvider).user?.role ?? UserRole.staff;
 
     return Scaffold(
       appBar: AppBar(

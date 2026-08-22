@@ -41,8 +41,13 @@ async def create_connector(
 
     The secret is returned here and never again. It is written into
     ``connector.json`` on the shop's PC by the pairing wizard.
+
+    Refused until the account is approved. This is the first thing a new
+    customer tries and therefore the place the approval flow is actually felt:
+    they can install everything and sign in, and the Tally PC is what waits.
     """
-    principal.require(Role.OWNER)
+    principal.require(Role.ADMIN)
+    principal.require_changes()
 
     secret = generate_secret()
     connector = Connector(
@@ -98,7 +103,8 @@ async def rotate_connector_secret(
     longer authenticate; leaving it connected would serve reads on a credential
     the owner has just revoked.
     """
-    principal.require(Role.OWNER)
+    principal.require(Role.ADMIN)
+    principal.require_changes()
 
     if connector.status is ConnectorStatus.REVOKED:
         raise ConflictError(
@@ -221,7 +227,7 @@ async def revoke_connector(
     it serving reads right now. Both are needed -- doing only the first would
     leave a compromised machine reading the books until it happens to reconnect.
     """
-    principal.require(Role.OWNER)
+    principal.require(Role.ADMIN)
 
     connector.status = ConnectorStatus.REVOKED
     connector.revoked_at = utc_now()

@@ -55,7 +55,7 @@ class AuthService:
         org = Organisation(name=org_name)
         # The person who creates the organisation owns it; without this the first
         # user could not pair a connector or invite anyone.
-        membership = Membership(user=user, organisation=org, role=Role.OWNER)
+        membership = Membership(user=user, organisation=org, role=Role.ADMIN)
 
         self._session.add_all([user, org, membership])
         await self._session.flush()

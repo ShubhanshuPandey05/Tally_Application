@@ -25,12 +25,20 @@ import logging
 import random
 from datetime import date
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings
 from ..core.errors import AppError
-from ..db.models import Company, CompanySyncState, Snapshot, as_utc, utc_now
+from ..db.models import (
+    Company,
+    CompanySyncState,
+    Organisation,
+    OrgStatus,
+    Snapshot,
+    as_utc,
+    utc_now,
+)
 from ..hub import ConnectorHub
 from .dashboard import voucher_params
 from .reads import FetchMode, ReadService
@@ -209,14 +217,33 @@ class SnapshotRefresher:
                 return False
 
     async def _due_companies(self) -> list[Company]:
-        """Active companies whose snapshots are missing or stale, oldest first."""
+        """Active companies whose snapshots are missing or stale, oldest first.
+
+        Joined to the organisation rather than reading companies alone, because
+        this loop is the one path to a customer's Tally that no request passes
+        through: `deps.get_company` refuses a suspended account, and a sweep
+        would happily keep exporting from that shop's PC every fifteen minutes
+        regardless. Reading the books of an account that has been switched off
+        is both wrong and, on a machine that is somebody's till, rude.
+        """
         cutoff_age = self._settings.snapshot_stale_after_seconds
 
         async with self._session_factory() as session:
             companies = (
                 (
                     await session.execute(
-                        select(Company).where(Company.is_active.is_(True))
+                        select(Company)
+                        .join(Organisation, Organisation.id == Company.org_id)
+                        .where(
+                            Company.is_active.is_(True),
+                            Organisation.status == OrgStatus.ACTIVE,
+                            # Expiry is computed, never swept, so it has to be
+                            # spelled out here too rather than read off a column.
+                            or_(
+                                Organisation.expires_at.is_(None),
+                                Organisation.expires_at > utc_now(),
+                            ),
+                        )
                     )
                 )
                 .scalars()

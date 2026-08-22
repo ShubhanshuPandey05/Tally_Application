@@ -1,0 +1,23 @@
+# Release signing. Copy to `key.properties` and fill in.
+#
+# `key.properties` and `*.jks` are gitignored. They are credentials -- treat the
+# keystore like the JWT secret, not like source.
+#
+# Generate the keystore (once, ever):
+#
+#   keytool -genkey -v -keystore tallyflow-release.jks \
+#           -keyalg RSA -keysize 2048 -validity 10000 -alias tallyflow
+#
+# Then BACK IT UP somewhere you will still have in five years, along with both
+# passwords. Android identifies an app by its signing key: lose this file and no
+# existing install can ever be updated in place again -- every user would have to
+# uninstall and reinstall, losing their session. There is no recovery path
+# outside Play App Signing.
+#
+# Do NOT store it in this repo, even gitignored. A `git clean -xfd` deletes
+# untracked files.
+
+storeFile=C:/keys/tallyflow-release.jks
+storePassword=
+keyAlias=tallyflow
+keyPassword=

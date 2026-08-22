@@ -20,7 +20,17 @@ from tally_core.protocol import JobResult
 from tally_core.tally.errors import TallyUnreachableError
 
 from tally_backend.config import Settings
-from tally_backend.db.models import Company, Connector, ConnectorStatus
+from tally_backend.core.security import hash_password
+from tally_backend.db.models import (
+    Company,
+    Connector,
+    ConnectorStatus,
+    Organisation,
+    OrgStatus,
+    PlatformRole,
+    PlatformUser,
+    utc_now,
+)
 from tally_backend.main import create_app
 
 
@@ -38,6 +48,11 @@ def settings(tmp_path) -> Settings:
         auth_rate_limit_per_minute=10_000,
         snapshot_stale_after_seconds=900,
         min_refresh_interval_seconds=0,
+        # Points at nothing on purpose. Left empty, the catalogue falls back to
+        # searching the repo and every request in the suite would be judged
+        # against whatever happens to be staged in deploy/uat/downloads -- so a
+        # release would start failing unrelated tests.
+        release_manifest_path=str(tmp_path / "absent-manifest.json"),
     )
 
 
@@ -174,8 +189,12 @@ async def client(app) -> AsyncClient:
 
 
 @pytest_asyncio.fixture
-async def registered(client: AsyncClient) -> dict[str, Any]:
-    """A registered owner with an auth header ready to use."""
+async def signed_up(client: AsyncClient) -> dict[str, Any]:
+    """A brand new signup: real account, approved by nobody, entitled to nothing.
+
+    This is what every customer is for the first few minutes, so it is a
+    fixture rather than a special case inside one test.
+    """
     response = await client.post(
         "/v1/auth/register",
         json={
@@ -190,6 +209,69 @@ async def registered(client: AsyncClient) -> dict[str, Any]:
     return {
         "tokens": tokens,
         "headers": {"Authorization": f"Bearer {tokens['access_token']}"},
+    }
+
+
+async def approve(app, org_id: str, *, max_users: int = 50, max_companies: int = 50) -> None:
+    """Stand in for a portal approval.
+
+    Written against the database rather than the portal API on purpose. Almost
+    every test in this suite needs a live account and cares nothing about how it
+    got there; routing all of them through a portal login would couple the whole
+    file to that flow. ``test_portal.py`` exercises the real path.
+    """
+    async with app.state.session_factory() as session:
+        org = await session.get(Organisation, org_id)
+        org.status = OrgStatus.ACTIVE
+        org.max_users = max_users
+        org.max_companies = max_companies
+        org.approved_at = utc_now()
+        await session.commit()
+
+
+@pytest_asyncio.fixture
+async def registered(app, signed_up, client: AsyncClient) -> dict[str, Any]:
+    """A registered owner of an *approved* business, ready to use.
+
+    The limits are deliberately generous: this fixture is the baseline for every
+    test that is not about entitlement, and a tight default would make an
+    unrelated test fail with "your plan covers 3 companies".
+    """
+    me = await client.get("/v1/auth/me", headers=signed_up["headers"])
+    assert me.status_code == 200, me.text
+    await approve(app, me.json()["org_id"])
+    return {**signed_up, "org_id": me.json()["org_id"]}
+
+
+@pytest_asyncio.fixture
+async def platform_owner(app, client: AsyncClient) -> dict[str, Any]:
+    """A portal owner, signed in.
+
+    Seeded straight into the table for the same reason the bootstrap exists at
+    all: there is no endpoint that creates the first one, by design.
+    """
+    password = "portal-owner-password"
+    async with app.state.session_factory() as session:
+        session.add(
+            PlatformUser(
+                email="ops@tallyflow.in",
+                password_hash=hash_password(password),
+                full_name="Platform Owner",
+                role=PlatformRole.OWNER,
+            )
+        )
+        await session.commit()
+
+    response = await client.post(
+        "/v1/portal/auth/login",
+        json={"email": "ops@tallyflow.in", "password": password},
+    )
+    assert response.status_code == 200, response.text
+    session_body = response.json()
+    return {
+        "password": password,
+        "user": session_body["user"],
+        "headers": {"Authorization": f"Bearer {session_body['access_token']}"},
     }
 
 

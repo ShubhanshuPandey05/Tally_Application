@@ -23,10 +23,12 @@ import pytest
 import pytest_asyncio
 import uvicorn
 from httpx import ASGITransport, AsyncClient
+from sqlalchemy import select
 from tally_connector.config import ConnectorSettings
 from tally_connector.session import AuthenticationRejected, ConnectorSession
 
 from tally_backend.config import Settings
+from tally_backend.db.models import Organisation, OrgStatus
 from tally_backend.main import create_app
 
 
@@ -124,6 +126,17 @@ async def live_backend(tmp_path):
         )
         assert registered.status_code == 201, registered.text
         headers = {"Authorization": f"Bearer {registered.json()['access_token']}"}
+
+        # A signup is entitled to nothing until the management portal approves
+        # it, and pairing a Tally PC is the first thing that unlocks. Done
+        # directly here because this test is about the socket, not onboarding.
+        me = await http.get("/v1/auth/me", headers=headers)
+        async with app.state.session_factory() as session:
+            org = await session.get(Organisation, me.json()["org_id"])
+            org.status = OrgStatus.ACTIVE
+            org.max_users = 10
+            org.max_companies = 10
+            await session.commit()
 
         created = await http.post(
             "/v1/connectors", json={"name": "Integration PC"}, headers=headers
@@ -301,6 +314,64 @@ async def test_company_discovery_works_through_the_live_connector(live_backend) 
         assert response.status_code == 200, response.text
         assert response.json()[0]["tally_name"] == "Bhtia Supermarket"
         assert response.json()[0]["linked"] is False
+    finally:
+        await session.stop()
+        runner.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await runner
+
+
+@pytest.mark.asyncio
+async def test_a_real_connector_ships_its_log_to_the_backend(live_backend) -> None:
+    """The support view's whole supply, end to end over a real socket.
+
+    Worth an integration test rather than only unit ones because the pieces are
+    on opposite sides of the wire and each half looks correct in isolation: the
+    connector buffers and sends, the link routes, the ingest writes. What this
+    proves is that a line logged on a customer's PC ends up in a row somebody can
+    read.
+    """
+    import logging
+
+    from tally_connector.remote_logs import RemoteLogHandler
+
+    from tally_backend.db.models import ConnectorLog
+
+    app = live_backend["app"]
+    handler = RemoteLogHandler(capacity=100)
+    handler.setFormatter(logging.Formatter("%(message)s"))
+    handler.emit(
+        logging.LogRecord(
+            "tally_connector.pipeline", logging.ERROR, __file__, 1,
+            "tally refused the export", (), None,
+        )
+    )
+
+    session = ConnectorSession(
+        connector_settings(live_backend, remote_log_interval_seconds=0.05),
+        version="0.1.0",
+        tally=StubTally(),
+        log_handler=handler,
+    )
+    runner = asyncio.create_task(session.run_forever())
+    try:
+        await wait_for_attachment(app, live_backend["connector_id"])
+
+        for _ in range(100):
+            await app.state.connector_logs.flush()
+            async with app.state.session_factory() as db:
+                rows = (await db.execute(select(ConnectorLog))).scalars().all()
+            if rows:
+                break
+            await asyncio.sleep(0.05)
+
+        assert [row.message for row in rows] == ["tally refused the export"]
+        # Denormalised off the connector, so the line survives the connector row
+        # and is what a partner's visibility is checked against.
+        assert rows[0].org_id
+        assert rows[0].connector_id == live_backend["connector_id"]
+        assert rows[0].level == "ERROR"
+        assert rows[0].session_id
     finally:
         await session.stop()
         runner.cancel()

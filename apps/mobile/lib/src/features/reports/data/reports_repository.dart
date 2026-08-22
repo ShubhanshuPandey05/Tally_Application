@@ -36,10 +36,15 @@ class ReportsRepository {
     String companyId, {
     OutstandingKind kind = OutstandingKind.receivable,
     FetchMode mode = FetchMode.auto,
+    DateTime? asOf,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/outstanding',
-      query: <String, Object?>{'kind': kind.wire, 'mode': mode.wire},
+      query: <String, Object?>{
+        'kind': kind.wire,
+        'mode': mode.wire,
+        'as_of': asOf == null ? null : _isoDate(asOf),
+      },
     );
     return Fresh<OutstandingReport>(
       OutstandingReport.fromJson(body.envelopeData),
@@ -55,10 +60,16 @@ class ReportsRepository {
     OutstandingKind kind = OutstandingKind.receivable,
     String? group,
     FetchMode mode = FetchMode.auto,
+    DateTime? asOf,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/outstanding/group',
-      query: <String, Object?>{'kind': kind.wire, 'group': group, 'mode': mode.wire},
+      query: <String, Object?>{
+        'kind': kind.wire,
+        'group': group,
+        'mode': mode.wire,
+        'as_of': asOf == null ? null : _isoDate(asOf),
+      },
     );
     return Fresh<GroupOutstandingReport>(
       GroupOutstandingReport.fromJson(body.envelopeData),
@@ -111,3 +122,8 @@ class ReportsRepository {
     );
   }
 }
+
+String _isoDate(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';

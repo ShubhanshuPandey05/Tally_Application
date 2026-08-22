@@ -1,0 +1,432 @@
+/* ==================================================================
+   The portal's design system.
+
+   One structural idea, carried over from the single-page version this
+   replaced, and worth restating because everything else follows from
+   it: COLOUR ENCODES ATTENTION. Amber appears in exactly one
+   circumstance -- something waiting on a human -- and nowhere else.
+   So "is there work?" is answered from across the room, and no stat
+   card has to shout it.
+
+   The one colour added since is `--stop` on an ERROR log line, which
+   is the support view's equivalent of the same idea.
+   ================================================================== */
+
+:root {
+  color-scheme: light dark;
+
+  /* Neutrals, biased very slightly cool so they sit with the accent
+     rather than fighting it. A pure grey here reads as unconsidered. */
+  --bg:        #f5f7f8;
+  --surface:   #ffffff;
+  --surface-2: #eef1f3;
+  --surface-3: #e4e9ec;
+  --line:      #dde3e7;
+  --ink:       #11181c;
+  --ink-2:     #55636c;
+  --ink-3:     #838f98;
+
+  /* Deep pine-teal. Chosen over the usual dashboard blue because this
+     tool sits next to money and wants to read as considered, not as a
+     framework default. */
+  --accent:      #0b5d51;
+  --accent-ink:  #ffffff;
+  --accent-soft: #dcece9;
+
+  /* The only warm colour in the file. Reserved for "needs a decision". */
+  --wait:      #9a5400;
+  --wait-soft: #fbeedd;
+
+  --ok:      #1a7a4f;
+  --ok-soft: #dff1e7;
+
+  --stop:      #a32f1e;
+  --stop-soft: #fbe6e2;
+
+  --off:      #6b7681;
+  --off-soft: #e9edef;
+
+  --ring: #0b5d51;
+  --shadow-1: 0 1px 2px rgba(17, 24, 28, .05);
+  --shadow-2: 0 1px 3px rgba(17, 24, 28, .07), 0 10px 28px rgba(17, 24, 28, .08);
+  --r-sm: 7px;
+  --r-md: 11px;
+  --r-lg: 15px;
+
+  --sidebar-w: 244px;
+
+  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
+          "Liberation Mono", monospace;
+}
+
+/* Three theme states, and the default one stamps nothing on the root
+   element at all: most viewers sit on "system", where only
+   prefers-color-scheme separates light from dark. So the tokens are
+   redefined in both the media query and the explicit stamp, and every
+   component styles through the tokens rather than inside either block. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg:        #0d1117;
+    --surface:   #151a21;
+    --surface-2: #1c232b;
+    --surface-3: #252d37;
+    --line:      #29323c;
+    --ink:       #e9eef2;
+    --ink-2:     #9aa7b2;
+    --ink-3:     #6d7a86;
+
+    --accent:      #43b3a2;
+    --accent-ink:  #06201c;
+    --accent-soft: #123029;
+
+    --wait:      #e0a049;
+    --wait-soft: #33260f;
+
+    --ok:      #4fbb85;
+    --ok-soft: #12301f;
+
+    --stop:      #e8836c;
+    --stop-soft: #351b16;
+
+    --off:      #8b97a2;
+    --off-soft: #232b34;
+
+    --ring: #43b3a2;
+    --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+    --shadow-2: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .34);
+  }
+}
+
+:root[data-theme="dark"] {
+  --bg:        #0d1117;
+  --surface:   #151a21;
+  --surface-2: #1c232b;
+  --surface-3: #252d37;
+  --line:      #29323c;
+  --ink:       #e9eef2;
+  --ink-2:     #9aa7b2;
+  --ink-3:     #6d7a86;
+
+  --accent:      #43b3a2;
+  --accent-ink:  #06201c;
+  --accent-soft: #123029;
+
+  --wait:      #e0a049;
+  --wait-soft: #33260f;
+
+  --ok:      #4fbb85;
+  --ok-soft: #12301f;
+
+  --stop:      #e8836c;
+  --stop-soft: #351b16;
+
+  --off:      #8b97a2;
+  --off-soft: #232b34;
+
+  --ring: #43b3a2;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
+  --shadow-2: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .34);
+}
+
+* { box-sizing: border-box; }
+
+html, body, #root { height: 100%; }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font: 14px/1.5 var(--font);
+  -webkit-font-smoothing: antialiased;
+}
+
+a { color: inherit; }
+
+/* ---- Type ------------------------------------------------------- */
+
+h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.011em; }
+h1 { font-size: 21px; }
+h2 { font-size: 16px; }
+h3 { font-size: 13px; }
+
+.muted   { color: var(--ink-2); }
+.dim     { color: var(--ink-3); }
+.mono    { font-family: var(--mono); font-size: 12px; }
+.nowrap  { white-space: nowrap; }
+.right   { text-align: right; }
+
+.label {
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+}
+
+/* ---- Surfaces --------------------------------------------------- */
+
+.card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-1);
+}
+
+.card-pad { padding: 18px 20px; }
+
+.row { display: flex; align-items: center; gap: 10px; }
+.row-between { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.wrap { flex-wrap: wrap; }
+.grow { flex: 1 1 auto; min-width: 0; }
+.stack { display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.gap-lg { gap: 18px; }
+
+.divider { height: 1px; background: var(--line); border: 0; margin: 0; }
+
+/* ---- Controls --------------------------------------------------- */
+
+button, input, select, textarea {
+  font: inherit;
+  color: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  padding: 8px 14px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 13px;
+  cursor: pointer;
+  transition: background .12s, border-color .12s, opacity .12s;
+  white-space: nowrap;
+}
+.btn:hover:not(:disabled) { background: var(--surface-2); }
+.btn:disabled { opacity: .5; cursor: not-allowed; }
+.btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.btn-primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: var(--accent-ink);
+}
+.btn-primary:hover:not(:disabled) { background: var(--accent); filter: brightness(1.08); }
+
+.btn-danger { color: var(--stop); border-color: var(--line); }
+.btn-danger:hover:not(:disabled) { background: var(--stop-soft); }
+
+.btn-sm { padding: 5px 10px; font-size: 12px; }
+.btn-ghost { background: transparent; border-color: transparent; }
+.btn-ghost:hover:not(:disabled) { background: var(--surface-2); }
+
+.input, .select, .textarea {
+  width: 100%;
+  padding: 8px 11px;
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: var(--ink);
+}
+.input:focus, .select:focus, .textarea:focus {
+  outline: 2px solid var(--ring);
+  outline-offset: -1px;
+  border-color: transparent;
+}
+.textarea { resize: vertical; min-height: 74px; }
+
+.field { display: flex; flex-direction: column; gap: 5px; }
+.field > .label { margin-bottom: 1px; }
+.hint { font-size: 12px; color: var(--ink-3); }
+
+/* Segmented control: the filter tabs, and the live/stored switch. */
+.seg {
+  display: inline-flex;
+  padding: 3px;
+  gap: 2px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+  border: 1px solid var(--line);
+  overflow-x: auto;
+  max-width: 100%;
+}
+.seg button {
+  border: 0;
+  background: transparent;
+  color: var(--ink-2);
+  padding: 5px 11px;
+  border-radius: 5px;
+  font-size: 12.5px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.seg button:hover { color: var(--ink); }
+.seg button[aria-pressed="true"] {
+  background: var(--surface);
+  color: var(--ink);
+  box-shadow: var(--shadow-1);
+}
+
+/* A count on a tab, for the one case that motivates it: accounts waiting
+   on a decision. Amber, like every other "a human is needed here". */
+.seg-badge {
+  margin-left: 6px;
+  background: var(--wait-soft);
+  color: var(--wait);
+  border-radius: 999px;
+  padding: 0 6px;
+  font-size: 10.5px;
+  font-weight: 700;
+}
+
+/* ---- Pills ------------------------------------------------------ */
+
+.pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 9px;
+  border-radius: 999px;
+  font-size: 11.5px;
+  font-weight: 650;
+  letter-spacing: .01em;
+  white-space: nowrap;
+}
+.pill::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+}
+.pill-plain::before { display: none; }
+
+.pill-wait { background: var(--wait-soft); color: var(--wait); }
+.pill-ok   { background: var(--ok-soft);   color: var(--ok); }
+.pill-stop { background: var(--stop-soft); color: var(--stop); }
+.pill-off  { background: var(--off-soft);  color: var(--off); }
+.pill-accent { background: var(--accent-soft); color: var(--accent); }
+
+/* ---- Tables ----------------------------------------------------- */
+
+.table-wrap { overflow-x: auto; }
+
+table.data {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 13px;
+}
+table.data th {
+  text-align: left;
+  padding: 9px 14px;
+  font-size: 11px;
+  font-weight: 650;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  color: var(--ink-3);
+  border-bottom: 1px solid var(--line);
+  white-space: nowrap;
+  background: var(--surface);
+}
+table.data td {
+  padding: 11px 14px;
+  border-bottom: 1px solid var(--line);
+  vertical-align: middle;
+}
+table.data tr:last-child td { border-bottom: 0; }
+table.data tbody tr.clickable { cursor: pointer; }
+table.data tbody tr.clickable:hover { background: var(--surface-2); }
+
+/* ---- Empty / loading -------------------------------------------- */
+
+.empty {
+  padding: 44px 20px;
+  text-align: center;
+  color: var(--ink-2);
+}
+.empty strong { display: block; color: var(--ink); margin-bottom: 4px; }
+
+.spinner {
+  width: 15px;
+  height: 15px;
+  border: 2px solid var(--line);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .7s linear infinite;
+  flex: none;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .spinner { animation-duration: 2.4s; }
+}
+
+/* ---- Toast ------------------------------------------------------ */
+
+.toasts {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  z-index: 60;
+}
+.toast {
+  background: var(--ink);
+  color: var(--bg);
+  padding: 10px 15px;
+  border-radius: var(--r-sm);
+  box-shadow: var(--shadow-2);
+  font-size: 13px;
+  font-weight: 550;
+  max-width: 360px;
+}
+.toast-bad { background: var(--stop); color: #fff; }
+
+/* ---- Modal ------------------------------------------------------ */
+
+.scrim {
+  position: fixed;
+  inset: 0;
+  background: rgba(10, 14, 18, .45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  z-index: 50;
+}
+.modal {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-lg);
+  box-shadow: var(--shadow-2);
+  width: min(520px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+}
+.modal-head { padding: 18px 20px 0; }
+.modal-body { padding: 16px 20px; display: flex; flex-direction: column; gap: 14px; }
+.modal-foot {
+  padding: 14px 20px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  position: sticky;
+  bottom: 0;
+  background: var(--surface);
+}
+
+.error-text {
+  color: var(--stop);
+  font-size: 13px;
+  font-weight: 550;
+}

@@ -17,18 +17,30 @@ class TrendSection extends StatelessWidget {
     required this.title,
     required this.summary,
     required this.currency,
+    this.periodLabel,
   });
 
   final String title;
   final TradeSummary summary;
   final String currency;
 
+  /// Set when the dashboard is scoped to a period. The chart and the two
+  /// figures below it then describe that window, so they must not keep calling
+  /// themselves "this month".
+  final String? periodLabel;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final TradePeriod? period = summary.period;
+
+    final Money current = period?.total ?? summary.thisMonth;
+    final Money? baseline = period == null ? summary.lastMonth : period.previousTotal;
+    final double? changePct = period == null ? summary.changePct : period.changePct;
+
     return SectionCard(
       title: title,
-      subtitle: 'Last 30 days',
+      subtitle: periodLabel ?? 'Last 30 days',
       icon: Icons.show_chart,
       child: Column(
         children: <Widget>[
@@ -40,14 +52,17 @@ class TrendSection extends StatelessWidget {
               children: <Widget>[
                 Expanded(
                   child: _MiniStat(
-                    label: 'This month',
-                    value: MoneyFormat.compact(summary.thisMonth),
+                    label: period == null ? 'This month' : 'This period',
+                    value: MoneyFormat.compact(current),
                   ),
                 ),
                 Expanded(
                   child: _MiniStat(
-                    label: 'Last month',
-                    value: MoneyFormat.compact(summary.lastMonth),
+                    label: period == null ? 'Last month' : 'Previous',
+                    // A baseline outside the window that was read is unknown,
+                    // not zero -- and a zero here would read as a total
+                    // collapse in trade that never happened.
+                    value: baseline == null ? '--' : MoneyFormat.compact(baseline),
                   ),
                 ),
                 Expanded(
@@ -60,12 +75,12 @@ class TrendSection extends StatelessWidget {
                             ?.copyWith(color: context.mutedColor),
                       ),
                       const SizedBox(height: 4),
-                      if (summary.changePct == null)
+                      if (changePct == null)
                         // No baseline is not a movement of zero. "--" is the
                         // only honest rendering.
                         Text('--', style: theme.textTheme.titleSmall)
                       else
-                        ChangeChip(changePct: summary.changePct!),
+                        ChangeChip(changePct: changePct),
                     ],
                   ),
                 ),
@@ -274,11 +289,53 @@ class _LegendDot extends StatelessWidget {
   }
 }
 
+/// Marks a section whose figures could not be rewound to the selected date.
+///
+/// TallyPrime evaluates a ledger's closing balance and a stock item's closing
+/// value against the current date, and neither read accepts a date to evaluate
+/// against. So on a historical dashboard these two sections are still showing
+/// today while everything around them shows the chosen date. Saying so is the
+/// difference between a screen an owner can reconcile and one that quietly
+/// mixes two dates into the same glance.
+class CurrentOnlyNote extends StatelessWidget {
+  const CurrentOnlyNote({super.key});
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Icon(Icons.info_outline, size: 14, color: context.cautionColor),
+          const SizedBox(width: 7),
+          Expanded(
+            child: Text(
+              "Today's figures. Tally reports these balances as they stand now, "
+              'not as of the date above.',
+              style: theme.textTheme.labelSmall?.copyWith(color: context.cautionColor),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 /// "Which products are running out?" and "what is my stock worth?"
 class InventorySection extends StatelessWidget {
-  const InventorySection({super.key, required this.summary});
+  const InventorySection({
+    super.key,
+    required this.summary,
+    this.alwaysCurrent = false,
+  });
 
   final InventorySummary summary;
+
+  /// Set when the dashboard is showing a past date, to declare that this
+  /// section is not showing it. See [CurrentOnlyNote].
+  final bool alwaysCurrent;
 
   @override
   Widget build(BuildContext context) {
@@ -291,6 +348,7 @@ class InventorySection extends StatelessWidget {
       onAction: () => context.push(Routes.stock),
       child: Column(
         children: <Widget>[
+          if (alwaysCurrent) const CurrentOnlyNote(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(
@@ -382,9 +440,17 @@ class _CountStat extends StatelessWidget {
 
 /// Cash and bank, with the accounts behind the total.
 class FundsSection extends StatelessWidget {
-  const FundsSection({super.key, required this.summary});
+  const FundsSection({
+    super.key,
+    required this.summary,
+    this.alwaysCurrent = false,
+  });
 
   final FundsSummary summary;
+
+  /// Set when the dashboard is showing a past date, to declare that this
+  /// section is not showing it. See [CurrentOnlyNote].
+  final bool alwaysCurrent;
 
   @override
   Widget build(BuildContext context) {
@@ -399,6 +465,7 @@ class FundsSection extends StatelessWidget {
       icon: Icons.savings_outlined,
       child: Column(
         children: <Widget>[
+          if (alwaysCurrent) const CurrentOnlyNote(),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Row(

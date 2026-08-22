@@ -47,6 +47,11 @@ connector.local.json
 .DS_Store
 Thumbs.db
 
+# ---- Node (website, management portal) ----
+node_modules/
+apps/website/dist/
+apps/portal/dist/
+
 # ---- Runtime artifacts ----
 logs/
 *.log
@@ -56,4 +61,9 @@ logs/
 # Connector pairing credentials -- never commit a live secret.
 apps/connector.json
 deploy/uat/uat.env
+deploy/prod/prod.env
 
+
+# Headless Chrome profile, created by tools/brand/raster.py when it renders the
+# icon. Regenerated on demand and full of browser state; nothing to keep.
+tools/brand/.chrome-profile/

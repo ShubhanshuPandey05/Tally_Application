@@ -14,6 +14,7 @@ from sqlalchemy import select
 from ...core.errors import ConflictError, NotFound
 from ...db.models import Company, Role
 from ...services.audit import record
+from ...services.entitlements import check_company_limit, require_data
 from ..deps import (
     CompanyDep,
     ConnectorDep,
@@ -22,6 +23,7 @@ from ..deps import (
     SessionDep,
     SettingsDep,
     SyncDep,
+    visible_company_ids,
 )
 from ..schemas import CompanyResponse, DiscoveredCompany, LinkCompanyRequest
 
@@ -30,8 +32,12 @@ router = APIRouter(tags=["companies"])
 
 @router.get("/connectors/{connector_id}/discover", response_model=list[DiscoveredCompany])
 async def discover_companies(
-    connector: ConnectorDep, session: SessionDep, hub: HubDep
+    connector: ConnectorDep, principal: PrincipalDep, session: SessionDep, hub: HubDep
 ) -> list[DiscoveredCompany]:
+    # Discovery is the first half of linking, and it puts a real export request
+    # on the shop's Tally. Gating it here as well as at `link_company` keeps a
+    # suspended account from using the wizard as a live probe.
+    principal.require_changes()
     result = await hub.run(
         connector_id=connector.id,
         query="companies.list",
@@ -89,7 +95,11 @@ async def link_company(
     sync: SyncDep,
     request: Request,
 ) -> CompanyResponse:
-    principal.require(Role.ACCOUNTANT)
+    principal.require(Role.ADMIN)
+    # Before the lookup below, so re-linking something previously removed is
+    # still bounded -- that path also ends with one more active company. The
+    # subscription check rides inside it; the two must not be separable.
+    await check_company_limit(session, principal.org)
 
     existing = await session.scalar(
         select(Company).where(
@@ -155,17 +165,34 @@ async def _begin_history(
 
 @router.get("/companies", response_model=list[CompanyResponse])
 async def list_companies(principal: PrincipalDep, session: SessionDep) -> list[CompanyResponse]:
-    rows = (
-        (
-            await session.execute(
-                select(Company)
-                .where(Company.org_id == principal.org_id, Company.is_active.is_(True))
-                .order_by(Company.created_at)
-            )
-        )
-        .scalars()
-        .all()
+    """The companies this caller may open.
+
+    Filtered here as well as in ``deps.get_company``, because the two answer
+    different questions. The dependency stops a staff member *reading* a company
+    they were not granted; this stops them seeing that it exists at all. Without
+    it the company switcher would list every set of books in the business and
+    fail only when one was tapped, which tells them the names -- often the most
+    sensitive part -- while looking like a bug.
+    """
+    # Same reasoning one level up: a suspended account must not be told the
+    # names of its own companies and then refused on every one of them.
+    require_data(principal.org)
+
+    query = (
+        select(Company)
+        .where(Company.org_id == principal.org_id, Company.is_active.is_(True))
+        .order_by(Company.created_at)
     )
+
+    visible = await visible_company_ids(session, principal)
+    if visible is not None:
+        if not visible:
+            # No grants yet. Returning early keeps an `IN ()` out of the query,
+            # which some databases reject outright.
+            return []
+        query = query.where(Company.id.in_(visible))
+
+    rows = (await session.execute(query)).scalars().all()
     return [CompanyResponse.build(row) for row in rows]
 
 
@@ -178,7 +205,7 @@ async def get_company_detail(company: CompanyDep) -> CompanyResponse:
 async def unlink_company(
     company: CompanyDep, principal: PrincipalDep, session: SessionDep, request: Request
 ) -> None:
-    principal.require(Role.ACCOUNTANT)
+    principal.require(Role.ADMIN)
     # Soft delete. Hard-deleting would cascade the audit trail away with it, and
     # "who had access to these books last quarter" must remain answerable.
     company.is_active = False

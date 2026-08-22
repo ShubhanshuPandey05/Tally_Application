@@ -12,14 +12,19 @@ import '../../dashboard/presentation/widgets/dashboard_sections.dart';
 import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/reports.dart';
+import '../../../core/widgets/period_picker.dart';
 import 'widgets/report_scaffold.dart';
+
+/// How far back a day book request may reach. Mirrors the backend's own
+/// `MAX_REPORT_DAYS` clamp so a custom range is narrowed on the phone, with
+/// the user told why, instead of silently narrowed by the server.
+const int _maxDaybookDays = 400;
 
 /// Every voucher in a window, grouped by day.
 ///
-/// Windows are preset rather than a free date picker: the backend clamps
-/// requests to 400 days because a five-year day book is tens of megabytes of
-/// XML that would block the shop's own Tally for minutes. Offering a range the
-/// server will silently narrow would be worse than not offering it.
+/// The window is chosen from the shared period picker -- presets for the
+/// common cases, a custom range for everything else, clamped to what the
+/// backend will actually serve.
 class DaybookScreen extends ConsumerStatefulWidget {
   const DaybookScreen({super.key});
 
@@ -28,8 +33,22 @@ class DaybookScreen extends ConsumerStatefulWidget {
 }
 
 class _DaybookScreenState extends ConsumerState<DaybookScreen> {
-  _Window _window = _Window.today;
+  DateRange _range = DateRange.today();
+  String _periodLabel = 'Today';
   String? _kind;
+
+  Future<void> _pickPeriod() async {
+    final PeriodSelection? picked = await showPeriodPicker(
+      context,
+      current: _range,
+      maxDays: _maxDaybookDays,
+    );
+    if (picked == null) return;
+    setState(() {
+      _range = picked.range;
+      _periodLabel = picked.label;
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -46,21 +65,21 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen> {
 
     final DaybookArgs args = (
       companyId: companyId,
-      range: _window.range,
+      range: _range,
       kind: _kind,
     );
     final AsyncValue<Fresh<DaybookReport>> state = ref.watch(daybookProvider(args));
 
     return ReportScaffold<DaybookReport>(
       title: 'Day book',
-      subtitle: _window.label,
+      subtitle: _periodLabel,
       state: state,
       onRefresh: () => refreshReport<DaybookReport>(
         ref,
         daybookProvider(args),
         (ReportsRepository repository) => repository.daybook(
           companyId,
-          range: _window.range,
+          range: _range,
           kind: _kind,
           mode: FetchMode.live,
         ),
@@ -73,16 +92,10 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             children: <Widget>[
-              for (final _Window window in _Window.values)
-                Padding(
-                  padding: const EdgeInsets.only(right: 8),
-                  child: ChoiceChip(
-                    label: Text(window.label),
-                    selected: _window == window,
-                    onSelected: (_) => setState(() => _window = window),
-                  ),
-                ),
-              const SizedBox(width: 8),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: PeriodField(label: _periodLabel, onTap: _pickPeriod),
+              ),
               Padding(
                 padding: const EdgeInsets.only(right: 8),
                 child: FilterChip(
@@ -196,22 +209,4 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen> {
     if (difference == 1) return 'Yesterday';
     return '${day.day}/${day.month}/${day.year}';
   }
-}
-
-enum _Window {
-  today('Today'),
-  week('Last 7 days'),
-  month('This month'),
-  quarter('Last 90 days');
-
-  const _Window(this.label);
-
-  final String label;
-
-  DateRange get range => switch (this) {
-        _Window.today => DateRange.today(),
-        _Window.week => DateRange.lastDays(7),
-        _Window.month => DateRange.thisMonth(),
-        _Window.quarter => DateRange.lastDays(90),
-      };
 }

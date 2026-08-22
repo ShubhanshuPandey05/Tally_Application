@@ -1,0 +1,157 @@
+# TLS termination and the only route into the production stack.
+#
+# Three hostnames, one backend. Caddy obtains and renews a Let's Encrypt
+# certificate for each on its own, provided every A record points here and
+# ports 80 and 443 are open.
+#
+#   tallyflow.theshubhanshu.dev      marketing site + /downloads
+#   api-tallyflow.theshubhanshu.dev  the API and the connector WebSocket
+#   pd-tallyflow.theshubhanshu.dev   the management portal
+#
+# ---------------------------------------------------------------------------
+# Why /v1 is proxied on all three, not just on the API host
+# ---------------------------------------------------------------------------
+# Because a token must never become a cross-origin credential.
+#
+# The portal holds platform-wide authority. If it lived on pd- and called the
+# API on api-, every one of its requests would be cross-origin, its token would
+# be a cross-origin credential, and the only thing standing between a hostile
+# page and the portal API would be a CORS rule -- a rule that has to be correct
+# in a config file, in a preflight response, and in every future route.
+#
+# Proxying /v1 here instead means the portal calls its OWN origin and the
+# question never arises. Same reasoning for the marketing site, which fetches
+# /v1/public/stats relatively (apps/website/src/hooks.js).
+#
+# It is the same backend behind all three names. Nothing is duplicated except
+# the route.
+
+# Shared by every site block below. Snippets keep the WebSocket timeout in one
+# place: a connector holds one socket open for days, and a proxy that reaps idle
+# connections turns that into a reconnect loop nobody can explain.
+(api_proxy) {
+	reverse_proxy api:8000 {
+		# Long enough for a heavy Tally export (heavy_job_timeout is 180s) plus
+		# the queue wait in front of it.
+		transport http {
+			read_timeout 300s
+			write_timeout 300s
+		}
+	}
+}
+
+(hardening) {
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "no-referrer"
+		-Server
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The API. What connectors and phones dial, and the only name compiled into an
+# installer -- so it is the one hostname that cannot change without re-issuing
+# artefacts to every customer.
+# ---------------------------------------------------------------------------
+{$TALLYFLOW_API_HOST} {
+	encode zstd gzip
+
+	handle /v1/* {
+		import api_proxy
+	}
+
+	# Anything else on this host is a mistake -- someone typing the API name
+	# into a browser, or a scanner. Send them to the site rather than serving a
+	# bare 404 that reads as "the API is down".
+	handle {
+		redir https://{$TALLYFLOW_SITE_HOST}{uri} temporary
+	}
+
+	import hardening
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The marketing site and the downloads. The public face.
+# ---------------------------------------------------------------------------
+{$TALLYFLOW_SITE_HOST} {
+	encode zstd gzip
+
+	# The hero prints four aggregate counts from /v1/public/stats, fetched with
+	# a relative URL. Without this the fetch hits the site's own catch-all,
+	# which answers with index.html and a 200 -- so the page shows nothing and
+	# no error appears anywhere.
+	handle /v1/* {
+		import api_proxy
+	}
+
+	# The connector installer and the APK. `browse` is deliberately off: a
+	# directory listing would advertise every build ever dropped here.
+	handle /downloads/* {
+		root * /srv
+		header Cache-Control "public, max-age=300"
+		file_server
+	}
+
+	handle {
+		root * /srv/site
+		try_files {path} /index.html
+		file_server
+	}
+
+	import hardening
+
+	log {
+		output stdout
+		format console
+	}
+}
+
+# ---------------------------------------------------------------------------
+# The management portal. Staff and channel partners only.
+# ---------------------------------------------------------------------------
+{$TALLYFLOW_PORTAL_HOST} {
+	encode zstd gzip
+
+	# Same-origin with the portal bundle. See the block comment at the top --
+	# this is the line that keeps a portal token out of CORS's hands.
+	handle /v1/* {
+		import api_proxy
+	}
+
+	handle {
+		root * /srv/portal
+		# Built with base '/' on this host (PORTAL_BASE build arg in
+		# web.Dockerfile), so the bundle asks for /assets/... and finds it here.
+		# vite's `base` and the router's basename are derived from the same
+		# value, so the three cannot drift apart.
+		try_files {path} /index.html
+
+		# Hashed asset filenames, so they are safe to cache hard. index.html is
+		# not hashed and must never be: a browser holding yesterday's copy after
+		# a deploy asks for asset filenames that no longer exist, and the portal
+		# renders as a blank page with nothing in any log to explain it.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-store"
+		file_server
+	}
+
+	import hardening
+
+	# The obvious place for an allow-list once there is a fixed office IP:
+	#   @office not remote_ip 203.0.113.0/24
+	#   respond @office 403
+	# Not done here because the portal is reached from whatever connection the
+	# person on call happens to be using.
+
+	log {
+		output stdout
+		format console
+	}
+}

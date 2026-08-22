@@ -58,7 +58,7 @@ async def start_sync(
     ``full=true`` re-plans from scratch and is the answer to "the numbers look
     wrong", which is worth having but is never the default.
     """
-    principal.require(Role.ACCOUNTANT)
+    principal.require(Role.ADMIN)
 
     service = SyncService(session, settings)
     if await service.active_run(company.id) is not None or sync.is_running(company.id):
@@ -101,7 +101,7 @@ async def cancel_sync(
     whether or not anyone waits for the answer, so cancelling mid-export would
     throw away work without giving the shop's PC anything back.
     """
-    principal.require(Role.ACCOUNTANT)
+    principal.require(Role.ADMIN)
     service = SyncService(session, settings)
     await service.request_cancel(company.id)
     return await service.status(company.id)

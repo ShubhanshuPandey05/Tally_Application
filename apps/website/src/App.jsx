@@ -1,33 +1,36 @@
+import { useEffect } from 'react';
+
 import Nav from './components/Nav.jsx';
-import Hero from './components/Hero.jsx';
-import Marquee from './components/Marquee.jsx';
-import Features from './components/Features.jsx';
-import HowItWorks from './components/HowItWorks.jsx';
-import Security from './components/Security.jsx';
-import Downloads from './components/Downloads.jsx';
-import Pricing from './components/Pricing.jsx';
-import Faq from './components/Faq.jsx';
-import CtaFooter from './components/CtaFooter.jsx';
-import { useScrollReveal, usePointerGlow } from './hooks.js';
+import Footer from './components/Footer.jsx';
+import Home from './pages/Home.jsx';
+import Docs from './pages/Docs.jsx';
+import { useRoute } from './router.jsx';
 
 export default function App() {
-  useScrollReveal();
-  usePointerGlow();
+  const route = useRoute();
+
+  // A hash in the URL on first load points at a section that has not rendered
+  // yet, so the browser's own anchor jump lands nowhere. One frame is enough.
+  useEffect(() => {
+    const id = window.location.hash.slice(1);
+    if (!id) return;
+    requestAnimationFrame(() => {
+      document.getElementById(id)?.scrollIntoView();
+    });
+  }, []);
+
+  useEffect(() => {
+    document.title =
+      route === '/docs'
+        ? 'Setup guide — TallyFlow'
+        : 'TallyFlow — your TallyPrime numbers, on your phone';
+  }, [route]);
 
   return (
     <>
       <Nav />
-      <main>
-        <Hero />
-        <Marquee />
-        <Features />
-        <HowItWorks />
-        <Security />
-        <Downloads />
-        <Pricing />
-        <Faq />
-        <CtaFooter />
-      </main>
+      {route === '/docs' ? <Docs /> : <Home />}
+      <Footer />
     </>
   );
 }

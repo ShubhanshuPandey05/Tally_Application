@@ -1,67 +1,53 @@
 /*
- * Download targets.
+ * What is actually downloadable.
  *
- * PLACEHOLDER URLS. The paths match what the build actually produces --
- * `python run.py connector` writes
- * apps/connector/dist/installer/TallyFlowConnector-Setup-<version>.exe and
- * `python run.py release` writes the app bundle -- so publishing is a matter of
- * copying those artefacts to /downloads on the CDN and updating the versions
- * and sizes here.
+ * The authority is /downloads/manifest.json, which `python run.py publish`
+ * generates by measuring the bytes being served -- version, SHA-256 and size
+ * are never typed by a human, because a hand-copied checksum is how you ship an
+ * update every client refuses. `useManifest()` fetches it at runtime, so the
+ * moment a new build is published this page is correct without a rebuild.
+ *
+ * The constants below are the fallback used until that fetch resolves, and on a
+ * dev server where no manifest exists. They describe the LAST PUBLISHED build,
+ * which is not necessarily the version in the source tree -- publishing is what
+ * moves them.
  */
 
-export const CONNECTOR_VERSION = '0.1.0';
-export const APP_VERSION = '0.1.0';
-
-export const CONNECTOR = {
-  name: 'TallyFlow Connector',
-  platform: 'Windows 10 / 11 · 64-bit',
-  file: `TallyFlowConnector-Setup-${CONNECTOR_VERSION}.exe`,
-  href: `/downloads/TallyFlowConnector-Setup-${CONNECTOR_VERSION}.exe`,
-  size: '18.4 MB',
-  checksum: 'sha256:  a7f3…9c21',
-  points: [
-    'Installs per-user — no admin rights, no UAC prompt',
-    'Asks for the Connector ID and Secret from the app’s pairing screen',
-    'Starts automatically at logon and reconnects on its own',
-    'Silent rollout: /VERYSILENT /ID=<id> /SECRET=<secret>',
-  ],
-};
-
-export const MOBILE = {
+export const PUBLISHED = {
+  connector: {
+    version: '0.1.0',
+    file: 'TallyFlowConnector-Setup-0.1.0.exe',
+    url: '/downloads/TallyFlowConnector-Setup-0.1.0.exe',
+    size_bytes: 38055662,
+    sha256: '48b81f36d834cfc0b77e9e83afd723c99f714250eedb93313489f1639422533b',
+  },
   android: {
-    store: 'Google Play',
-    href: '#',
-    note: 'Android 8.0+',
-    badge: 'play',
-  },
-  ios: {
-    store: 'App Store',
-    href: '#',
-    note: 'iOS 14+',
-    badge: 'apple',
-  },
-  apk: {
-    name: `TallyFlow-${APP_VERSION}.apk`,
-    href: `/downloads/TallyFlow-${APP_VERSION}.apk`,
-    size: '24.1 MB',
+    version: '0.1.0',
+    file: 'TallyFlow-0.1.0.apk',
+    url: '/downloads/TallyFlow-0.1.0.apk',
+    size_bytes: 23583706,
+    sha256: '17db67c4baa85e48a2db2794607a90936c361505dc45c880125bf735375e1b60',
   },
 };
 
-/** The three steps the pairing wizard walks a customer through. */
+/** The three things a customer does, in order. */
 export const SETUP_STEPS = [
   {
-    n: '01',
+    n: '1',
     title: 'Turn on Tally’s gateway',
-    body: 'In TallyPrime: F1 → Settings → Connectivity → Client/Server. Set “TallyPrime acts as” to Both, port 9000. One time, thirty seconds.',
+    body:
+      'In TallyPrime: F1 → Settings → Connectivity → Client/Server configuration. Set “TallyPrime acts as” to Both, port 9000. Once, on the PC where Tally runs.',
   },
   {
-    n: '02',
+    n: '2',
     title: 'Install the connector',
-    body: 'Run the installer on the PC where Tally lives. Paste the Connector ID and Secret the app shows you. It registers itself to start at logon.',
+    body:
+      'Run the installer on that same PC and paste the Connector ID and secret the app gives you. No admin rights needed; it starts again at every logon.',
   },
   {
-    n: '03',
+    n: '3',
     title: 'Open the app',
-    body: 'Your companies appear as soon as the connector says hello. Every figure arrives stamped with the moment it was read from Tally.',
+    body:
+      'Link the companies you want to see. The first sync pulls history in chunks so your Tally stays usable while it runs.',
   },
 ];

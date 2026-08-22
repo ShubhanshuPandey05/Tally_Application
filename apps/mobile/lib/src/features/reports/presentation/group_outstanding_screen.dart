@@ -23,14 +23,36 @@ import 'widgets/report_scaffold.dart';
 /// group is actually worth once prepayments are taken off. What is chaseable
 /// and what is held as advance are both shown beside it rather than folded in,
 /// so the figure can be reconciled instead of taken on trust.
-class GroupOutstandingScreen extends ConsumerWidget {
+class GroupOutstandingScreen extends ConsumerStatefulWidget {
   const GroupOutstandingScreen({super.key, required this.kind, this.group});
 
   final OutstandingKind kind;
   final String? group;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<GroupOutstandingScreen> createState() => _GroupOutstandingScreenState();
+}
+
+class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen> {
+  DateTime? _asOf;
+
+  Future<void> _pickAsOf(BuildContext context) async {
+    final DateTime now = DateTime.now();
+    final DateTime picked = await showDatePicker(
+          context: context,
+          initialDate: _asOf ?? now,
+          firstDate: DateTime(now.year - 6),
+          lastDate: now,
+          helpText: 'View outstanding as of',
+        ) ??
+        _asOf ??
+        now;
+    if (!context.mounted) return;
+    setState(() => _asOf = _isToday(picked) ? null : picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -42,31 +64,48 @@ class GroupOutstandingScreen extends ConsumerWidget {
       );
     }
 
-    final GroupOutstandingArgs args =
-        (companyId: companyId, kind: kind, group: group);
+    final GroupOutstandingArgs args = (
+      companyId: companyId,
+      kind: widget.kind,
+      group: widget.group,
+      asOf: _asOf,
+    );
     final AsyncValue<Fresh<GroupOutstandingReport>> state =
         ref.watch(groupOutstandingProvider(args));
 
     return ReportScaffold<GroupOutstandingReport>(
       // The group actually read comes back in the response, so a renamed group
       // titles its own screen. Falls back to the stock name while loading.
-      title: state.valueOrNull?.data.group ?? kind.defaultGroup,
-      subtitle: kind.groupQuestion,
+      title: state.valueOrNull?.data.group ?? widget.kind.defaultGroup,
+      subtitle: _asOf == null
+          ? widget.kind.groupQuestion
+          : 'As of ${_formatDate(_asOf!)}',
+      actions: <Widget>[
+        IconButton(
+          tooltip: 'Choose a date',
+          onPressed: () => _pickAsOf(context),
+          icon: Icon(
+            _asOf == null ? Icons.calendar_month_outlined : Icons.event_available,
+          ),
+        ),
+      ],
       state: state,
       onRefresh: () => refreshReport<GroupOutstandingReport>(
         ref,
         groupOutstandingProvider(args),
         (ReportsRepository repository) => repository.outstandingByGroup(
           companyId,
-          kind: kind,
-          group: group,
+          kind: widget.kind,
+          group: widget.group,
+          asOf: _asOf,
           mode: FetchMode.live,
         ),
       ),
       emptyBuilder: (BuildContext context) => EmptyState(
         icon: Icons.check_circle_outline,
         title: 'Nothing outstanding',
-        message: 'No party under ${state.valueOrNull?.data.group ?? kind.defaultGroup} '
+        message:
+            'No party under ${state.valueOrNull?.data.group ?? widget.kind.defaultGroup} '
             'has an unsettled bill.',
       ),
       builder: (BuildContext context, GroupOutstandingReport report) {
@@ -91,6 +130,13 @@ class GroupOutstandingScreen extends ConsumerWidget {
       },
     );
   }
+
+  static bool _isToday(DateTime date) {
+    final DateTime now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  static String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 }
 
 class _GroupSummaryCard extends StatelessWidget {

@@ -22,7 +22,14 @@ from argon2.exceptions import InvalidHashError, VerificationError, VerifyMismatc
 #: and every customer's books.
 _hasher = PasswordHasher()
 
-TokenType = Literal["access", "refresh"]
+#: ``portal`` is a *third* type, not a role on an access token, and the
+#: distinction is load-bearing. ``decode_token`` refuses a token whose ``typ``
+#: is not the one expected, so a tenant's access token presented to the
+#: management portal fails at the signature layer rather than at whatever
+#: authorisation check somebody remembers to write — and a portal token cannot
+#: be spent on a customer's data endpoints either. The two surfaces share a
+#: signing secret and share nothing else.
+TokenType = Literal["access", "refresh", "portal"]
 
 
 def hash_password(password: str) -> str:
@@ -52,6 +59,23 @@ def needs_rehash(password_hash: str) -> bool:
 def generate_secret(nbytes: int = 32) -> str:
     """A connector pairing secret. Shown once, stored only as a hash."""
     return secrets.token_urlsafe(nbytes)
+
+
+#: Long enough to be safe, short enough to read down a phone line without
+#: mistakes. Ambiguous glyphs (0/O, 1/l/I) are excluded for the same reason --
+#: there is no email delivery in this system, so every temporary password is
+#: spoken aloud or written on paper far more often than it is copied.
+_TEMPORARY_PASSWORD_ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZabcdefghijkmnopqrstuvwxyz23456789"
+
+
+def generate_temporary_password(length: int = 12) -> str:
+    """A password handed over by a person, to be replaced on first sign-in.
+
+    Used for a shop's new colleague and for a new portal account alike. Shared
+    rather than written twice, because the version that gets copied is the one
+    that quietly loses the excluded-glyph rule.
+    """
+    return "".join(secrets.choice(_TEMPORARY_PASSWORD_ALPHABET) for _ in range(length))
 
 
 def hash_token(token: str) -> str:

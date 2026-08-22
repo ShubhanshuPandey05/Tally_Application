@@ -5,10 +5,11 @@
 # With UAT_DOMAIN=localhost it issues a local certificate instead, which is what
 # a smoke test on the build machine wants.
 #
-# One hostname serves three things, because a pilot customer should have exactly
+# One hostname serves four things, because a pilot customer should have exactly
 # one address to remember:
 #
 #   /v1/*        the API and the connector WebSocket
+#   /portal/*    the management portal (staff and channel partners only)
 #   /downloads/* the connector installer and the Android APK
 #   everything   the marketing/download site
 
@@ -29,6 +30,39 @@
 				write_timeout 300s
 			}
 		}
+	}
+
+	# --- Management portal -------------------------------------------------
+	# A React single-page app, built into this image (see web.Dockerfile) and
+	# served from disk. It is on the SAME HOSTNAME as /v1 above, which is the
+	# part that matters: the portal holds platform-wide authority, and keeping
+	# it same-origin means its token is never a cross-origin credential and no
+	# CORS rule has to be trusted to hold it in.
+	#
+	# `handle_path` strips the /portal prefix, so /portal/assets/index.js
+	# resolves to /srv/portal/assets/index.js. The bundle is built with
+	# `base: '/portal/'` so it asks for exactly that; all three -- this rule,
+	# vite's base, and the router's basename -- have to agree.
+	#
+	# `try_files ... /index.html` is what makes a client-side route survive a
+	# refresh. Without it, reloading /portal/logs/connector 404s, and the
+	# support view is the screen people are most likely to have bookmarked.
+	#
+	# This is the obvious place to put an allow-list once there is a fixed
+	# office IP -- `@portal remote_ip 203.0.113.0/24` and a 403 otherwise. Not
+	# done here because a UAT stack is reached from whatever connection the
+	# person happens to be on.
+	handle_path /portal* {
+		root * /srv/portal
+		try_files {path} /index.html
+		# Hashed asset filenames, so they are safe to cache hard. index.html is
+		# not hashed and must never be: a browser holding yesterday's copy after
+		# a deploy asks for asset filenames that no longer exist, and the portal
+		# renders as a blank page with nothing in any log to explain it.
+		@assets path /assets/*
+		header @assets Cache-Control "public, max-age=31536000, immutable"
+		header /index.html Cache-Control "no-store"
+		file_server
 	}
 
 	# --- Installer and APK ------------------------------------------------

@@ -45,6 +45,27 @@ class ApiException implements Exception {
   /// an error -- and emphatically not zeroes, which would read as "no sales".
   bool get isFirstRun => code == 'no_data_yet';
 
+  /// This build is below the published floor and the backend will not serve it.
+  ///
+  /// Never shown as an error by a screen: `VersionInterceptor` has already
+  /// pushed the verdict into `UpdateSignal`, so `UpdateGate` replaces the whole
+  /// app before any repository gets a chance to render this. The flag exists so
+  /// a retry loop can recognise it as terminal -- retrying from the same build
+  /// can only fail again, and burning three attempts first just delays the one
+  /// screen that can actually help.
+  bool get isUpdateRequired => statusCode == 426 || code == 'update_required';
+
+  /// The business itself is not live — waiting for approval, suspended, or its
+  /// term has ended.
+  ///
+  /// Never retryable and never a red error state: the `message` the backend
+  /// sends already explains the situation and names who to contact, so screens
+  /// render it as a notice rather than a failure. Distinguished by its own
+  /// status code so it cannot be confused with "you are not an admin", which
+  /// needs a completely different screen.
+  bool get isSubscriptionInactive =>
+      statusCode == 402 || code == 'subscription_inactive';
+
   factory ApiException.fromDio(DioException error) {
     final Response<Object?>? response = error.response;
     if (response != null) {

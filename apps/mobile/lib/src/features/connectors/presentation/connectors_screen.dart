@@ -8,6 +8,7 @@ import '../../../core/model/freshness.dart';
 import '../../../core/widgets/states.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/app_user.dart';
+import '../../subscription/presentation/subscription_notice.dart';
 import '../application/connector_providers.dart';
 import '../domain/connector.dart';
 
@@ -17,12 +18,14 @@ class ConnectorsScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final AsyncValue<List<Connector>> state = ref.watch(connectorsProvider);
-    final UserRole role =
-        ref.watch(authControllerProvider).user?.role ?? UserRole.viewer;
+    final AppUser? user = ref.watch(authControllerProvider).user;
+    // Both halves of the question at once: is this person an admin, *and* is
+    // the account live? Asking only the first draws a button the server 402s.
+    final bool canAdd = user?.canManageConnectors ?? false;
 
     return Scaffold(
       appBar: AppBar(title: const Text('Tally PCs')),
-      floatingActionButton: role.canManageConnectors
+      floatingActionButton: canAdd
           ? FloatingActionButton.extended(
               onPressed: () => context.push(Routes.pairConnector),
               icon: const Icon(Icons.add),
@@ -41,14 +44,16 @@ class ConnectorsScreen extends ConsumerWidget {
           data: (List<Connector> connectors) {
             if (connectors.isEmpty) {
               return ListView(
+                padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
                 children: <Widget>[
-                  SizedBox(height: MediaQuery.sizeOf(context).height * 0.15),
+                  const SubscriptionNotice(),
+                  SizedBox(height: MediaQuery.sizeOf(context).height * 0.10),
                   EmptyState(
                     icon: Icons.desktop_windows_outlined,
                     title: 'No PCs connected',
                     message: 'Install the TallyFlow Connector on the computer '
                         'running TallyPrime to get started.',
-                    action: role.canManageConnectors
+                    action: canAdd
                         ? FilledButton.icon(
                             onPressed: () => context.push(Routes.pairConnector),
                             icon: const Icon(Icons.add_link),
@@ -62,6 +67,7 @@ class ConnectorsScreen extends ConsumerWidget {
             return ListView(
               padding: const EdgeInsets.fromLTRB(16, 8, 16, 88),
               children: <Widget>[
+                const SubscriptionNotice(compact: true),
                 for (final Connector connector in connectors)
                   Padding(
                     padding: const EdgeInsets.only(bottom: 12),

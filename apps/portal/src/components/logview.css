@@ -1,0 +1,150 @@
+.logview {
+  font-family: var(--mono);
+  font-size: 12px;
+  line-height: 1.55;
+  max-height: min(66vh, 720px);
+  overflow: auto;
+  padding: 6px 0 10px;
+  /* Long lines wrap rather than scrolling the page sideways -- a log with a
+     horizontal scrollbar is a log nobody reads to the end of. */
+  overflow-wrap: anywhere;
+}
+
+.log-day {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: var(--surface-2);
+  color: var(--ink-3);
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: .07em;
+  text-transform: uppercase;
+  padding: 4px 16px;
+  border-bottom: 1px solid var(--line);
+}
+
+.log-line {
+  display: grid;
+  grid-template-columns: 82px 62px 168px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 2px 16px;
+  border-left: 2px solid transparent;
+}
+.log-line:hover { background: var(--surface-2); }
+
+/* Only the two levels worth spotting get a rail. If every level is marked,
+   none of them is a signal. */
+.log-line.lvl-WARNING { border-left-color: var(--wait); background: color-mix(in srgb, var(--wait-soft) 45%, transparent); }
+.log-line.lvl-ERROR   { border-left-color: var(--stop); background: color-mix(in srgb, var(--stop-soft) 55%, transparent); }
+.log-line.lvl-DEBUG   { opacity: .68; }
+
+.log-time { color: var(--ink-3); white-space: nowrap; font-variant-numeric: tabular-nums; }
+
+.log-logger {
+  color: var(--ink-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.log-msg { white-space: pre-wrap; }
+
+.log-meta {
+  color: var(--ink-3);
+  font-family: var(--font);
+  font-size: 11px;
+  white-space: nowrap;
+}
+
+.log-more {
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0 4px;
+  text-decoration: underline;
+}
+
+.log-detail {
+  padding: 8px 16px 12px 96px;
+  background: var(--surface-2);
+  border-left: 2px solid var(--line);
+}
+.log-detail pre {
+  margin: 0 0 8px;
+  padding: 10px 12px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-sm);
+  overflow-x: auto;
+  font-size: 11.5px;
+  line-height: 1.5;
+}
+.log-detail dl {
+  margin: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr);
+  gap: 2px 14px;
+  font-family: var(--font);
+  font-size: 12px;
+}
+.log-detail dt { color: var(--ink-3); font-weight: 650; }
+.log-detail dd { margin: 0; }
+
+.log-gap {
+  margin: 4px 16px;
+  padding: 5px 11px;
+  border-radius: var(--r-sm);
+  background: var(--wait-soft);
+  color: var(--wait);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 600;
+}
+
+/* ---- The bar above every log ------------------------------------- */
+
+.log-bar {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  flex-wrap: wrap;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--line);
+}
+.log-bar .input, .log-bar .select { width: auto; min-width: 130px; }
+
+.live-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+  animation: pulse 1.8s ease-in-out infinite;
+}
+@keyframes pulse { 50% { opacity: .25; } }
+@media (prefers-reduced-motion: reduce) { .live-dot { animation: none; } }
+
+.log-foot {
+  padding: 9px 16px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--ink-3);
+  flex-wrap: wrap;
+}
+
+@media (max-width: 880px) {
+  /* The logger column is the first thing to go: on a phone the message is
+     what is being read, and the logger name is recoverable by expanding. */
+  .log-line { grid-template-columns: 66px 54px minmax(0, 1fr); }
+  .log-logger, .log-meta { display: none; }
+  .log-detail { padding-left: 16px; }
+}

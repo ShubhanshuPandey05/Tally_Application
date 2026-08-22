@@ -20,7 +20,7 @@ from __future__ import annotations
 
 import json
 import os
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -116,6 +116,63 @@ async def test_dashboard_shape(client: AsyncClient, linked_company, dated) -> No
     )
     assert response.status_code == 200, response.text
     check("dashboard", response.json())
+
+
+async def test_dashboard_period_shape(client: AsyncClient, linked_company, dated) -> None:
+    """A dashboard scoped to an explicit from/to period."""
+    response = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/dashboard"
+        f"?as_of={AS_OF.isoformat()}"
+        f"&from_date={(AS_OF - timedelta(days=29)).isoformat()}"
+        f"&to_date={AS_OF.isoformat()}",
+        headers=linked_company["headers"],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    assert body["period"]["days"] == 30
+    assert body["period"]["from_date"] == (AS_OF - timedelta(days=29)).isoformat()
+    assert body["period"]["to_date"] == AS_OF.isoformat()
+    # The window was widened far enough to actually read the baseline, which is
+    # what separates "nothing sold then" from "we did not look".
+    assert body["period"]["has_baseline"] is True
+
+    period = body["sections"]["sales"]["data"]["period"]
+    assert period["total"] is not None
+    assert period["previous_total"] is not None
+    # The sample books hold nothing in the baseline span, so the change is
+    # genuinely unanswerable and must be null rather than a 100% swing.
+    assert period["change_pct"] is None
+
+    # The trend now spans the period rather than a fixed 30 days back from
+    # today -- same length here, but anchored to what was asked for.
+    trend = body["sections"]["sales"]["data"]["trend"]
+    assert trend[0]["date"] == (AS_OF - timedelta(days=29)).isoformat()
+    assert trend[-1]["date"] == AS_OF.isoformat()
+
+    check("dashboard_period", body)
+
+
+async def test_default_dashboard_is_unchanged_by_the_period_feature(
+    client: AsyncClient, linked_company, dated
+) -> None:
+    """No period asked for, no period fields, no widened voucher window.
+
+    The ordinary dashboard's request params are a snapshot's identity. If
+    asking for nothing started sending a period, every dashboard would miss the
+    row the background refresher warms and go to the shop's Tally instead --
+    a regression whose only symptom is "the app got slower".
+    """
+    response = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/dashboard"
+        f"?as_of={AS_OF.isoformat()}",
+        headers=linked_company["headers"],
+    )
+    assert response.status_code == 200
+    body = response.json()
+
+    assert "period" not in body
+    assert "period" not in body["sections"]["sales"]["data"]
 
 
 async def test_degraded_dashboard_shape(

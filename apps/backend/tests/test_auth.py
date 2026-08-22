@@ -35,7 +35,7 @@ async def test_register_returns_a_usable_token_pair(client: AsyncClient) -> None
     assert me.json()["email"] == "new@bhatiastores.in"
     # The registering user owns the organisation, or they could not pair a
     # connector and the account would be inert.
-    assert me.json()["role"] == "owner"
+    assert me.json()["role"] == "admin"
 
 
 async def test_duplicate_email_is_rejected(client: AsyncClient, registered) -> None:

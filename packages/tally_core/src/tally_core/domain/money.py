@@ -1,9 +1,14 @@
 """Monetary value object.
 
 Tally reports amounts as signed decimal strings where the sign encodes the
-accounting side: negative is Credit, positive is Debit. Carrying that convention
-raw into the UI is how "why is my sales figure negative?" bugs happen, so the
-domain layer stores an unsigned magnitude plus an explicit :class:`Side`.
+accounting side: **negative is Debit, positive is Credit** -- the opposite of the
+usual debit-positive convention. See :meth:`Money.from_tally` for the live
+verification behind that, and note that this docstring previously stated it
+backwards, which is how easy it is to get wrong.
+
+Carrying the convention raw into the UI is how "why is my sales figure negative?"
+bugs happen, so the domain layer stores an unsigned magnitude plus an explicit
+:class:`Side`.
 """
 
 from __future__ import annotations

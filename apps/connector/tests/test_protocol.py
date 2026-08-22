@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import time
+from datetime import UTC, datetime
 
 import pytest
 
@@ -14,10 +15,13 @@ from tally_connector.protocol import (
     JobError,
     JobRequest,
     JobResult,
+    LogBatch,
+    LogEntry,
     QueryCapability,
     decode_payload,
     encode_payload,
     sign_handshake,
+    utc_now,
     verify_handshake,
 )
 
@@ -172,3 +176,57 @@ def test_job_defaults_are_conservative():
     job = JobRequest(job_id="j", query="companies.list")
     assert job.cache_ttl_seconds == 0.0
     assert job.deadline_seconds == 120.0
+
+
+# --------------------------------------------------------------------------
+# Log batches
+# --------------------------------------------------------------------------
+
+
+def test_log_batch_round_trips():
+    batch = LogBatch(
+        entries=[
+            LogEntry(
+                logged_at=datetime(2026, 8, 19, 9, 30, tzinfo=UTC),
+                level="ERROR",
+                logger="tally_connector.pipeline",
+                message="tally refused the export",
+            )
+        ],
+        dropped=7,
+    )
+    decoded = LogBatch.model_validate_json(batch.model_dump_json())
+    assert decoded.dropped == 7
+    assert decoded.entries[0].message == "tally refused the export"
+    assert decoded.entries[0].logged_at == datetime(2026, 8, 19, 9, 30, tzinfo=UTC)
+
+
+def test_an_empty_batch_can_still_report_a_gap():
+    """The only record that a stretch of log was lost rather than quiet."""
+    batch = LogBatch(dropped=1842)
+    assert batch.entries == []
+    assert LogBatch.model_validate_json(batch.model_dump_json()).dropped == 1842
+
+
+def test_log_batch_is_a_client_message_and_carries_the_version():
+    """Every frame the connector sends is stamped, including this one.
+
+    A version known only at handshake is a version the backend cannot
+    re-evaluate until the next reconnect -- which for a connector that stays up
+    for a week is a week.
+    """
+    batch = LogBatch(connector_version="0.2.0")
+    assert batch.protocol_version == 1
+    assert batch.connector_version == "0.2.0"
+
+
+def test_an_old_backend_ignoring_log_batches_is_not_an_error():
+    """Forward compatibility runs both ways.
+
+    A connector on a new build talking to a backend that predates remote logging
+    keeps sending these; the backend's link logs an unknown type at DEBUG and
+    carries on. Nothing here may make that frame undecodable to a *newer*
+    reader, which is what this asserts.
+    """
+    raw = LogBatch(entries=[LogEntry(logged_at=utc_now())]).model_dump_json()
+    assert LogBatch.model_validate_json(raw).type == "log_batch"

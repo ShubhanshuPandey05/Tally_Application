@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- The tile behind the adaptive launcher icon. A flat colour rather than a
+         drawable so the launcher can parallax the two layers against each other
+         without the background showing a seam. Same ink as the app's own dark
+         surfaces. -->
+    <color name="ic_launcher_background">#0E0F11</color>
+</resources>

@@ -62,7 +62,7 @@ void main() {
     );
 
     expect(created.email, email);
-    expect(created.role, UserRole.owner);
+    expect(created.role, UserRole.admin);
     expect(created.orgName, 'Bhatia Supermarket');
 
     // Proves the interceptor is attaching the token the repository just stored.

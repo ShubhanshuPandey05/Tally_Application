@@ -2,7 +2,10 @@ name: tallyflow
 description: "TallyFlow -- a read-only mobile dashboard for TallyPrime."
 publish_to: 'none'
 
-version: 1.0.0+1
+# Must match the APK the site links to and the update manifest names: the
+# updater compares this against the manifest, so a pubspec that disagrees with
+# the shipped artefact makes every client believe it is permanently out of date.
+version: 0.2.0+2
 
 environment:
   sdk: ^3.5.3
@@ -36,6 +39,17 @@ dependencies:
   intl: ^0.19.0
   fl_chart: ^0.69.0
 
+  # The running build's own version, read from the platform rather than from a
+  # constant in Dart. A hard-coded version is one more place to forget on
+  # release day, and the symptom -- an app convinced it is permanently out of
+  # date -- is expensive to diagnose.
+  package_info_plus: ^8.0.2
+
+  # Hands the APK download to the browser. Installing a package from our own
+  # storage would need REQUEST_INSTALL_PACKAGES and a FileProvider; the browser
+  # already owns that flow and shows the prompt users recognise.
+  url_launcher: ^6.3.0
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:
@@ -45,3 +59,20 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
+
+  # The one place a typeface is part of the brand rather than part of the
+  # interface. Bundled rather than fetched at runtime: the app is built to keep
+  # working when the shop's connection is down, and a logo that renders in a
+  # fallback face on exactly those days is a logo that fails when it is noticed.
+  #
+  # Caveat is SIL Open Font License 1.1 -- see assets/fonts/Caveat-OFL.txt,
+  # which ships alongside it because the licence requires the notice to travel
+  # with the font.
+  fonts:
+    - family: Caveat
+      fonts:
+        - asset: assets/fonts/Caveat-Bold.ttf
+          weight: 700
+
+  assets:
+    - assets/fonts/Caveat-OFL.txt

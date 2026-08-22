@@ -25,8 +25,48 @@ class SlowMovingScreen extends ConsumerStatefulWidget {
   ConsumerState<SlowMovingScreen> createState() => _SlowMovingScreenState();
 }
 
+const List<int> _slowMovingPresets = <int>[30, 60, 90, 180];
+const int _slowMovingMinDays = 7;
+const int _slowMovingMaxDays = 400;
+
 class _SlowMovingScreenState extends ConsumerState<SlowMovingScreen> {
   int _days = 90;
+
+  Future<void> _pickCustomDays() async {
+    final TextEditingController controller =
+        TextEditingController(text: _days.toString());
+    final int? picked = await showDialog<int>(
+      context: context,
+      builder: (BuildContext dialogContext) => AlertDialog(
+        title: const Text('Custom window'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.number,
+          decoration: const InputDecoration(
+            labelText: 'Days with no sale',
+            suffixText: 'days',
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            onPressed: () {
+              final int? value = int.tryParse(controller.text.trim());
+              Navigator.of(dialogContext).pop(value);
+            },
+            child: const Text('Apply'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    if (picked == null) return;
+    setState(() => _days = picked.clamp(_slowMovingMinDays, _slowMovingMaxDays));
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -62,7 +102,7 @@ class _SlowMovingScreenState extends ConsumerState<SlowMovingScreen> {
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 12),
             children: <Widget>[
-              for (final int days in <int>[30, 60, 90, 180])
+              for (final int days in _slowMovingPresets)
                 Padding(
                   padding: const EdgeInsets.only(right: 8),
                   child: ChoiceChip(
@@ -71,6 +111,14 @@ class _SlowMovingScreenState extends ConsumerState<SlowMovingScreen> {
                     onSelected: (_) => setState(() => _days = days),
                   ),
                 ),
+              Padding(
+                padding: const EdgeInsets.only(right: 8),
+                child: ChoiceChip(
+                  label: Text(_slowMovingPresets.contains(_days) ? 'Custom' : '$_days days'),
+                  selected: !_slowMovingPresets.contains(_days),
+                  onSelected: (_) => _pickCustomDays(),
+                ),
+              ),
             ],
           ),
         ),

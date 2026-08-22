@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
 import '../model/freshness.dart';
+import 'primitives.dart';
 
 /// The "as of" line that sits above every set of figures.
 ///
@@ -44,17 +45,16 @@ class FreshnessBanner extends StatelessWidget {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        padding: const EdgeInsets.all(12),
         decoration: BoxDecoration(
-          color: style.colour.withOpacity(0.10),
-          borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: style.colour.withOpacity(0.30)),
+          color: style.colour.withOpacity(0.09),
+          borderRadius: BorderRadius.circular(AppTheme.radiusCard),
         ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
-            Icon(style.icon, size: 18, color: style.colour),
-            const SizedBox(width: 10),
+            IconTile(icon: style.icon, colour: style.colour, size: 34),
+            const SizedBox(width: 12),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,

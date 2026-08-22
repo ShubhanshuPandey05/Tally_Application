@@ -128,15 +128,16 @@ async def test_the_connector_goes_back_to_pending_until_it_reconnects(
 # --------------------------------------------------------------------------
 
 
-async def test_only_an_owner_may_rotate(app, client: AsyncClient, linked_company) -> None:
+async def test_only_an_admin_may_rotate(app, client: AsyncClient, linked_company) -> None:
     """It hands out a working credential for the shop's whole books.
 
-    An accountant, not just a viewer: the role immediately below owner must
-    still be refused, or "least privilege" is only being claimed.
+    Staff are refused even though they can read those same books through the
+    app: a credential that pairs a new PC is a different thing from a report,
+    and only an admin changes the shape of the account.
     """
     async with app.state.session_factory() as session:
         membership = (await session.execute(select(Membership))).scalars().first()
-        membership.role = Role.ACCOUNTANT
+        membership.role = Role.STAFF
         await session.commit()
 
     status, body = await rotate(client, linked_company)

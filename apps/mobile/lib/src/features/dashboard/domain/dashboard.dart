@@ -45,6 +45,41 @@ class Section<T> {
   }
 }
 
+/// A trade section's figures for an explicitly requested period.
+///
+/// Present only when the dashboard was asked for one. Its absence is what the
+/// screen reads as "this is the ordinary today view", so it is nullable all the
+/// way up rather than defaulting to a zeroed instance.
+class TradePeriod {
+  const TradePeriod({
+    required this.total,
+    required this.voucherCount,
+    this.previousTotal,
+    this.changePct,
+  });
+
+  final Money total;
+  final int voucherCount;
+
+  /// The equal-length span before this one. Null when it fell outside the
+  /// window the backend read -- which is "we did not look", not "nothing sold".
+  final Money? previousTotal;
+
+  /// Null whenever the baseline is missing or was zero. Rendered as "--", never
+  /// as a movement that did not happen.
+  final double? changePct;
+
+  bool get hasBaseline => previousTotal != null;
+
+  factory TradePeriod.fromJson(Map<String, Object?> json) => TradePeriod(
+        total: Money.fromJson(json['total']),
+        voucherCount: (json['voucher_count'] as num?)?.toInt() ?? 0,
+        previousTotal:
+            json['previous_total'] == null ? null : Money.fromJson(json['previous_total']),
+        changePct: (json['change_pct'] as num?)?.toDouble(),
+      );
+}
+
 class TradeSummary {
   const TradeSummary({
     required this.today,
@@ -55,6 +90,7 @@ class TradeSummary {
     required this.topParties,
     required this.topProducts,
     this.changePct,
+    this.period,
   });
 
   final Money today;
@@ -70,6 +106,14 @@ class TradeSummary {
   final List<PartyTotal> topParties;
   final List<ProductTotal> topProducts;
 
+  /// Set only when the dashboard was scoped to a period.
+  final TradePeriod? period;
+
+  /// The headline figure for whichever view is on screen: the period's total
+  /// when one was asked for, today's otherwise. Every caller wants this rather
+  /// than [today], which is literally today even inside a historical period.
+  Money get headline => period?.total ?? today;
+
   factory TradeSummary.fromJson(Map<String, Object?> json) => TradeSummary(
         today: Money.fromJson(json['today']),
         yesterday: Money.fromJson(json['yesterday']),
@@ -79,6 +123,9 @@ class TradeSummary {
         trend: _list(json['trend'], TrendPoint.fromJson),
         topParties: _list(json['top_parties'], PartyTotal.fromJson),
         topProducts: _list(json['top_products'], ProductTotal.fromJson),
+        period: json['period'] is Map
+            ? TradePeriod.fromJson(Section._map(json['period']))
+            : null,
       );
 }
 
@@ -188,6 +235,39 @@ class ActivitySummary {
       );
 }
 
+/// The window the voucher-derived sections of a dashboard cover.
+///
+/// Echoed back by the backend rather than assumed from what was asked for: the
+/// server clamps long spans, and the screen must label what it actually got.
+class DashboardPeriod {
+  const DashboardPeriod({
+    required this.from,
+    required this.to,
+    required this.days,
+    required this.hasBaseline,
+  });
+
+  final DateTime from;
+  final DateTime to;
+  final int days;
+
+  /// Whether the equal-length span before this one was inside the read. When
+  /// false there is no honest comparison to draw.
+  final bool hasBaseline;
+
+  factory DashboardPeriod.fromJson(Map<String, Object?> json) {
+    final DateTime from =
+        DateTime.tryParse(json['from_date'] as String? ?? '') ?? DateTime.now();
+    final DateTime to = DateTime.tryParse(json['to_date'] as String? ?? '') ?? DateTime.now();
+    return DashboardPeriod(
+      from: from,
+      to: to,
+      days: (json['days'] as num?)?.toInt() ?? (to.difference(from).inDays + 1),
+      hasBaseline: json['has_baseline'] as bool? ?? false,
+    );
+  }
+}
+
 /// Everything the home screen needs, from a single round trip.
 class Dashboard {
   const Dashboard({
@@ -203,6 +283,7 @@ class Dashboard {
     required this.payables,
     required this.inventory,
     required this.activity,
+    this.period,
   });
 
   final String companyId;
@@ -210,6 +291,10 @@ class Dashboard {
   final String currency;
   final DateTime asOf;
   final Freshness freshness;
+
+  /// Null on the ordinary today view. Non-null means every voucher-derived
+  /// figure below describes this window instead.
+  final DashboardPeriod? period;
 
   final Section<TradeSummary> sales;
   final Section<TradeSummary> purchases;
@@ -250,6 +335,9 @@ class Dashboard {
       payables: Section.parse(section('payables'), OutstandingSummary.fromJson),
       inventory: Section.parse(section('inventory'), InventorySummary.fromJson),
       activity: Section.parse(section('activity'), ActivitySummary.fromJson),
+      period: json['period'] is Map
+          ? DashboardPeriod.fromJson(Section._map(json['period']))
+          : null,
     );
   }
 }

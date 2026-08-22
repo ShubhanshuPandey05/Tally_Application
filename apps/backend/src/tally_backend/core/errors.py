@@ -73,6 +73,25 @@ class ConflictError(AppError):
     user_message = "That already exists."
 
 
+class SubscriptionInactive(AppError):
+    """The account exists and the caller is who they say, but it is not live.
+
+    402 rather than 403, for the same reason the version check uses 426 rather
+    than 400: a distinct status keeps "your subscription is not active" from
+    being indistinguishable from "you are not an admin" in a log, a metric, or
+    an app's error handling. The two need completely different screens — one
+    offers a way to ask someone for access, the other is a dead end.
+
+    Not retryable. Nothing about repeating the request changes the answer, and
+    the app's retry loop would otherwise burn its attempts before showing the
+    one screen that explains what is going on.
+    """
+
+    status_code = status.HTTP_402_PAYMENT_REQUIRED
+    code = "subscription_inactive"
+    user_message = "This TallyFlow account is not active yet."
+
+
 class RateLimited(AppError):
     status_code = status.HTTP_429_TOO_MANY_REQUESTS
     code = "rate_limited"
@@ -174,6 +193,7 @@ async def http_error_handler(_: Request, exc: HTTPException) -> JSONResponse:
 _CODES = {
     400: "bad_request",
     401: "unauthenticated",
+    402: "subscription_inactive",
     403: "forbidden",
     404: "not_found",
     405: "method_not_allowed",

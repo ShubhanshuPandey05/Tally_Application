@@ -24,6 +24,7 @@ from typing import Any
 import websockets
 from pydantic import ValidationError
 from tally_core.tally import TallyClient, registry_manifest
+from tally_core.versioning import is_newer
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from .cache import ResponseCache
@@ -31,16 +32,22 @@ from .config import ConnectorSettings
 from .executor import JobExecutor
 from .pipeline import TallyPipeline
 from .protocol import (
+    MAX_LOG_ENTRIES_PER_BATCH,
     PROTOCOL_VERSION,
+    ClientMessage,
     Hello,
     HelloAck,
     JobRequest,
+    LogBatch,
     Message,
     Ping,
     Pong,
     QueryCapability,
     StatusEvent,
+    UpdateCommand,
 )
+from .remote_logs import RemoteLogHandler
+from .updater import UpdateManager
 
 logger = logging.getLogger(__name__)
 
@@ -66,9 +73,14 @@ class ConnectorSession:
         *,
         version: str,
         tally: TallyClient | None = None,
+        log_handler: RemoteLogHandler | None = None,
     ) -> None:
         self._settings = settings
         self._version = version
+        # Owned by `main`, not by the session: the buffer has to outlive a
+        # dropped connection, otherwise the lines explaining *why* the
+        # connection dropped would be thrown away with it.
+        self._log_handler = log_handler
         self._tally = tally or TallyClient(settings.tally_config())
         self._pipeline = TallyPipeline(
             self._tally,
@@ -96,12 +108,29 @@ class ConnectorSession:
         self._last_inbound = 0.0
         self._tally_online: bool | None = None
         self._stopping = asyncio.Event()
+        # Given the pipeline so it can hold an install back until Tally is idle.
+        # An upgrade that kills a running export costs a shop its report; one
+        # that waits costs nothing anybody notices.
+        self._updater = UpdateManager(
+            current_version=version,
+            manifest_url=settings.manifest_url,
+            pipeline=self._pipeline,
+            auto_update=settings.auto_update,
+            check_interval_seconds=settings.update_check_interval_seconds,
+            verify_tls=settings.verify_tls,
+        )
 
     # -- lifecycle ------------------------------------------------------
 
     async def run_forever(self) -> None:
         """Connect, serve, reconnect. Returns only on stop() or auth rejection."""
         delay = self._settings.reconnect_initial_seconds
+
+        # Started here rather than alongside the socket: the update check must
+        # survive a backend the connector cannot reach. A build too old to
+        # authenticate is exactly the one that most needs replacing, and tying
+        # the updater to a working session would strand it permanently.
+        self._updater.start()
 
         while not self._stopping.is_set():
             try:
@@ -135,6 +164,7 @@ class ConnectorSession:
         self._stopping.set()
 
     async def aclose(self) -> None:
+        await self._updater.aclose()
         await self._drain_jobs()
         await self._pipeline.aclose()
         await self._tally.aclose()
@@ -159,12 +189,14 @@ class ConnectorSession:
 
             self._last_inbound = asyncio.get_running_loop().time()
             watchdog = asyncio.create_task(self._watch_heartbeat(socket))
+            shipper = asyncio.create_task(self._ship_logs(socket))
             try:
                 await self._serve(socket)
             finally:
-                watchdog.cancel()
-                with contextlib.suppress(asyncio.CancelledError):
-                    await watchdog
+                for task in (watchdog, shipper):
+                    task.cancel()
+                    with contextlib.suppress(asyncio.CancelledError):
+                        await task
 
     def _ssl_context(self) -> ssl.SSLContext | None:
         if not self._settings.backend_url.startswith("wss://"):
@@ -211,6 +243,12 @@ class ConnectorSession:
                 logger.warning("discarding non-JSON frame")
                 continue
 
+            # Before dispatch, and for every frame type including ones this build
+            # does not understand: the version rides on all of them, and a newer
+            # backend sending an unknown type is exactly the case where noticing
+            # that an update exists matters most.
+            self._note_backend_version(message)
+
             kind = message.get("type")
             if kind == "ping":
                 # Answered on its own task, never inline. Awaiting the pong here
@@ -222,10 +260,66 @@ class ConnectorSession:
                 self._start_ping(socket, message)
             elif kind == "job":
                 self._start_job(socket, message)
+            elif kind == "update":
+                self._handle_update_command(message)
             else:
                 # Forward compatibility: a newer backend may send message types
                 # this build predates. Ignoring beats disconnecting.
                 logger.debug("ignoring unsupported message type %r", kind)
+
+    # -- updates ---------------------------------------------------------
+
+    def _note_backend_version(self, message: dict[str, Any]) -> None:
+        """Act on the release version stamped on any inbound frame.
+
+        This is what replaced the six-hourly poll as the primary trigger. Every
+        server frame -- ack, ping, job -- says what the newest published build is,
+        so a release reaches a connected connector within one heartbeat.
+
+        Only a *newer* version nudges anything. An equal or older one is the
+        normal case on every single frame, and a backend rolled back to an older
+        manifest must not be able to talk connectors into downgrading.
+        """
+        latest = message.get("latest_connector_version")
+        if not isinstance(latest, str) or not latest:
+            # An older backend, or one with no release manifest configured. The
+            # interval poll still covers this connector.
+            return
+        if not is_newer(latest, self._version):
+            return
+        self._updater.nudge(f"backend reports {latest} is published")
+
+    def _handle_update_command(self, message: dict[str, Any]) -> None:
+        """An explicit instruction to update, rather than the ambient version.
+
+        Carries no URL by design -- the connector resolves the download from the
+        published manifest, which is the only path that verifies the checksum. A
+        backend that could name the file to run would be a backend that could
+        install anything it liked on a customer's PC.
+        """
+        try:
+            command = UpdateCommand.model_validate(message)
+        except ValidationError as exc:
+            logger.warning("discarding malformed update command: %s", exc)
+            return
+
+        if not is_newer(command.version, self._version):
+            # Stale, or a backend confused about what we run. Either way, going
+            # backwards is never the answer.
+            logger.debug(
+                "ignoring update command for %s; already running %s",
+                command.version,
+                self._version,
+            )
+            return
+
+        logger.info(
+            "backend asked for connector %s%s: %s",
+            command.version,
+            " (required)" if command.mandatory else "",
+            command.reason or "no reason given",
+        )
+        self._updater.nudge(f"backend requested {command.version}")
 
     # -- handlers --------------------------------------------------------
 
@@ -285,8 +379,50 @@ class ConnectorSession:
     # -- plumbing --------------------------------------------------------
 
     async def _send(self, socket: Any, message: Message) -> None:
+        # Stamped here, once, rather than at each construction site: a pong built
+        # in the ping handler and a result built in the executor have to carry the
+        # same version, and missing it on one type would mean the backend cannot
+        # re-evaluate a connector that only ever sends that type.
+        if isinstance(message, ClientMessage):
+            message = message.model_copy(update={"connector_version": self._version})
         async with self._send_lock:
             await socket.send(message.model_dump_json())
+
+    async def _ship_logs(self, socket: Any) -> None:
+        """Drain the log buffer onto the socket for as long as it is open.
+
+        Runs per connection and dies with it, on purpose: the buffer is what
+        survives a reconnect, and a shipper that outlived the socket would be
+        holding a reference to a closed one. Nothing here is allowed to end the
+        session -- a connector that disconnected because it could not send its
+        own logs would be a diagnostic tool that causes the outage it reports.
+        """
+        handler = self._log_handler
+        if handler is None:
+            return
+
+        interval = max(1.0, self._settings.remote_log_interval_seconds)
+        while True:
+            await asyncio.sleep(interval)
+            # Loop rather than one batch per tick: a burst larger than the
+            # per-frame cap would otherwise take one interval per batch to
+            # clear, and the interesting bursts are exactly the big ones.
+            while True:
+                entries, dropped = handler.drain(MAX_LOG_ENTRIES_PER_BATCH)
+                if not entries and not dropped:
+                    break
+                try:
+                    await self._send(socket, LogBatch(entries=entries, dropped=dropped))
+                except ConnectionClosed:
+                    # The lines are already gone from the buffer. Re-queueing
+                    # them ahead of newer ones would reorder the log, and the
+                    # newer ones are the ones that say what just happened.
+                    return
+                except Exception as exc:  # noqa: BLE001 - never take the session down
+                    logger.debug("could not ship log batch: %s", exc)
+                    return
+                if len(entries) < MAX_LOG_ENTRIES_PER_BATCH:
+                    break
 
     async def _watch_heartbeat(self, socket: Any) -> None:
         """Force a reconnect when the backend stops pinging.

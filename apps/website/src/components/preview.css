@@ -1,0 +1,249 @@
+.preview {
+  max-width: 330px;
+  margin: 0 auto;
+}
+
+.preview-screen {
+  position: relative;
+  padding: 18px 14px 74px;
+  border-radius: 34px;
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 24px 60px -30px rgba(16, 17, 20, 0.35);
+}
+
+.preview-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 0 4px 14px;
+}
+
+.preview-company {
+  font-size: 16px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.preview-fresh {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--muted);
+}
+
+.preview-avatar {
+  display: grid;
+  place-items: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.pip {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--ok);
+  flex: none;
+}
+
+.pip.warn {
+  background: var(--warn);
+}
+
+/* ---------- the dark card ---------- */
+
+.preview-hero {
+  padding: 15px 16px 16px;
+  border-radius: var(--radius);
+  background: var(--ink-card);
+  color: #fff;
+}
+
+.preview-hero-top {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.preview-hero-tile {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.preview-hero-tile svg {
+  width: 15px;
+  height: 15px;
+}
+
+.preview-delta {
+  margin-left: auto;
+  padding: 3px 9px;
+  border-radius: var(--pill);
+  background: rgba(62, 213, 152, 0.16);
+  color: #3ed598;
+  font-size: 11.5px;
+  font-weight: 700;
+}
+
+.preview-figure {
+  margin-top: 14px;
+  font-size: 30px;
+  font-weight: 700;
+  letter-spacing: -0.04em;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #9aa0ae;
+}
+
+.preview-hero-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+  font-size: 12.5px;
+  color: #9aa0ae;
+}
+
+.preview-hero-foot b {
+  color: #fff;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- tiles and list ---------- */
+
+.preview-tiles {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.preview-tile {
+  padding: 13px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.preview-tile .tile {
+  width: 28px;
+  height: 28px;
+  border-radius: 8px;
+  margin-bottom: 10px;
+}
+
+.preview-tile .tile svg {
+  width: 14px;
+  height: 14px;
+}
+
+.preview-tile small {
+  display: block;
+  font-size: 11.5px;
+  color: var(--muted);
+}
+
+.preview-tile b {
+  display: block;
+  margin-top: 1px;
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+.preview-list {
+  margin-top: 8px;
+  padding: 13px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.preview-list > p {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--muted);
+  margin-bottom: 8px;
+}
+
+.preview-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 5px 0;
+  font-size: 12.5px;
+}
+
+.preview-name {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* ---------- floating bar ---------- */
+
+.preview-nav {
+  position: absolute;
+  left: 18px;
+  right: 18px;
+  bottom: 16px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px;
+  border-radius: var(--pill);
+  background: var(--card);
+  border: 1px solid var(--line);
+  box-shadow: 0 10px 24px -12px rgba(16, 17, 20, 0.4);
+}
+
+.preview-nav span {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  flex: 1;
+  height: 36px;
+  border-radius: var(--pill);
+  font-size: 12.5px;
+  font-weight: 600;
+  color: var(--muted);
+}
+
+.preview-nav span svg {
+  width: 16px;
+  height: 16px;
+}
+
+.preview-nav .on {
+  background: var(--ink);
+  color: #fff;
+}
+
+.preview-caption {
+  margin-top: 14px;
+  text-align: center;
+  font-size: 12px;
+  color: var(--faint);
+}

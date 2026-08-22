@@ -1,0 +1,233 @@
+# TallyFlow production stack: Postgres + API + Caddy, on one host.
+#
+#     cp prod.env.example prod.env      # then fill in the marked values
+#     docker compose --env-file prod.env up -d --build
+#
+# Sized for a 2 GB / 2 vCPU box (AWS t4g.small, Hetzner CX23). Every memory
+# limit below is set so the limits SUM to less than physical RAM -- a
+# limit that only stops one container from eating the others is no protection
+# when their ceilings add up to more than the machine has.
+#
+# How this differs from deploy/uat, and why:
+#
+#   * Postgres runs here rather than in RDS, and is tuned for the box instead
+#     of left on defaults sized for a laptop.
+#   * Container logs are capped. Docker's json-file driver is unbounded by
+#     default, and the failure is a full disk weeks later with no other
+#     symptom -- on a host whose database shares that disk.
+#   * Three hostnames rather than one, so this stack has its OWN Caddyfile.
+#     See ./Caddyfile for why /v1 is proxied on all three.
+#
+# THERE IS NO BACKUP SERVICE. Postgres is running on the same disk as
+# everything else and nothing is copying it anywhere. Until that changes, this
+# deployment can lose every connector pairing, every approved subscription and
+# every user account to one volume failure, and TallyPrime cannot rebuild any
+# of it -- only the voucher data. Do not leave it that way once real customers
+# are on it.
+#
+# web.Dockerfile is shared with deploy/uat deliberately: the two apps it builds
+# are identical in both environments, and the failure mode of two copies is
+# that a fix lands in one of them. Only the portal's base path differs, which
+# is why that is a build argument.
+
+name: tallyflow-prod
+
+# Applied to every service. 30 MB per service is enough to debug a restart loop
+# and small enough that the stack cannot fill a 40 GB volume with logs.
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
+services:
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    logging: *logging
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tallyflow}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in prod.env}
+      POSTGRES_DB: ${POSTGRES_DB:-tallyflow}
+      # Costs a few percent on write and turns silent storage corruption into a
+      # loud error. On a cloud block device that degrades quietly, the
+      # alternative is discovering it from a wrong figure in someone's books.
+      # Applies at initdb only -- it cannot be turned on for an existing volume.
+      POSTGRES_INITDB_ARGS: "--data-checksums"
+
+    # Tuned for the 640 MB limit below, not for the host. Postgres reads no
+    # cgroup limit and will happily plan as though it owns the machine.
+    command:
+      - postgres
+      # 25% of the container limit is the standard starting point.
+      - -c
+      - shared_buffers=160MB
+      # What the planner believes the OS will cache. Deliberately larger than
+      # shared_buffers: the page cache is real memory too, and understating this
+      # pushes the planner towards sequential scans of voucher_records.
+      - -c
+      - effective_cache_size=480MB
+      - -c
+      - maintenance_work_mem=48MB
+      # Per sort, per connection. 6 MB x 40 connections is the worst case and it
+      # does not fit -- which is fine, because that worst case requires every
+      # connection to sort simultaneously. Raising this is the first thing to
+      # try if a report gets slow, and the first thing to blame if the box OOMs.
+      - -c
+      - work_mem=6MB
+      # Pool is 10 + 5 overflow (see TALLYFLOW_DB_POOL_SIZE), plus the migrator
+      # and psql sessions. 40 is generous; higher costs memory for connections
+      # that will never be used.
+      - -c
+      - max_connections=40
+      # Voucher payloads are JSON, which compresses extremely well. This trades
+      # a little CPU for materially less WAL, and WAL volume is what makes a
+      # small EBS volume run out of IOPS during a backfill.
+      - -c
+      - wal_compression=on
+      - -c
+      - checkpoint_completion_target=0.9
+      # gp3/NVMe, not spinning rust. Leaving these at their 1990s defaults is
+      # what makes Postgres refuse to use an index it should.
+      - -c
+      - random_page_cost=1.1
+      - -c
+      - effective_io_concurrency=200
+      # Anything over a second lands in the container log, which is where you
+      # will look first when the phone app feels slow.
+      - -c
+      - log_min_duration_statement=1000
+      # synchronous_commit stays ON. This database holds connector pairing
+      # secrets and subscription decisions; losing the last few transactions to
+      # gain write throughput is the wrong trade for a product where the fast
+      # path is a read from a snapshot anyway.
+
+    volumes:
+      - db-data:/var/lib/postgresql/data
+
+    # No published port. Reach it with `docker compose exec db psql` rather than
+    # exposing a database to the internet for the sake of one query.
+
+    # Parallel workers use /dev/shm, and Docker's 64 MB default is small enough
+    # to fail a large sort with an error that names shared memory and nothing
+    # else useful.
+    shm_size: 128mb
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tallyflow} -d ${POSTGRES_DB:-tallyflow}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+    deploy:
+      resources:
+        limits:
+          memory: 640M
+
+  migrate:
+    build:
+      context: ../..
+      dockerfile: apps/backend/Dockerfile
+      target: migrator
+    env_file: [prod.env]
+    depends_on:
+      db: {condition: service_healthy}
+    restart: "no"
+    logging: *logging
+    # Runs to completion and exits. The API waits on a zero exit, because an
+    # unmigrated Postgres does not fail at startup -- the app starts cleanly and
+    # then fails on the first query, which reads as "the app is broken" rather
+    # than "nobody ran the migrations".
+
+  api:
+    build:
+      context: ../..
+      dockerfile: apps/backend/Dockerfile
+      target: runtime
+    restart: unless-stopped
+    logging: *logging
+    env_file: [prod.env]
+    depends_on:
+      db: {condition: service_healthy}
+      migrate: {condition: service_completed_successfully}
+    expose: ["8000"]
+
+    volumes:
+      # The same directory Caddy serves, mounted read-only so the API can read
+      # manifest.json and answer the version question inline -- on every HTTP
+      # response to the app and every WebSocket frame to a connector.
+      #
+      # The manifest stays the single source of truth: it is generated from the
+      # bytes actually staged for download, so its checksums cannot disagree
+      # with what is served. If the mount is missing the API starts normally and
+      # version checks are simply off, which is deliberate -- a config mistake
+      # must never be able to brick the fleet.
+      - ./downloads:/srv/downloads:ro
+
+    # One uvicorn worker, from the image's CMD. Do NOT add --workers: connectors
+    # hold long-lived WebSockets to a specific process, and forks would each
+    # hold a different set of sockets with no way to route between them. More
+    # capacity means more containers plus TALLYFLOW_REDIS_URL, not more workers.
+
+    # 40s lets in-flight jobs finish and gives connectors time to notice the
+    # socket closing and re-dial, rather than all of them timing out at once.
+    stop_grace_period: 40s
+
+    deploy:
+      resources:
+        limits:
+          memory: 704M
+
+  caddy:
+    # Built, not pulled: the image carries the marketing site and the portal,
+    # which are build artefacts and therefore not in git. See web.Dockerfile.
+    build:
+      context: ../..
+      dockerfile: deploy/uat/web.Dockerfile
+      args:
+        # The portal has its own hostname here, so it is served from the root
+        # rather than from /portal. vite's `base` and the router's basename are
+        # both derived from this one value, so they cannot drift apart.
+        PORTAL_BASE: /
+    restart: unless-stopped
+    logging: *logging
+    depends_on: [api]
+
+    environment:
+      # Every one of these needs an A record pointing at this host, with 80 and
+      # 443 open, or Caddy cannot complete the ACME challenge and gets no
+      # certificate for it. Caddy will serve the ones that do resolve and keep
+      # retrying the rest, so a missing record is a partial outage, not a
+      # failure to start.
+      #
+      # TALLYFLOW_API_HOST is the one that cannot change later without cost: it
+      # is compiled into the connector installer and the mobile app.
+      TALLYFLOW_API_HOST: ${TALLYFLOW_API_HOST:?set TALLYFLOW_API_HOST in prod.env}
+      TALLYFLOW_SITE_HOST: ${TALLYFLOW_SITE_HOST:?set TALLYFLOW_SITE_HOST in prod.env}
+      TALLYFLOW_PORTAL_HOST: ${TALLYFLOW_PORTAL_HOST:?set TALLYFLOW_PORTAL_HOST in prod.env}
+
+    ports:
+      - "80:80"
+      - "443:443"
+
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Where the connector installer and the APK are dropped. Kept outside the
+      # site build so publishing a new installer does not mean rebuilding the
+      # site -- only the version strings in downloads.js do.
+      - ./downloads:/srv/downloads:ro
+      # Certificates live here. Losing this volume means re-issuing from Let's
+      # Encrypt, which is rate limited -- five per week per hostname.
+      - caddy-data:/data
+      - caddy-config:/config
+
+    deploy:
+      resources:
+        limits:
+          memory: 96M
+
+volumes:
+  db-data:
+  caddy-data:
+  caddy-config:

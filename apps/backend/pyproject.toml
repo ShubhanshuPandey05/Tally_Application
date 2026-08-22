@@ -39,6 +39,12 @@ tally-backend = "tally_backend.main:run"
 [tool.setuptools.packages.find]
 where = ["src"]
 
+# The portal's single page is data, not a module, so nothing would pull it into
+# a wheel by default -- and its absence only shows up as a 500 on /portal in a
+# built image, never in an editable install.
+[tool.setuptools.package-data]
+tally_backend = ["portal/*.html"]
+
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 asyncio_mode = "auto"

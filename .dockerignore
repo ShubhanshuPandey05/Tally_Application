@@ -1,0 +1,40 @@
+# Build context exclusions.
+#
+# Both image builds use the repository root as their context, so without this
+# every `docker build` uploads the Flutter build output, two `node_modules`
+# trees and a local virtualenv before running a single instruction.
+#
+# `node_modules` is the one that actually breaks something rather than merely
+# being slow: `COPY apps/portal/ ./` would drop a host-built tree on top of the
+# `npm ci` the stage just ran, so the image would build against whatever
+# happened to be installed on the machine that built it -- including native
+# binaries compiled for a different platform.
+
+.git/
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/
+
+node_modules/
+apps/website/dist/
+apps/portal/dist/
+
+apps/mobile/build/
+apps/mobile/.dart_tool/
+apps/connector/build/
+apps/connector/dist/
+
+# Large, built on Windows, and bind-mounted at runtime rather than baked in.
+deploy/uat/downloads/
+
+.env
+.env.*
+!.env.example
+*.db
+*.sqlite3
+*.log

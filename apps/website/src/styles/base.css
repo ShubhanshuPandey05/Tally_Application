@@ -1,48 +1,62 @@
 /*
- * Design tokens + primitives.
+ * Design tokens and primitives.
  *
- * The app's brand colour is indigo (#3A5AF0, apps/mobile/lib/src/app/theme.dart);
- * the site keeps that as the anchor and earns its richness from the gradients
- * around it -- violet on one side, mint/cyan on the other -- rather than from a
- * second competing brand colour.
+ * White page, soft grey for anything that is a container rather than content,
+ * near-black for the one card per screen that has to be looked at first, and a
+ * single blue for action. Structure comes from radius and from the grey, not
+ * from borders everywhere and not from colour.
+ *
+ * The same tokens exist in the Flutter app (apps/mobile/lib/src/app/theme.dart).
+ * If a value changes here it changes there: a customer moves between the site
+ * and the app in the same afternoon, and two nearly-identical blues read as a
+ * mistake rather than as a family.
  */
 
 :root {
-  /* Brand */
-  --indigo: #3a5af0;
-  --indigo-bright: #6d8bff;
-  --violet: #8b3af0;
-  --magenta: #f03aa8;
-  --mint: #12805c;
-  --mint-bright: #5af0c8;
-  --amber: #f0a83a;
-  --rose: #f0435f;
+  /* Ground */
+  --page: #ffffff;
+  /* Containers: segmented tracks, icon tiles, progress rails, quiet sections. */
+  --surface: #f4f5f7;
+  --surface-2: #eceef2;
+  --card: #ffffff;
+  /* The one dark card. Used sparingly -- it is how a screen says "start here". */
+  --ink-card: #15171c;
 
-  /* Surfaces (dark-first) */
-  --bg: #0b0d14;
-  --bg-2: #0f1220;
-  --surface: rgba(255, 255, 255, 0.04);
-  --surface-2: rgba(255, 255, 255, 0.06);
-  --stroke: rgba(255, 255, 255, 0.09);
-  --stroke-strong: rgba(255, 255, 255, 0.16);
+  /* Ink */
+  --ink: #101114;
+  --ink-2: #3b3d45;
+  --muted: #6b6e78;
+  --faint: #9aa0ab;
 
-  /* Text */
-  --text: #f2f4fb;
-  --muted: #a6adc8;
-  --faint: #6f7793;
+  /* Lines. Thin and cool; most separation is done with the grey instead. */
+  --line: #e8e9ed;
+  --line-strong: #d9dbe1;
 
-  /* Gradients */
-  --grad-brand: linear-gradient(120deg, #6d8bff 0%, #3a5af0 42%, #8b3af0 100%);
-  --grad-warm: linear-gradient(120deg, #f0a83a 0%, #f03aa8 100%);
-  --grad-cool: linear-gradient(120deg, #5af0c8 0%, #3a5af0 100%);
+  /* Action */
+  --accent: #2d5bff;
+  --accent-ink: #1e3fcc;
+  --accent-soft: #eaefff;
+
+  /* Status. Small pips and figures only. */
+  --ok: #12805c;
+  --warn: #b8720a;
+  --bad: #c4314b;
+
+  /* Category tints for icon tiles. */
+  --tile-blue: #2d5bff;
+  --tile-green: #17a06b;
+  --tile-amber: #e08a15;
+  --tile-violet: #7c4dff;
+  --tile-rose: #e0447a;
 
   /* Geometry */
-  --radius: 18px;
-  --radius-lg: 26px;
-  --shell: 1180px;
-  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+  --radius: 20px;
+  --radius-sm: 12px;
+  --radius-xs: 10px;
+  --pill: 999px;
+  --shell: 1080px;
 
-  color-scheme: dark;
+  color-scheme: light;
 }
 
 *,
@@ -53,18 +67,19 @@
 
 html {
   scroll-behavior: smooth;
-  scroll-padding-top: 90px;
+  scroll-padding-top: 88px;
+  -webkit-text-size-adjust: 100%;
 }
 
 body {
   margin: 0;
-  background: var(--bg);
-  color: var(--text);
-  font-family: 'Manrope', system-ui, -apple-system, 'Segoe UI', sans-serif;
+  background: var(--page);
+  color: var(--ink);
+  font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', sans-serif;
   font-size: 16px;
   line-height: 1.6;
+  letter-spacing: -0.005em;
   -webkit-font-smoothing: antialiased;
-  overflow-x: hidden;
 }
 
 h1,
@@ -72,9 +87,9 @@ h2,
 h3,
 h4 {
   margin: 0;
-  line-height: 1.1;
-  letter-spacing: -0.025em;
-  font-weight: 800;
+  font-weight: 700;
+  line-height: 1.12;
+  letter-spacing: -0.028em;
 }
 
 p {
@@ -83,7 +98,6 @@ p {
 
 a {
   color: inherit;
-  text-decoration: none;
 }
 
 button {
@@ -93,15 +107,22 @@ button {
 }
 
 ::selection {
-  background: rgba(109, 139, 255, 0.35);
+  background: var(--accent-soft);
 }
 
-/* Numbers use tabular figures for the same reason the app does: a column of
-   amounts with proportional digits does not line up and reads as amateur. */
+/* Figures line up in a column, the same rule the app follows. Not a monospace
+   face -- tabular Inter keeps the numbers in the voice of the rest of the page,
+   and a column of amounts still aligns. */
 .num {
-  font-family: 'JetBrains Mono', ui-monospace, monospace;
   font-variant-numeric: tabular-nums;
-  letter-spacing: -0.02em;
+}
+
+/* Filenames, checksums and commands. Monospace here is information, not style:
+   it says "this is a literal string you may have to compare". */
+.code {
+  font-family: 'IBM Plex Mono', ui-monospace, 'SFMono-Regular', monospace;
+  font-size: 0.86em;
+  overflow-wrap: anywhere;
 }
 
 /* ---------- layout ---------- */
@@ -111,65 +132,52 @@ button {
   margin-inline: auto;
 }
 
-section {
-  position: relative;
-  padding: clamp(72px, 10vw, 132px) 0;
+.shell-narrow {
+  width: min(100% - 40px, 780px);
+  margin-inline: auto;
 }
 
-.eyebrow {
+section {
+  padding: clamp(56px, 8vw, 100px) 0;
+}
+
+/* A section that is a resting place rather than a wall of text: soft grey,
+   full-bleed, no border. */
+.band {
+  background: var(--surface);
+}
+
+/* ---------- section headings ---------- */
+
+.label {
   display: inline-flex;
   align-items: center;
   gap: 8px;
-  padding: 6px 14px 6px 10px;
-  border: 1px solid var(--stroke);
-  border-radius: 999px;
-  background: var(--surface);
-  font-size: 13px;
+  height: 30px;
+  padding: 0 12px;
+  border-radius: var(--pill);
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-size: 12.5px;
   font-weight: 600;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.01em;
+  margin-bottom: 20px;
+}
+
+.band .label {
+  background: var(--card);
+}
+
+.head h2 {
+  font-size: clamp(28px, 3.6vw, 42px);
+  max-width: 20ch;
+}
+
+.head p {
   color: var(--muted);
-  backdrop-filter: blur(8px);
-}
-
-.eyebrow .dot {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--mint-bright);
-  box-shadow: 0 0 0 4px rgba(90, 240, 200, 0.16);
-}
-
-.section-head {
-  max-width: 660px;
-  margin-bottom: 56px;
-}
-
-.section-head.center {
-  margin-inline: auto;
-  text-align: center;
-}
-
-.section-head h2 {
-  font-size: clamp(32px, 4.6vw, 52px);
-  margin: 20px 0 16px;
-}
-
-.section-head p {
-  color: var(--muted);
+  margin-top: 14px;
+  max-width: 58ch;
   font-size: 17px;
-}
-
-.grad-text {
-  background: var(--grad-brand);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-}
-
-.grad-text.warm {
-  background: var(--grad-warm);
-  -webkit-background-clip: text;
-  background-clip: text;
 }
 
 /* ---------- buttons ---------- */
@@ -178,133 +186,179 @@ section {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 10px;
-  padding: 14px 24px;
-  border-radius: 14px;
+  gap: 8px;
+  height: 46px;
+  padding: 0 22px;
+  border-radius: var(--pill);
   border: 1px solid transparent;
-  font-weight: 700;
   font-size: 15px;
+  font-weight: 600;
+  text-decoration: none;
   white-space: nowrap;
-  transition: transform 0.25s var(--ease), box-shadow 0.25s var(--ease),
-    background 0.25s var(--ease), border-color 0.25s var(--ease);
-}
-
-.btn:hover {
-  transform: translateY(-2px);
-}
-
-.btn:active {
-  transform: translateY(0);
+  transition: background 0.16s ease, border-color 0.16s ease, color 0.16s ease;
 }
 
 .btn-primary {
-  background: var(--grad-brand);
-  background-size: 160% 160%;
+  background: var(--ink);
   color: #fff;
-  box-shadow: 0 12px 34px -12px rgba(58, 90, 240, 0.85);
-  animation: sheen 7s ease infinite;
 }
 
 .btn-primary:hover {
-  box-shadow: 0 20px 46px -14px rgba(109, 139, 255, 0.95);
+  background: #000;
+}
+
+.btn-accent {
+  background: var(--accent);
+  color: #fff;
+}
+
+.btn-accent:hover {
+  background: var(--accent-ink);
 }
 
 .btn-ghost {
   background: var(--surface);
-  border-color: var(--stroke);
-  color: var(--text);
-  backdrop-filter: blur(10px);
+  color: var(--ink);
 }
 
 .btn-ghost:hover {
   background: var(--surface-2);
-  border-color: var(--stroke-strong);
 }
 
-.btn-lg {
-  padding: 17px 30px;
-  font-size: 16px;
+.card .btn-ghost,
+.band .btn-ghost {
+  background: var(--surface);
+  border-color: var(--line);
 }
 
-@keyframes sheen {
-  0%,
-  100% {
-    background-position: 0% 50%;
-  }
-  50% {
-    background-position: 100% 50%;
-  }
+.btn[aria-disabled='true'] {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--faint);
+  cursor: default;
+  pointer-events: none;
 }
 
-/* ---------- cards ---------- */
+.btn-sm {
+  height: 38px;
+  padding: 0 16px;
+  font-size: 14px;
+}
+
+/* ---------- links in prose ---------- */
+
+.link {
+  color: var(--accent-ink);
+  font-weight: 500;
+  text-decoration: none;
+  border-bottom: 1px solid var(--accent-soft);
+}
+
+.link:hover {
+  border-bottom-color: var(--accent);
+}
+
+/* ---------- surfaces ---------- */
 
 .card {
-  position: relative;
-  border: 1px solid var(--stroke);
+  background: var(--card);
+  border: 1px solid var(--line);
   border-radius: var(--radius);
-  background: linear-gradient(
-    170deg,
-    rgba(255, 255, 255, 0.055),
-    rgba(255, 255, 255, 0.018)
-  );
-  backdrop-filter: blur(14px);
-  overflow: hidden;
 }
 
-/* A soft light that follows the pointer. Set by JS on .card-glow parents. */
-.card-glow::before {
-  content: '';
-  position: absolute;
-  inset: -1px;
-  border-radius: inherit;
-  background: radial-gradient(
-    340px circle at var(--mx, 50%) var(--my, 0%),
-    rgba(109, 139, 255, 0.16),
-    transparent 62%
-  );
-  opacity: 0;
-  transition: opacity 0.35s var(--ease);
-  pointer-events: none;
+.band .card {
+  border-color: transparent;
 }
 
-.card-glow:hover::before {
-  opacity: 1;
+/* The rounded-square icon tile the whole design leans on. Colour goes here and
+   almost nowhere else, which is what keeps a page with six categories on it
+   from looking like a paint chart. */
+.tile {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  border-radius: var(--radius-xs);
+  background: var(--tile-blue);
+  color: #fff;
 }
 
-/* ---------- scroll reveal ---------- */
-
-.reveal {
-  opacity: 0;
-  transform: translateY(26px);
-  transition: opacity 0.75s var(--ease), transform 0.75s var(--ease);
-  transition-delay: var(--delay, 0ms);
+.tile svg {
+  width: 19px;
+  height: 19px;
 }
 
-.reveal.in {
-  opacity: 1;
-  transform: none;
+.tile-green {
+  background: var(--tile-green);
+}
+.tile-amber {
+  background: var(--tile-amber);
+}
+.tile-violet {
+  background: var(--tile-violet);
+}
+.tile-rose {
+  background: var(--tile-rose);
+}
+.tile-ink {
+  background: var(--ink);
+}
+.tile-quiet {
+  background: var(--surface);
+  color: var(--ink);
 }
 
-/* ---------- ambience ---------- */
-
-.orb {
-  position: absolute;
-  border-radius: 50%;
-  filter: blur(90px);
-  opacity: 0.5;
-  pointer-events: none;
-  z-index: 0;
+.chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  height: 30px;
+  padding: 0 13px;
+  border-radius: var(--pill);
+  background: var(--surface);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--ink-2);
+  white-space: nowrap;
 }
 
-.grid-lines {
-  position: absolute;
-  inset: 0;
-  background-image: linear-gradient(rgba(255, 255, 255, 0.045) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.045) 1px, transparent 1px);
-  background-size: 62px 62px;
-  mask-image: radial-gradient(ellipse 80% 60% at 50% 0%, #000 20%, transparent 75%);
-  pointer-events: none;
-  z-index: 0;
+.chip-accent {
+  background: var(--accent-soft);
+  color: var(--accent-ink);
+  font-weight: 600;
+}
+
+/* ---------- utilities ---------- */
+
+.meta {
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+/*
+ * A grid or flex child defaults to `min-width: auto`, so it refuses to shrink
+ * below the widest thing inside it. One `white-space: pre` code block then
+ * widens its column, its grid, and the whole document, and every section on the
+ * page scrolls sideways on a phone.
+ */
+.hero-grid > *,
+.feat-grid > *,
+.sec-grid > *,
+.dl-grid > *,
+.access-grid > *,
+.docs-layout > *,
+.flow > *,
+.dl-card > *,
+.steps > * {
+  min-width: 0;
+}
+
+img,
+svg,
+pre,
+table {
+  max-width: 100%;
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -316,12 +370,6 @@ section {
   *::before,
   *::after {
     animation-duration: 0.001ms !important;
-    animation-iteration-count: 1 !important;
     transition-duration: 0.001ms !important;
-  }
-
-  .reveal {
-    opacity: 1;
-    transform: none;
   }
 }

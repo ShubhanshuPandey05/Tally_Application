@@ -13,6 +13,9 @@ apps/
   backend/         FastAPI API server         (auth, connector hub, dashboards, reports)
   mobile/          Flutter app                (dashboard, reports, pairing wizard)
   website/         React marketing site       (product story, downloads, pricing)
+  portal/          React management portal    (onboarding, subscriptions, support view)
+tools/
+  brand/           Icon generator             (favicon, launcher icons; run when the logo changes)
 ```
 
 `tally_core.protocol` is the backend/connector wire contract. It lives in the
@@ -47,6 +50,7 @@ python run.py            # list commands
 python run.py init       # generate apps\backend\.env with real secrets
 python run.py dev        # backend on 127.0.0.1:8000, auto-reload
 python run.py app        # Flutter app pointed at it
+python run.py portal     # management portal on localhost:5174, proxying /v1
 python run.py check      # pytest + ruff + flutter analyze + flutter test
 ```
 
@@ -434,10 +438,27 @@ npm run dev     # http://localhost:5173
 npm run build   # -> apps\website\dist
 ```
 
-React + Vite. It is where customers get the connector installer and the app, so
-the download links in `src/data/downloads.js` must match what `run.py connector`
-and `run.py release` actually produce. Pricing in `src/data/pricing.js` is
-**placeholder data** pending real plans. See `apps/website/README.md`.
+React + Vite. It is where customers get the connector installer and the app, and
+where the setup guide lives (`/docs`). Release facts — version, size, SHA-256 —
+are read from `/downloads/manifest.json` at runtime, so publishing a build
+updates the page without a rebuild; `src/data/downloads.js` only holds the
+fallback. See `apps/website/README.md`.
+
+## Management portal
+
+```powershell
+python run.py portal    # http://localhost:5174/portal, alongside `run.py dev`
+```
+
+Where a signup becomes a customer: a new account is `pending` with zero users and
+zero companies until somebody here approves it and says what it covers. Also the
+support view — the backend's own log, and what each customer's Tally PC has been
+reporting over the socket it already holds open.
+
+Served by Caddy on the **same hostname as the API**, which is not a detail: the
+portal's token can approve accounts and read the server log, so it is never
+allowed to be a cross-origin credential. The Vite dev server proxies `/v1` for
+the same reason. See `apps/portal/README.md`.
 
 ## Architecture notes
 

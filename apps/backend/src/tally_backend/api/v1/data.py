@@ -69,16 +69,36 @@ async def dashboard(
     request: Request,
     mode: FetchModeParam = "auto",
     as_of: date | None = None,
+    from_date: date | None = None,
+    to_date: date | None = None,
 ) -> dict:
     """Everything the home screen needs, in one round trip.
 
     One endpoint rather than a tile-per-request: a phone on mobile data pays
     more for eight requests than for one slightly larger response, and eight
     separate calls would each race to refresh the same underlying datasets.
+
+    ``from_date``/``to_date`` scope the voucher-derived sections to a period.
+    Either bound alone is taken as the whole span up to the other. Omitting
+    both is the ordinary dashboard, and is left untouched so it keeps hitting
+    the snapshot the background refresher warms.
+
+    ``as_of`` remains what counts as "today" -- it anchors month-to-date, the
+    ageing on outstanding bills, and the trend. A period sets that anchor to
+    its end date, so the two never disagree.
     """
     started = time.monotonic()
-    today = as_of or date.today()
-    payload = await service.build(company, today=today, mode=_mode(mode))
+
+    period: tuple[date, date] | None = None
+    if from_date is not None or to_date is not None:
+        anchor = as_of or date.today()
+        period = _clamp_window(from_date or anchor, to_date or anchor)
+
+    # A period's end date is the only sensible "today" for the rest of the
+    # dashboard: ageing a bill against the real today while reporting March's
+    # sales beside it would put two dates in one glance.
+    today = period[1] if period is not None else (as_of or date.today())
+    payload = await service.build(company, today=today, period=period, mode=_mode(mode))
 
     await record(
         session,
@@ -86,7 +106,15 @@ async def dashboard(
         org_id=principal.org_id,
         user_id=principal.user.id,
         company_id=company.id,
-        detail={"mode": mode, "as_of": today.isoformat()},
+        detail={
+            "mode": mode,
+            "as_of": today.isoformat(),
+            **(
+                {"from": period[0].isoformat(), "to": period[1].isoformat()}
+                if period is not None
+                else {}
+            ),
+        },
         duration_ms=int((time.monotonic() - started) * 1000),
         request=request,
     )

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../../core/layout/adaptive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/model/freshness.dart';
@@ -56,8 +57,12 @@ class ReportScaffold<T> extends StatelessWidget {
         actions: actions,
         bottom: bottom,
       ),
-      body: RefreshIndicator(
-        onRefresh: onRefresh,
+      // Capped and centred rather than stretched. A report is a column of
+      // rows with a name at one end and an amount at the other, and past about
+      // this width following one across stops being a glance.
+      body: ContentPane(
+        child: RefreshIndicator(
+          onRefresh: onRefresh,
         child: state.when(
           skipLoadingOnRefresh: true,
           loading: () => const _ReportSkeleton(),
@@ -86,7 +91,8 @@ class ReportScaffold<T> extends StatelessWidget {
                   ...content,
               ],
             );
-          },
+            },
+          ),
         ),
       ),
     );

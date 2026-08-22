@@ -20,6 +20,8 @@ import '../features/reports/presentation/slow_moving_screen.dart';
 import '../features/reports/presentation/stock_screen.dart';
 import '../features/reports/domain/reports.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/team/presentation/change_password_screen.dart';
+import '../features/team/presentation/team_screen.dart';
 import 'shell.dart';
 
 class Routes {
@@ -40,6 +42,8 @@ class Routes {
   static const String stock = '/reports/stock';
   static const String ledgers = '/reports/ledgers';
   static const String slowMoving = '/reports/slow-moving';
+  static const String team = '/team';
+  static const String changePassword = '/change-password';
 }
 
 final GlobalKey<NavigatorState> _rootKey = GlobalKey<NavigatorState>();
@@ -67,6 +71,16 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       if (!auth.isSignedIn) {
         return onAuthScreen ? null : Routes.signIn;
       }
+
+      // An account still on an admin-issued password gets exactly one screen.
+      // Enforced here rather than per-screen for the same reason as the rule
+      // above: a guard that has to be remembered is one a new screen ships
+      // without, and this one is what stops a colleague's password staying
+      // known to whoever set the account up.
+      if (auth.user?.mustChangePassword ?? false) {
+        return location == Routes.changePassword ? null : Routes.changePassword;
+      }
+
       if (onAuthScreen || location == Routes.splash) {
         return Routes.dashboard;
       }
@@ -76,6 +90,16 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.splash,
         builder: (BuildContext context, GoRouterState state) => const _SplashScreen(),
+      ),
+      GoRoute(
+        path: Routes.changePassword,
+        builder: (BuildContext context, GoRouterState state) =>
+            const ChangePasswordScreen(),
+      ),
+      GoRoute(
+        path: Routes.team,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => const TeamScreen(),
       ),
       GoRoute(
         path: Routes.signIn,

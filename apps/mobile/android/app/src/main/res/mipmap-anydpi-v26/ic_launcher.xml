@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  Android 8 and later mask the launcher icon into whatever shape the device
+  maker chose, and a legacy square PNG gets shrunk inside a white blob to do it.
+  Supplying the two layers separately means our own black tile is what the mask
+  cuts, so the icon keeps its edges on every phone.
+
+  The monochrome layer is the same artwork: Android 13 themed icons use only its
+  alpha, and the wordmark on transparency is already a silhouette.
+-->
+<adaptive-icon xmlns:android="http://schemas.android.com/apk/res/android">
+    <background android:drawable="@color/ic_launcher_background" />
+    <foreground android:drawable="@mipmap/ic_launcher_foreground" />
+    <monochrome android:drawable="@mipmap/ic_launcher_foreground" />
+</adaptive-icon>

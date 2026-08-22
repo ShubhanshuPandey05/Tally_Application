@@ -228,13 +228,23 @@ curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/do
 
 ### Before you show it to anyone
 
-Two things on that page are not true yet:
+The invented pricing and the dead store buttons are gone; the site now states
+early access and links the APK directly. Two things are worth checking on the
+deployed host rather than assumed:
 
-- **The Google Play and App Store buttons are `href: '#'`** — they render as
-  real buttons and do nothing. For a sideload pilot, either remove them in
-  `Downloads.jsx` or tell testers to use "Or download the APK directly".
-- **`pricing.js` contains invented figures.** They render as real prices to
-  anyone who loads the page. Fix or remove the section before a customer sees it.
+- **`/downloads/manifest.json` must be reachable from the site's origin.** The
+  page fetches it for the version, size and SHA-256 it prints beside each
+  download. If it 404s the page still works, but it falls back to whatever
+  `data/downloads.js` was built with — which may name a file no longer there.
+- **The hero's counts must actually arrive.** They come from
+  `/v1/public/stats` on the same hostname. Curl it: four integers and a
+  timestamp. If it 404s the endpoint is switched off; if the row is missing on
+  the page but curl works, the site is being served from a different origin than
+  the API. Zeros are fine -- they are the truth on a fresh deployment, and the
+  page prints them deliberately rather than hiding the row.
+- **`/docs` must survive a refresh.** It is a client-side route, and it resolves
+  only because Caddy serves `index.html` for unmatched paths. Load it directly,
+  do not just click through to it.
 
 ---
 

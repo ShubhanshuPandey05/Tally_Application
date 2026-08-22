@@ -1,100 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useState } from 'react';
 
-const REDUCED =
-  typeof window !== 'undefined' &&
-  window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+import { PUBLISHED } from './data/downloads.js';
 
-/**
- * Reveals every `.reveal` in the document as it scrolls into view.
- *
- * One observer for the whole page rather than a hook per component: the set of
- * revealed nodes is large and mostly static, and a shared observer means adding
- * a section is a class name, not wiring.
- */
-export function useScrollReveal() {
-  useEffect(() => {
-    const nodes = document.querySelectorAll('.reveal:not(.in)');
-    if (REDUCED) {
-      nodes.forEach((n) => n.classList.add('in'));
-      return undefined;
-    }
-
-    const io = new IntersectionObserver(
-      (entries) => {
-        entries.forEach((entry) => {
-          if (!entry.isIntersecting) return;
-          entry.target.classList.add('in');
-          io.unobserve(entry.target);
-        });
-      },
-      { rootMargin: '0px 0px -12% 0px', threshold: 0.08 },
-    );
-
-    nodes.forEach((n) => io.observe(n));
-    return () => io.disconnect();
-  }, []);
-}
-
-/** Counts from 0 to `to` once the element is on screen. Returns [ref, value]. */
-export function useCountUp(to, { duration = 1400, decimals = 0 } = {}) {
-  const ref = useRef(null);
-  const [value, setValue] = useState(REDUCED ? to : 0);
-
-  useEffect(() => {
-    if (REDUCED) {
-      setValue(to);
-      return undefined;
-    }
-    const el = ref.current;
-    if (!el) return undefined;
-
-    let raf = 0;
-    const io = new IntersectionObserver(
-      ([entry]) => {
-        if (!entry.isIntersecting) return;
-        io.disconnect();
-        const start = performance.now();
-        const tick = (now) => {
-          const t = Math.min(1, (now - start) / duration);
-          // easeOutExpo: fast enough to feel responsive, settles rather than stops.
-          const eased = t === 1 ? 1 : 1 - Math.pow(2, -10 * t);
-          const next = to * eased;
-          setValue(decimals ? Number(next.toFixed(decimals)) : Math.round(next));
-          if (t < 1) raf = requestAnimationFrame(tick);
-        };
-        raf = requestAnimationFrame(tick);
-      },
-      { threshold: 0.4 },
-    );
-
-    io.observe(el);
-    return () => {
-      io.disconnect();
-      cancelAnimationFrame(raf);
-    };
-  }, [to, duration, decimals]);
-
-  return [ref, value];
-}
-
-/** Moves the pointer-follow highlight on `.card-glow` elements. */
-export function usePointerGlow() {
-  useEffect(() => {
-    if (REDUCED) return undefined;
-    const onMove = (event) => {
-      const card = event.target.closest?.('.card-glow');
-      if (!card) return;
-      const rect = card.getBoundingClientRect();
-      card.style.setProperty('--mx', `${event.clientX - rect.left}px`);
-      card.style.setProperty('--my', `${event.clientY - rect.top}px`);
-    };
-    window.addEventListener('pointermove', onMove, { passive: true });
-    return () => window.removeEventListener('pointermove', onMove);
-  }, []);
-}
-
-/** True once the page has scrolled past `offset` — used to condense the nav. */
-export function useScrolled(offset = 24) {
+/** True once the page has scrolled past `offset` — used to line the header. */
+export function useScrolled(offset = 8) {
   const [scrolled, setScrolled] = useState(false);
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > offset);
@@ -105,9 +14,79 @@ export function useScrolled(offset = 24) {
   return scrolled;
 }
 
-/** Indian digit grouping (1,23,45,678) — the shape these users read. */
-export function inr(value, { compact = false } = {}) {
-  if (compact && value >= 10000000) return `${(value / 10000000).toFixed(2)} Cr`;
-  if (compact && value >= 100000) return `${(value / 100000).toFixed(2)} L`;
-  return new Intl.NumberFormat('en-IN', { maximumFractionDigits: 0 }).format(value);
+/**
+ * The published release manifest, or the built-in fallback until it arrives.
+ *
+ * Failing quietly to the fallback is the point: a missing or malformed manifest
+ * must never leave a visitor with no way to download the thing, and it must
+ * never make the page claim a version that is not there. Same rule the backend
+ * follows — an unreadable manifest means "no opinion", not "you are stuck".
+ */
+export function useManifest() {
+  const [manifest, setManifest] = useState(PUBLISHED);
+
+  useEffect(() => {
+    let live = true;
+    fetch('/downloads/manifest.json', { cache: 'no-store' })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!live || !data) return;
+        // Only take a section that has the three fields a download row needs.
+        const next = { ...PUBLISHED };
+        for (const key of ['connector', 'android']) {
+          const entry = data[key];
+          if (entry?.version && entry?.url && entry?.size_bytes) next[key] = entry;
+        }
+        setManifest(next);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return manifest;
+}
+
+/** Binary megabytes, the unit Windows and Android both report. */
+export function mb(bytes) {
+  return `${(bytes / 1024 / 1024).toFixed(1)} MB`;
+}
+
+/** First and last eight characters of a checksum — enough to compare by eye. */
+export function shortHash(sha256) {
+  if (!sha256 || sha256.length < 24) return null;
+  return `${sha256.slice(0, 8)}…${sha256.slice(-8)}`;
+}
+
+/**
+ * Live counts from the backend, or `null` while unknown.
+ *
+ * `null` and `0` are different answers and the caller must be able to tell them
+ * apart: zero businesses is a fact worth printing, and "we could not ask" is
+ * not. So a failed, disabled or unreachable endpoint leaves this null and the
+ * hero simply does not draw the row — it never falls back to zeros, which would
+ * be inventing the most damaging number on the page.
+ */
+export function useStats() {
+  const [stats, setStats] = useState(null);
+
+  useEffect(() => {
+    let live = true;
+    fetch('/v1/public/stats', { headers: { accept: 'application/json' } })
+      .then((r) => (r.ok ? r.json() : null))
+      .then((data) => {
+        if (!live || !data) return;
+        // Guard on the shape rather than on the status alone: a static host with
+        // no API answers /v1/public/stats with its own index.html and a 200.
+        if (typeof data.businesses !== 'number') return;
+        setStats(data);
+      })
+      .catch(() => {});
+    return () => {
+      live = false;
+    };
+  }, []);
+
+  return stats;
 }

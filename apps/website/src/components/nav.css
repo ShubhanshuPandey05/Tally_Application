@@ -1,173 +1,166 @@
 .nav {
-  position: fixed;
-  inset: 0 0 auto 0;
-  z-index: 90;
-  transition: background 0.35s var(--ease), border-color 0.35s var(--ease),
-    backdrop-filter 0.35s var(--ease);
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(255, 255, 255, 0.86);
+  backdrop-filter: blur(12px);
   border-bottom: 1px solid transparent;
+  transition: border-color 0.18s ease;
 }
 
-.nav-solid {
-  background: rgba(11, 13, 20, 0.72);
-  backdrop-filter: blur(18px) saturate(140%);
-  border-bottom-color: var(--stroke);
-}
-
-.nav-progress {
-  position: absolute;
-  left: 0;
-  bottom: -1px;
-  height: 2px;
-  width: 100%;
-  transform-origin: left;
-  background: var(--grad-brand);
-  transition: transform 0.1s linear;
+.nav.is-lined {
+  border-bottom-color: var(--line);
 }
 
 .nav-inner {
   display: flex;
   align-items: center;
-  gap: 28px;
+  gap: 10px;
   height: 72px;
 }
 
+/* The wordmark badge: the name in Caveat over a rule, on a tile. One shape, so
+   it drops into a nav, a footer or a hero without being redrawn. */
 .logo {
   display: inline-flex;
-  align-items: center;
-  gap: 10px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 2px;
+  padding: 7px 15px 10px;
+  border-radius: 13px;
+  /* background: #0e0f11; */
+  text-decoration: none;
 }
 
-.logo svg {
-  border-radius: 10px;
-  box-shadow: 0 8px 22px -10px rgba(58, 90, 240, 0.9);
+/* Black on white, for surfaces that already carry a dark element. */
+.logo-light {
+  /* background: #fff; */
+  /* border: 1px solid var(--line); */
 }
 
 .logo-word {
-  font-weight: 800;
-  font-size: 19px;
-  letter-spacing: -0.03em;
+  /* A handwriting face carries leading a logo has no following line to spend,
+     so the line box is pinned to the glyphs. */
+  font-family: 'Caveat', 'Segoe Script', cursive;
+  font-size: 27px;
+  font-weight: 700;
+  line-height: 1;
+  letter-spacing: 0;
+  color: #fff;
 }
 
+.logo-rule {
+  display: block;
+  height: 2px;
+  border-radius: 2px;
+  background: #fff;
+}
+
+.logo-light .logo-word,
+.logo-light .logo-rule {
+  color: var(--ink);
+  background: var(--ink);
+}
+
+.logo-light .logo-word {
+  background: none;
+}
+
+/* The links sit in a soft grey pill, the same shape as the segmented controls
+   inside the product. */
 .nav-links {
   display: flex;
-  gap: 6px;
+  align-items: center;
+  gap: 2px;
   margin-left: auto;
-}
-
-.nav-links a {
-  position: relative;
-  padding: 9px 14px;
-  border-radius: 10px;
-  font-size: 15px;
-  font-weight: 600;
-  color: var(--muted);
-  transition: color 0.2s var(--ease), background 0.2s var(--ease);
-}
-
-.nav-links a:hover {
-  color: var(--text);
+  padding: 4px;
+  border-radius: var(--pill);
   background: var(--surface);
 }
 
-.nav-actions {
-  display: flex;
+.nav-links a {
+  display: inline-flex;
   align-items: center;
-  gap: 10px;
+  height: 34px;
+  padding: 0 15px;
+  border-radius: var(--pill);
+  font-size: 14.5px;
+  font-weight: 500;
+  color: var(--muted);
+  text-decoration: none;
+  transition: background 0.16s ease, color 0.16s ease;
 }
 
-.nav-actions .btn {
-  padding: 11px 20px;
-  font-size: 14px;
+.nav-links a:hover {
+  color: var(--ink);
+}
+
+.nav-links a[aria-current='page'] {
+  background: var(--card);
+  color: var(--ink);
+  font-weight: 600;
+  box-shadow: 0 1px 2px rgba(16, 17, 20, 0.08);
+}
+
+.nav-cta {
+  margin-left: 10px;
+  height: 42px;
+  padding: 0 20px;
 }
 
 .nav-burger {
   display: none;
+  margin-left: auto;
   width: 42px;
   height: 42px;
-  border-radius: 12px;
-  border: 1px solid var(--stroke);
+  border: 0;
+  border-radius: var(--pill);
   background: var(--surface);
-  padding: 0;
-  position: relative;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  flex-direction: column;
 }
 
 .nav-burger span {
-  position: absolute;
-  left: 11px;
-  width: 20px;
-  height: 2px;
+  display: block;
+  width: 16px;
+  height: 1.8px;
   border-radius: 2px;
-  background: var(--text);
-  transition: transform 0.3s var(--ease), opacity 0.2s var(--ease);
-}
-
-.nav-burger span:first-child {
-  top: 16px;
-}
-
-.nav-burger span:last-child {
-  top: 23px;
-}
-
-.nav-burger.is-open span:first-child {
-  transform: translateY(3.5px) rotate(45deg);
-}
-
-.nav-burger.is-open span:last-child {
-  transform: translateY(-3.5px) rotate(-45deg);
+  background: var(--ink);
 }
 
 .nav-sheet {
   display: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 0 20px;
 }
 
-@media (max-width: 940px) {
+.nav-sheet a {
+  padding: 12px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 16px;
+  font-weight: 500;
+  text-decoration: none;
+}
+
+.nav-sheet .btn {
+  margin-top: 10px;
+}
+
+@media (max-width: 820px) {
   .nav-links,
-  .nav-actions {
+  .nav-inner .btn {
     display: none;
   }
 
   .nav-burger {
-    display: block;
-    margin-left: auto;
-  }
-
-  .nav-sheet {
     display: flex;
-    flex-direction: column;
-    gap: 6px;
-    padding: 18px 20px 30px;
-    background: rgba(11, 13, 20, 0.97);
-    backdrop-filter: blur(20px);
-    border-bottom: 1px solid var(--stroke);
-    max-height: 0;
-    overflow: hidden;
-    transition: max-height 0.45s var(--ease), padding 0.45s var(--ease);
-    padding-block: 0;
   }
 
   .nav-sheet.is-open {
-    max-height: 420px;
-    padding-block: 12px 26px;
-  }
-
-  .nav-sheet a:not(.btn) {
-    padding: 14px 6px;
-    font-size: 18px;
-    font-weight: 700;
-    border-bottom: 1px solid var(--stroke);
-    opacity: 0;
-    transform: translateY(-8px);
-    transition: opacity 0.4s var(--ease), transform 0.4s var(--ease);
-    transition-delay: calc(var(--i) * 45ms + 80ms);
-  }
-
-  .nav-sheet.is-open a:not(.btn) {
-    opacity: 1;
-    transform: none;
-  }
-
-  .nav-sheet .btn {
-    margin-top: 16px;
+    display: flex;
   }
 }

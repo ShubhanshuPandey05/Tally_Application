@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <!-- Not a public page and never should be indexed: it lists customer
+         businesses by name. -->
+    <meta name="robots" content="noindex, nofollow" />
+    <title>TallyFlow Partner Desk</title>
+    <!-- %BASE_URL% is substituted by vite with whatever `base` was built with,
+         so this follows the deployment instead of hardcoding one of them. It
+         was literally "/portal/favicon.svg", which 404s the moment the portal
+         is served from its own hostname at the root. -->
+    <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>

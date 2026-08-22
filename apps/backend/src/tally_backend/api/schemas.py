@@ -12,7 +12,15 @@ from typing import Annotated, Any, Literal
 
 from pydantic import BaseModel, BeforeValidator, ConfigDict, EmailStr, Field
 
-from ..db.models import Company, Connector, ConnectorStatus, Role, as_utc
+from ..db.models import (
+    Company,
+    Connector,
+    ConnectorStatus,
+    OrgStatus,
+    Role,
+    as_utc,
+)
+from ..services.entitlements import Entitlement
 
 
 def _as_utc(value: Any) -> Any:
@@ -63,6 +71,55 @@ class TokenResponse(BaseModel):
     expires_in: int
 
 
+class SubscriptionResponse(BaseModel):
+    """What this business is entitled to, as the app needs to render it.
+
+    Sent on every ``/auth/me`` rather than on its own endpoint, because the app
+    needs it at exactly the moment it already asks who the user is — on cold
+    start, before it decides which controls to draw. A separate call would be a
+    second thing to keep in sync and a window in which the two disagree.
+
+    ``allows_changes`` is sent as a resolved boolean instead of leaving the app
+    to work it out from status and expiry. The rule is the backend's, it is what
+    the API actually enforces, and a client re-deriving it is a client that will
+    eventually derive it differently.
+
+    The usage counts are here so the app can say "2 of 3 companies" before the
+    third one is refused. Being told a limit exists only at the moment you hit
+    it is the worst possible time to learn about it.
+    """
+
+    status: OrgStatus
+    is_expired: bool
+    allows_changes: bool
+    allows_data: bool
+    max_users: int
+    max_companies: int
+    users_used: int
+    companies_used: int
+    expires_at: UtcDatetime | None = None
+    #: Empty when the account is live. Written for a shop owner, and always
+    #: names the way out -- there is no self-service path here by design.
+    message: str = ""
+
+    @classmethod
+    def build(
+        cls, entitlement: Entitlement, *, users_used: int, companies_used: int
+    ) -> SubscriptionResponse:
+        return cls(
+            status=entitlement.status,
+            is_expired=entitlement.is_expired,
+            allows_changes=entitlement.allows_changes,
+            allows_data=entitlement.allows_data,
+            max_users=entitlement.max_users,
+            max_companies=entitlement.max_companies,
+            users_used=users_used,
+            companies_used=companies_used,
+            expires_at=entitlement.expires_at,
+            message=entitlement.blocked_reason,
+        )
+
+
 class UserResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -72,6 +129,69 @@ class UserResponse(BaseModel):
     org_id: str
     org_name: str
     role: Role
+    #: The app routes straight to "set a new password" while this is true, so a
+    #: temporary password handed over in person cannot stay in use.
+    must_change_password: bool = False
+    subscription: SubscriptionResponse
+
+
+# --------------------------------------------------------------------------
+# Team
+# --------------------------------------------------------------------------
+
+
+class CreateMemberRequest(BaseModel):
+    email: EmailStr
+    full_name: str | None = Field(default=None, max_length=200)
+    role: Role = Role.STAFF
+    #: Which companies a staff member may see. Ignored for admins, who see all.
+    #: Empty is allowed and means "granted nothing yet" -- a deliberate state, so
+    #: an admin can create the account now and decide access with the person.
+    company_ids: list[str] = Field(default_factory=list)
+
+
+class MemberResponse(BaseModel):
+    """One person in the organisation, as the team screen shows them."""
+
+    id: str
+    email: str
+    full_name: str | None
+    role: Role
+    is_active: bool
+    must_change_password: bool
+    last_login_at: UtcDatetime | None
+    #: For an admin this is every company in the org, because that is what they
+    #: can actually see -- returning an empty list and letting the app infer
+    #: "admin means all" would put the same rule in two places.
+    company_ids: list[str]
+
+
+class MemberCreatedResponse(BaseModel):
+    """The one and only time the temporary password is visible."""
+
+    member: MemberResponse
+    temporary_password: str
+
+
+class UpdateMemberRequest(BaseModel):
+    full_name: str | None = Field(default=None, max_length=200)
+    role: Role | None = None
+    is_active: bool | None = None
+    #: Replaces the grant list wholesale rather than merging. The screen sends
+    #: the full set of ticked boxes, and a merge would make un-ticking impossible.
+    company_ids: list[str] | None = None
+
+
+class ResetMemberPasswordResponse(BaseModel):
+    temporary_password: str
+
+
+class ChangePasswordRequest(BaseModel):
+    #: Not required when the account is still on a temporary password: the person
+    #: was handed it by someone else, and asking them to retype it adds a step
+    #: without adding proof of anything.
+    current_password: str | None = Field(default=None, max_length=200)
+    new_password: str = Field(min_length=10, max_length=200)
 
 
 # --------------------------------------------------------------------------

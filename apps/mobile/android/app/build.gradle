@@ -1,8 +1,30 @@
+import java.util.Properties
+
 plugins {
     id "com.android.application"
     id "kotlin-android"
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id "dev.flutter.flutter-gradle-plugin"
+}
+
+// Release signing, read from android/key.properties -- gitignored, because a
+// keystore and its passwords are credentials, not source.
+//
+// When it is absent a release build falls back to the debug key and says so
+// loudly. The fallback exists so `flutter run --release` works on a fresh
+// checkout; it must never be what ships. The debug keystore's password is
+// publicly documented ("android"), so a debug-signed release means anyone can
+// build a package that Android will install *over* TallyFlow as an update. For
+// an app that reads a business's books that is not a signing detail, it is a
+// supply-chain hole.
+//
+// See DEPLOYMENT.md for how to generate it. Losing the keystore means never
+// being able to update the app in place again.
+def keystoreProperties = new Properties()
+def keystorePropertiesFile = rootProject.file("key.properties")
+def hasReleaseKey = keystorePropertiesFile.exists()
+if (hasReleaseKey) {
+    keystorePropertiesFile.withInputStream { keystoreProperties.load(it) }
 }
 
 android {
@@ -30,11 +52,32 @@ android {
         versionName = flutter.versionName
     }
 
+    signingConfigs {
+        if (hasReleaseKey) {
+            release {
+                keyAlias = keystoreProperties["keyAlias"]
+                keyPassword = keystoreProperties["keyPassword"]
+                storeFile = keystoreProperties["storeFile"] ? file(keystoreProperties["storeFile"]) : null
+                storePassword = keystoreProperties["storePassword"]
+            }
+        }
+    }
+
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.debug
+            if (hasReleaseKey) {
+                signingConfig = signingConfigs.release
+            } else {
+                // Deliberately loud. A release build that is quietly debug-signed
+                // is indistinguishable from a properly signed one until a customer
+                // cannot install an update, or until someone else signs one.
+                logger.warn("")
+                logger.warn("*** WARNING: android/key.properties is missing.")
+                logger.warn("*** This release build is signed with the DEBUG key and MUST NOT be")
+                logger.warn("*** distributed. See DEPLOYMENT.md > App signing.")
+                logger.warn("")
+                signingConfig = signingConfigs.debug
+            }
         }
     }
 }

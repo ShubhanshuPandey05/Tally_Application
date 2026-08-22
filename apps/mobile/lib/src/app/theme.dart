@@ -1,132 +1,312 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
+/// The three skins a customer can choose between, in the order they appear in
+/// the picker.
+///
+/// [dim] is the default rather than [light] or [dark], and rather than
+/// following the system. A shop owner opens this app on a phone at the counter
+/// and again at home in the evening; a soft dark reads comfortably in both, and
+/// a theme that flips with the system clock changes the look of their books
+/// halfway through the day for no reason they asked for.
+///
+/// [dark] exists separately because "dim" is not dark enough on an OLED phone
+/// in a dark room, which is exactly when someone reaches for it.
+enum AppThemeMode {
+  light('Light'),
+  dim('Dim'),
+  dark('Dark');
+
+  const AppThemeMode(this.label);
+
+  /// What the picker calls it.
+  final String label;
+
+  /// Persisted by name, so reordering or inserting a mode later cannot silently
+  /// move an existing customer to a different theme.
+  static AppThemeMode fromName(String? name) => AppThemeMode.values.firstWhere(
+        (AppThemeMode mode) => mode.name == name,
+        orElse: () => AppThemeMode.dim,
+      );
+
+  bool get isLight => this == AppThemeMode.light;
+}
+
 /// The visual language.
 ///
+/// White page, soft grey for anything that is a *container* rather than
+/// content, near-black for the one card on a screen that should be read first,
+/// and a single blue for action. Structure comes from radius and from the grey,
+/// not from a border around everything.
+///
 /// The brief is "Google Analytics for Tally, not remote desktop for Tally", so
-/// the app must not look like accounting software. Restrained surfaces, one
-/// accent colour, and figures set in tabular numerals -- when a column of
-/// amounts is proportionally spaced the digits fail to line up and the whole
-/// screen reads as amateur.
+/// the app must not look like accounting software. Two rules carry most of
+/// that: colour appears almost exclusively inside small rounded icon tiles, and
+/// every figure is set in tabular numerals -- a column of proportionally spaced
+/// amounts does not line up, and the whole screen reads as amateur.
+///
+/// These values are mirrored in the marketing site's tokens
+/// (apps/website/src/styles/base.css). A customer sees both in the same
+/// afternoon, and two nearly-identical blues read as a mistake, not a family.
+
 class AppTheme {
   const AppTheme._();
 
-  /// Indigo rather than the obvious ledger-green: money up and money down both
-  /// need a colour, and a green brand would make every positive figure shout.
-  static const Color seed = Color(0xFF3A5AF0);
+  /// Action, and nothing else. Not a ledger-green: money up and money down both
+  /// need a colour of their own, and a green brand would make every positive
+  /// figure shout.
+  static const Color accent = Color(0xFF2D5BFF);
+  static const Color accentInk = Color(0xFF1E3FCC);
+  static const Color accentSoft = Color(0xFFEAEFFF);
+
+  static const Color ink = Color(0xFF101114);
+  static const Color inkSoft = Color(0xFF3B3D45);
+
+  /// The dark card. One per screen at most — it is how a screen says
+  /// "start here", and a second one would leave the first saying nothing.
+  static const Color inkCard = Color(0xFF15171C);
 
   static const Color positive = Color(0xFF12805C);
   static const Color negative = Color(0xFFC4314B);
-  static const Color caution = Color(0xFFB86E00);
+  static const Color caution = Color(0xFFB8720A);
 
-  static ThemeData light() => _build(Brightness.light);
-  static ThemeData dark() => _build(Brightness.dark);
+  /// Tints for the rounded icon tiles. A fixed, small set: a category palette
+  /// that grows on demand is how an interface ends up looking like a paint
+  /// chart.
+  static const Color tileBlue = accent;
+  static const Color tileGreen = Color(0xFF17A06B);
+  static const Color tileAmber = Color(0xFFE08A15);
+  static const Color tileViolet = Color(0xFF7C4DFF);
+  static const Color tileRose = Color(0xFFE0447A);
 
-  static ThemeData _build(Brightness brightness) {
+  /// Corner radii. Large on cards, medium on tiles and fields, full on
+  /// anything that is pressed.
+  static const double radiusCard = 20;
+  static const double radiusTile = 12;
+  static const double radiusField = 14;
+
+  static ThemeData light() => forMode(AppThemeMode.light);
+  static ThemeData dim() => forMode(AppThemeMode.dim);
+  static ThemeData dark() => forMode(AppThemeMode.dark);
+
+  static ThemeData forMode(AppThemeMode mode) => _build(mode);
+
+  static ThemeData _build(AppThemeMode mode) {
+    final bool isLight = mode.isLight;
+    final Brightness brightness = isLight ? Brightness.light : Brightness.dark;
+
+    // Content is the lightest thing on a light page and the lightest thing on a
+    // dark one; containers -- field fills, segmented tracks, icon tiles -- are
+    // always a step away from it. That inversion is what stops either skin
+    // going flat, and it is why each mode names four greys rather than one.
+    final (Color page, Color card, Color surface, Color line) = switch (mode) {
+      AppThemeMode.light => (
+          Colors.white,
+          Colors.white,
+          const Color(0xFFF4F5F7),
+          const Color(0xFFE8E9ED),
+        ),
+      AppThemeMode.dim => (
+          const Color(0xFF1A1D23),
+          const Color(0xFF232730),
+          const Color(0xFF2C313B),
+          const Color(0xFF363B46),
+        ),
+      AppThemeMode.dark => (
+          const Color(0xFF08090B),
+          const Color(0xFF101216),
+          const Color(0xFF191C22),
+          const Color(0xFF23262D),
+        ),
+    };
+    final Color onPage = isLight ? ink : const Color(0xFFF2F3F7);
+    final Color muted = isLight ? const Color(0xFF6B6E78) : const Color(0xFF9BA1AE);
+
     final ColorScheme scheme = ColorScheme.fromSeed(
-      seedColor: seed,
+      seedColor: accent,
       brightness: brightness,
+    ).copyWith(
+      primary: isLight ? accent : const Color(0xFF8AA4FF),
+      onPrimary: isLight ? Colors.white : const Color(0xFF0E0F13),
+      primaryContainer: isLight ? accentSoft : const Color(0xFF23304F),
+      surface: page,
+      onSurface: onPage,
+      surfaceContainerHighest: surface,
+      onSurfaceVariant: muted,
+      outlineVariant: line,
+      error: negative,
     );
-    final bool isLight = brightness == Brightness.light;
-    final Color surface = isLight ? const Color(0xFFF6F7FB) : const Color(0xFF12141A);
-    final Color card = isLight ? Colors.white : const Color(0xFF1B1E26);
 
     final ThemeData base = ThemeData(
-      colorScheme: scheme.copyWith(surface: surface),
+      colorScheme: scheme,
       useMaterial3: true,
-      scaffoldBackgroundColor: surface,
-      splashFactory: InkSparkle.splashFactory,
+      scaffoldBackgroundColor: page,
+      // No ripple splash. The reference language is flat and quiet; an ink
+      // sparkle under a pressed pill reads as a different product.
+      splashFactory: InkRipple.splashFactory,
     );
 
     return base.copyWith(
-      textTheme: _textTheme(base.textTheme),
+      textTheme: _textTheme(base.textTheme, onPage),
       appBarTheme: AppBarTheme(
-        backgroundColor: surface,
+        backgroundColor: page,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        scrolledUnderElevation: 0.5,
+        scrolledUnderElevation: 0,
         centerTitle: false,
+        titleSpacing: 20,
         systemOverlayStyle:
             isLight ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
-        titleTextStyle: base.textTheme.titleLarge?.copyWith(
+        iconTheme: IconThemeData(color: onPage, size: 22),
+        titleTextStyle: TextStyle(
+          fontSize: 20,
           fontWeight: FontWeight.w700,
-          color: scheme.onSurface,
+          letterSpacing: -0.4,
+          color: onPage,
         ),
       ),
+      // The one dark card. On a light page it is near-black; on a dark page
+      // near-black *is* the page, so it lifts to the card colour's brighter
+      // sibling instead. Either way it is the only surface on the screen that
+      // is not the page or a container.
+      extensions: <ThemeExtension<dynamic>>[
+        HeroSurface(
+          colour: isLight ? inkCard : Color.alphaBlend(Colors.white10, card),
+        ),
+      ],
       cardTheme: CardTheme(
         color: card,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         margin: EdgeInsets.zero,
         shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(16),
-          side: BorderSide(color: scheme.outlineVariant.withOpacity(0.5)),
+          borderRadius: BorderRadius.circular(radiusCard),
+          side: BorderSide(color: line),
         ),
       ),
       chipTheme: base.chipTheme.copyWith(
-        side: BorderSide(color: scheme.outlineVariant),
-        labelStyle: base.textTheme.labelMedium,
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 2),
+        backgroundColor: surface,
+        side: BorderSide.none,
+        shape: const StadiumBorder(),
+        labelStyle: TextStyle(
+          fontSize: 12.5,
+          fontWeight: FontWeight.w600,
+          color: onPage,
+        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
-        fillColor: card,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
+        fillColor: surface,
+        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        // The field is the grey shape; a border as well would be saying the
+        // same thing twice.
         border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(radiusField),
+          borderSide: BorderSide.none,
         ),
         enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
-          borderSide: BorderSide(color: scheme.outlineVariant),
+          borderRadius: BorderRadius.circular(radiusField),
+          borderSide: BorderSide.none,
         ),
         focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(12),
+          borderRadius: BorderRadius.circular(radiusField),
           borderSide: BorderSide(color: scheme.primary, width: 1.6),
         ),
+        errorBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(radiusField),
+          borderSide: const BorderSide(color: negative, width: 1.4),
+        ),
+        hintStyle: TextStyle(color: muted),
+        prefixIconColor: muted,
       ),
       filledButtonTheme: FilledButtonThemeData(
         style: FilledButton.styleFrom(
-          minimumSize: const Size.fromHeight(52),
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 16),
+          backgroundColor: isLight ? ink : Colors.white,
+          foregroundColor: isLight ? Colors.white : ink,
+          minimumSize: const Size.fromHeight(54),
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(
+            fontWeight: FontWeight.w600,
+            fontSize: 16,
+            letterSpacing: -0.2,
+          ),
         ),
       ),
-      navigationBarTheme: NavigationBarThemeData(
+      outlinedButtonTheme: OutlinedButtonThemeData(
+        style: OutlinedButton.styleFrom(
+          foregroundColor: onPage,
+          backgroundColor: surface,
+          minimumSize: const Size.fromHeight(50),
+          side: BorderSide.none,
+          shape: const StadiumBorder(),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+        ),
+      ),
+      textButtonTheme: TextButtonThemeData(
+        style: TextButton.styleFrom(
+          foregroundColor: scheme.primary,
+          textStyle: const TextStyle(fontWeight: FontWeight.w600),
+        ),
+      ),
+      dividerTheme: DividerThemeData(color: line, space: 1, thickness: 1),
+      listTileTheme: const ListTileThemeData(
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+      ),
+      bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: card,
         surfaceTintColor: Colors.transparent,
-        indicatorColor: scheme.primary.withOpacity(0.12),
-        elevation: 0,
-        height: 64,
-        labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+        showDragHandle: true,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+        ),
       ),
-      dividerTheme: DividerThemeData(
-        color: scheme.outlineVariant.withOpacity(0.6),
-        space: 1,
-        thickness: 1,
+      dialogTheme: DialogTheme(
+        backgroundColor: card,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(24)),
       ),
-      listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 4),
+      snackBarTheme: SnackBarThemeData(
+        backgroundColor: inkCard,
+        contentTextStyle: const TextStyle(color: Colors.white),
+        behavior: SnackBarBehavior.floating,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+      ),
+      progressIndicatorTheme: ProgressIndicatorThemeData(
+        linearTrackColor: surface,
+        linearMinHeight: 8,
+        color: scheme.primary,
       ),
     );
   }
 
-  static TextTheme _textTheme(TextTheme base) => base.copyWith(
+  static TextTheme _textTheme(TextTheme base, Color onPage) => base.copyWith(
         displaySmall: base.displaySmall?.copyWith(
           fontWeight: FontWeight.w700,
+          letterSpacing: -1.2,
           fontFeatures: _tabular,
         ),
         headlineMedium: base.headlineMedium?.copyWith(
           fontWeight: FontWeight.w700,
+          letterSpacing: -0.9,
           fontFeatures: _tabular,
         ),
         headlineSmall: base.headlineSmall?.copyWith(
           fontWeight: FontWeight.w700,
+          letterSpacing: -0.7,
           fontFeatures: _tabular,
         ),
-        titleMedium: base.titleMedium?.copyWith(fontWeight: FontWeight.w600),
+        titleLarge: base.titleLarge?.copyWith(
+          fontWeight: FontWeight.w700,
+          letterSpacing: -0.4,
+        ),
+        titleMedium: base.titleMedium?.copyWith(
+          fontWeight: FontWeight.w600,
+          letterSpacing: -0.2,
+        ),
         titleSmall: base.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        bodyMedium: base.bodyMedium?.copyWith(height: 1.35),
+        labelLarge: base.labelLarge?.copyWith(fontWeight: FontWeight.w600),
+        bodyMedium: base.bodyMedium?.copyWith(height: 1.4),
       );
 
   /// Every numeric style opts into tabular figures so amounts in a list align.
@@ -134,16 +314,48 @@ class AppTheme {
 
   static const TextStyle amount = TextStyle(
     fontWeight: FontWeight.w700,
+    letterSpacing: -0.5,
     fontFeatures: _tabular,
   );
 }
 
-/// Semantic colours for figures, resolved against the current theme.
+/// Semantic colours and surfaces, resolved against the current theme.
 extension MoneyColors on BuildContext {
   Color get positiveColor => AppTheme.positive;
   Color get negativeColor => AppTheme.negative;
   Color get cautionColor => AppTheme.caution;
 
-  Color get mutedColor =>
-      Theme.of(this).colorScheme.onSurfaceVariant.withOpacity(0.85);
+  Color get mutedColor => Theme.of(this).colorScheme.onSurfaceVariant;
+
+  /// The grey used for containers: field fills, segmented tracks, icon tile
+  /// backgrounds, progress rails.
+  Color get surfaceColor => Theme.of(this).colorScheme.surfaceContainerHighest;
+
+  Color get lineColor => Theme.of(this).colorScheme.outlineVariant;
+
+  /// The one dark card's fill for the current skin.
+  Color get heroSurface =>
+      Theme.of(this).extension<HeroSurface>()?.colour ?? AppTheme.inkCard;
+}
+
+
+/// Where the one dark card gets its colour from.
+///
+/// A theme extension rather than a constant because the answer depends on the
+/// skin: "darker than the page" is not available when the page is already dark,
+/// and a hero card that disappears is worse than no hero card at all.
+@immutable
+class HeroSurface extends ThemeExtension<HeroSurface> {
+  const HeroSurface({required this.colour});
+
+  final Color colour;
+
+  @override
+  HeroSurface copyWith({Color? colour}) => HeroSurface(colour: colour ?? this.colour);
+
+  @override
+  HeroSurface lerp(ThemeExtension<HeroSurface>? other, double t) {
+    if (other is! HeroSurface) return this;
+    return HeroSurface(colour: Color.lerp(colour, other.colour, t) ?? colour);
+  }
 }

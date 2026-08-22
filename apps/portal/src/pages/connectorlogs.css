@@ -1,0 +1,41 @@
+.picker {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+.picker .field { min-width: 190px; }
+.picker .field.grow { flex: 1 1 220px; }
+
+/* The machine cards. Present as well as the dropdown, not instead of it:
+   the dropdown is how you pick when you already know which PC, and these
+   are how you find out which one is the problem. */
+.pc-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(232px, 1fr));
+  gap: 10px;
+}
+
+.pc-card {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  text-align: left;
+  padding: 12px 14px;
+  border-radius: var(--r-md);
+  border: 1px solid var(--line);
+  background: var(--surface);
+  color: inherit;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  box-shadow: var(--shadow-1);
+  transition: border-color .12s, box-shadow .12s;
+}
+.pc-card:hover { border-color: var(--ink-3); }
+.pc-card:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+.pc-card.is-active {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent), var(--shadow-1);
+}
+.pc-card strong { font-size: 13.5px; }

@@ -1,208 +1,89 @@
 .hero {
-  padding-top: 148px;
-  padding-bottom: clamp(70px, 9vw, 120px);
-  overflow: hidden;
-}
-
-.hero-orb-1 {
-  width: 620px;
-  height: 620px;
-  top: -220px;
-  left: -180px;
-  background: radial-gradient(circle, rgba(58, 90, 240, 0.65), transparent 68%);
-  animation: drift 18s ease-in-out infinite;
-}
-
-.hero-orb-2 {
-  width: 540px;
-  height: 540px;
-  top: 120px;
-  right: -160px;
-  background: radial-gradient(circle, rgba(139, 58, 240, 0.5), transparent 68%);
-  animation: drift 22s ease-in-out infinite reverse;
-}
-
-.hero-orb-3 {
-  width: 420px;
-  height: 420px;
-  bottom: -180px;
-  left: 34%;
-  background: radial-gradient(circle, rgba(90, 240, 200, 0.28), transparent 70%);
-  animation: drift 26s ease-in-out infinite;
-}
-
-@keyframes drift {
-  0%,
-  100% {
-    transform: translate(0, 0) scale(1);
-  }
-  33% {
-    transform: translate(50px, 40px) scale(1.1);
-  }
-  66% {
-    transform: translate(-40px, 25px) scale(0.95);
-  }
+  padding: clamp(40px, 5vw, 64px) 0 clamp(28px, 4vw, 48px);
 }
 
 .hero-grid {
-  position: relative;
-  z-index: 1;
   display: grid;
-  grid-template-columns: minmax(0, 1.08fr) minmax(0, 0.92fr);
-  gap: 48px;
+  grid-template-columns: 1.1fr 0.9fr;
+  gap: clamp(32px, 5vw, 64px);
   align-items: center;
 }
 
-.hero-copy h1 {
-  font-size: clamp(40px, 5.6vw, 68px);
-  margin: 22px 0 20px;
+.hero h1 {
+  font-size: clamp(40px, 5.4vw, 60px);
+  letter-spacing: -0.04em;
+  line-height: 1.04;
+  max-width: 14ch;
 }
 
 .hero-sub {
-  font-size: clamp(16px, 1.35vw, 18.5px);
+  margin-top: 20px;
+  font-size: 18px;
   color: var(--muted);
-  max-width: 560px;
-}
-
-/* ---------- rotating questions ---------- */
-
-.hero-rotator {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  margin-top: 26px;
-  font-size: 15px;
-  flex-wrap: wrap;
-}
-
-.hero-rotator-label {
-  color: var(--faint);
-  font-weight: 600;
-}
-
-.hero-rotator-track {
-  position: relative;
-  display: block;
-  height: 30px;
-  min-width: 290px;
-  flex: 1;
-}
-
-.hero-rotator-track em {
-  position: absolute;
-  inset: 0;
-  display: flex;
-  align-items: center;
-  font-style: normal;
-  font-weight: 700;
-  color: var(--indigo-bright);
-  opacity: 0;
-  transform: translateY(14px);
-  animation: rotate-in calc(var(--n) * 2.6s) var(--ease) infinite;
-  animation-delay: calc(var(--i) * 2.6s);
-  white-space: nowrap;
-}
-
-@keyframes rotate-in {
-  0% {
-    opacity: 0;
-    transform: translateY(14px);
-  }
-  4%,
-  16% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-  20%,
-  100% {
-    opacity: 0;
-    transform: translateY(-14px);
-  }
+  max-width: 46ch;
 }
 
 .hero-cta {
   display: flex;
-  gap: 12px;
-  margin-top: 32px;
   flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 28px;
 }
 
-/* ---------- stats ---------- */
-
+/* Live counts, in the soft grey panel the rest of the design uses for
+   containers. `dd` before `dt` so the figure reads first. */
 .hero-stats {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 46px;
-  padding-top: 30px;
-  border-top: 1px solid var(--stroke);
+  grid-template-columns: repeat(4, 1fr);
+  gap: 4px;
+  margin: 30px 0 0;
+  padding: 18px 20px;
+  border-radius: var(--radius);
+  background: var(--surface);
 }
 
-.hero-stat-value {
-  font-size: clamp(22px, 2.4vw, 30px);
-  font-weight: 800;
-  background: var(--grad-cool);
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
+.hero-stats dd {
+  margin: 0;
+  font-size: clamp(24px, 3vw, 30px);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  line-height: 1.1;
+  font-variant-numeric: tabular-nums;
 }
 
-.hero-stat-label {
+.hero-stats dt {
+  margin-top: 3px;
   font-size: 12.5px;
-  color: var(--faint);
-  line-height: 1.35;
-  margin-top: 4px;
+  color: var(--muted);
+  line-height: 1.3;
 }
 
-@media (max-width: 1000px) {
+.hero-strip {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 18px;
+  margin-top: 18px;
+  color: var(--muted);
+  font-size: 13.5px;
+}
+
+.hero-strip b {
+  color: var(--ink-2);
+  font-weight: 600;
+}
+
+@media (max-width: 900px) {
   .hero-grid {
     grid-template-columns: 1fr;
-    gap: 70px;
   }
 
-  .hero-copy {
-    text-align: center;
-    display: flex;
-    flex-direction: column;
-    align-items: center;
-  }
-
-  .hero-rotator,
-  .hero-cta {
-    justify-content: center;
-  }
-
-  .hero-rotator-track {
-    flex: none;
-    text-align: center;
-  }
-
-  .hero-rotator-track em {
-    justify-content: center;
+  .hero-art {
+    margin-top: 8px;
   }
 
   .hero-stats {
-    width: 100%;
-  }
-}
-
-@media (max-width: 620px) {
-  .hero {
-    padding-top: 118px;
-  }
-
-  .hero-stats {
-    grid-template-columns: 1fr 1fr;
-    gap: 22px 12px;
-  }
-
-  .hero-rotator-track {
-    min-width: 0;
-    width: 100%;
-  }
-
-  .hero-rotator-track em {
-    white-space: normal;
-    font-size: 14px;
+    grid-template-columns: repeat(2, 1fr);
+    gap: 18px 8px;
   }
 }

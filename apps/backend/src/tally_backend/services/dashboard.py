@@ -35,6 +35,12 @@ VOUCHER_TYPES = "voucher_types.list"
 #: Trend length on the dashboard chart.
 TREND_DAYS = 30
 
+#: Ceiling on the span the dashboard will read in one go, matching the reports'
+#: own clamp. A period longer than this is still served -- it is the *baseline*
+#: for the comparison that gets dropped first, never the window that was asked
+#: for.
+MAX_DASHBOARD_DAYS = 400
+
 
 @dataclass
 class Section:
@@ -60,20 +66,52 @@ def previous_month_bounds(day: date) -> tuple[date, date]:
     return month_start(last_prev), last_prev
 
 
-def voucher_window(today: date) -> tuple[date, date]:
+def voucher_window(today: date, period: tuple[date, date] | None = None) -> tuple[date, date]:
     """The voucher range the dashboard needs, in one place.
 
     The background refresher warms snapshots using this same function. They must
     agree exactly: the params are part of a snapshot's identity, so warming a
     different window writes rows the dashboard will never read -- a bug whose
-    only symptom is "the refresher appears to do nothing".
+    only symptom is "the refresher appears to do nothing". That is why ``period``
+    defaults to ``None`` and the no-period result is left exactly as it was: the
+    ordinary dashboard must keep hitting the warmed snapshot.
+
+    With a period the window is widened to cover it *and* the equal-length span
+    before it, so the period-on-period comparison has real numbers behind it
+    rather than a silent zero. The whole span is capped, because a shop's Tally
+    is a desktop PC that is also running the till.
     """
     prev_start, _ = previous_month_bounds(today)
-    return min(prev_start, today - timedelta(days=TREND_DAYS)), today
+    start = min(prev_start, today - timedelta(days=TREND_DAYS))
+    end = today
+
+    if period is not None:
+        period_from, period_to = period
+        end = max(end, period_to)
+        start = min(start, previous_period(period)[0])
+        if (end - start).days > MAX_DASHBOARD_DAYS:
+            start = end - timedelta(days=MAX_DASHBOARD_DAYS)
+        # Never let the cap swallow the period the user actually asked for.
+        start = min(start, period_from)
+
+    return start, end
 
 
-def voucher_params(today: date) -> dict[str, Any]:
-    start, end = voucher_window(today)
+def previous_period(period: tuple[date, date]) -> tuple[date, date]:
+    """The equal-length span immediately before [period].
+
+    "Is this month better than last month?" is the question the dashboard's
+    change figure answers, and for an arbitrary window the only defensible
+    baseline is the same number of days ending the day before it starts.
+    """
+    period_from, period_to = period
+    days = (period_to - period_from).days
+    previous_to = period_from - timedelta(days=1)
+    return previous_to - timedelta(days=days), previous_to
+
+
+def voucher_params(today: date, period: tuple[date, date] | None = None) -> dict[str, Any]:
+    start, end = voucher_window(today, period)
     return {
         "from_date": start.isoformat(),
         "to_date": end.isoformat(),
@@ -137,18 +175,33 @@ class DashboardService:
             return None
 
     async def build(
-        self, company: Company, *, today: date, mode: FetchMode = FetchMode.AUTO
+        self,
+        company: Company,
+        *,
+        today: date,
+        period: tuple[date, date] | None = None,
+        mode: FetchMode = FetchMode.AUTO,
     ) -> dict[str, Any]:
+        """Build the dashboard, optionally scoped to an explicit period.
+
+        ``period`` is the window the voucher-derived sections cover. Left
+        ``None`` the dashboard behaves exactly as it always has -- today's
+        figures, a 30-day trend, month-to-date against last month -- and the
+        response is byte-identical, which is what keeps the warmed snapshot and
+        the committed wire fixtures valid.
+        """
         #: Dataset -> why it could not be read, when it could not be.
         errors: dict[str, str] = {}
 
-        # One voucher read covers today, this month, last month and the trend.
-        # A round trip to a customer's desktop is the expensive part, so the
-        # window is widened rather than split into several reads.
+        # One voucher read covers today, this month, last month and the trend --
+        # and the selected period plus its baseline when there is one. A round
+        # trip to a customer's desktop is the expensive part, so the window is
+        # widened rather than split into several reads.
+        window_start, _ = voucher_window(today, period)
         vouchers_result = await self._load(
             company,
             VOUCHERS,
-            params=voucher_params(today),
+            params=voucher_params(today, period),
             mode=mode,
             heavy=True,
             errors=errors,
@@ -183,10 +236,24 @@ class DashboardService:
         no_bills = why(BILLS, "Could not read outstanding bills from Tally.")
 
         sections["sales"] = self._trade_section(
-            "sales", VoucherTypeKind.SALES, vouchers, vouchers_result, today, no_vouchers
+            "sales",
+            VoucherTypeKind.SALES,
+            vouchers,
+            vouchers_result,
+            today,
+            no_vouchers,
+            period=period,
+            window_start=window_start,
         )
         sections["purchases"] = self._trade_section(
-            "purchases", VoucherTypeKind.PURCHASE, vouchers, vouchers_result, today, no_vouchers
+            "purchases",
+            VoucherTypeKind.PURCHASE,
+            vouchers,
+            vouchers_result,
+            today,
+            no_vouchers,
+            period=period,
+            window_start=window_start,
         )
         sections["cash_and_bank"] = self._funds_section(
             ledgers_result, why(LEDGERS, "Could not read ledgers from Tally.")
@@ -200,9 +267,11 @@ class DashboardService:
         sections["inventory"] = self._inventory_section(
             stock_result, why(STOCK, "Could not read stock from Tally.")
         )
-        sections["activity"] = self._activity_section(vouchers, vouchers_result, no_vouchers)
+        sections["activity"] = self._activity_section(
+            vouchers, vouchers_result, no_vouchers, period=period
+        )
 
-        return {
+        payload: dict[str, Any] = {
             "company": {
                 "id": company.id,
                 "name": company.label,
@@ -214,6 +283,19 @@ class DashboardService:
                 [vouchers_result, ledgers_result, bills_result, stock_result]
             ),
         }
+        # Emitted only when one was asked for, so the default response stays
+        # byte-identical to what the app and the wire fixtures already expect.
+        if period is not None:
+            previous_from, previous_to = previous_period(period)
+            payload["period"] = {
+                "from_date": period[0].isoformat(),
+                "to_date": period[1].isoformat(),
+                "days": (period[1] - period[0]).days + 1,
+                "previous_from_date": previous_from.isoformat(),
+                "previous_to_date": previous_to.isoformat(),
+                "has_baseline": previous_from >= window_start,
+            }
+        return payload
 
     # -- sections --------------------------------------------------------
 
@@ -225,6 +307,9 @@ class DashboardService:
         result: DataResult | None,
         today: date,
         error: str,
+        *,
+        period: tuple[date, date] | None = None,
+        window_start: date | None = None,
     ) -> Section:
         if result is None:
             return Section(name, ok=False, error=error)
@@ -236,25 +321,54 @@ class DashboardService:
         party_kind = (
             VoucherTypeKind.SALES if kind is VoucherTypeKind.SALES else VoucherTypeKind.PURCHASE
         )
-        return Section(
-            name,
-            ok=True,
-            data={
-                "today": an.money_out(an.total_for(vouchers, kind, on=today)),
-                "yesterday": an.money_out(
-                    an.total_for(vouchers, kind, on=today - timedelta(days=1))
+
+        # With a period, the ranked lists and the chart describe *that window*.
+        # Without one they describe everything read, exactly as before -- the
+        # default period would be a single day, and a top-customers list built
+        # from one day would be a different and much less useful report.
+        scoped = vouchers
+        trend_from, trend_to = today - timedelta(days=TREND_DAYS - 1), today
+        if period is not None:
+            trend_from, trend_to = period
+            scoped = [v for v in vouchers if period[0] <= v.date <= period[1]]
+
+        data: dict[str, Any] = {
+            "today": an.money_out(an.total_for(vouchers, kind, on=today)),
+            "yesterday": an.money_out(
+                an.total_for(vouchers, kind, on=today - timedelta(days=1))
+            ),
+            "this_month": an.money_out(this_month),
+            "last_month": an.money_out(last_month),
+            "change_pct": _change_pct(this_month, last_month),
+            "trend": an.daily_series(vouchers, kind, since=trend_from, until=trend_to),
+            "top_parties": an.top_parties(scoped, party_kind),
+            "top_products": an.top_products(scoped, kind),
+        }
+
+        if period is not None:
+            previous_from, previous_to = previous_period(period)
+            total = an.total_for(vouchers, kind, since=period[0], until=period[1])
+            # A baseline outside the window that was read is not a baseline of
+            # zero -- it is unknown, and must render as "--" rather than as a
+            # 100% collapse the shop did not have.
+            comparable = window_start is not None and previous_from >= window_start
+            previous_total = (
+                an.total_for(vouchers, kind, since=previous_from, until=previous_to)
+                if comparable
+                else None
+            )
+            data["period"] = {
+                "total": an.money_out(total),
+                "previous_total": (
+                    an.money_out(previous_total) if previous_total is not None else None
                 ),
-                "this_month": an.money_out(this_month),
-                "last_month": an.money_out(last_month),
-                "change_pct": _change_pct(this_month, last_month),
-                "trend": an.daily_series(
-                    vouchers, kind, since=today - timedelta(days=TREND_DAYS - 1), until=today
+                "change_pct": (
+                    _change_pct(total, previous_total) if previous_total is not None else None
                 ),
-                "top_parties": an.top_parties(vouchers, party_kind),
-                "top_products": an.top_products(vouchers, kind),
-            },
-            meta=result.meta(),
-        )
+                "voucher_count": sum(1 for v in scoped if v.kind is kind),
+            }
+
+        return Section(name, ok=True, data=data, meta=result.meta())
 
     def _funds_section(self, result: DataResult | None, error: str) -> Section:
         if result is None:
@@ -303,16 +417,27 @@ class DashboardService:
         )
 
     def _activity_section(
-        self, vouchers: list[Any], result: DataResult | None, error: str
+        self,
+        vouchers: list[Any],
+        result: DataResult | None,
+        error: str,
+        *,
+        period: tuple[date, date] | None = None,
     ) -> Section:
         if result is None:
             return Section("activity", ok=False, error=error)
+
+        scoped = (
+            vouchers
+            if period is None
+            else [v for v in vouchers if period[0] <= v.date <= period[1]]
+        )
         return Section(
             "activity",
             ok=True,
             data={
-                "recent": an.recent_transactions(vouchers),
-                "voucher_count": len(vouchers),
+                "recent": an.recent_transactions(scoped),
+                "voucher_count": len(scoped),
             },
             meta=result.meta(),
         )

@@ -1,5 +1,11 @@
+import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/money/money.dart';
+
+// Re-exported so the many screens that import this file for [DaybookReport] and
+// friends keep seeing [DateRange] alongside them, now that it is shared with
+// the dashboard and lives in core.
+export '../../../core/model/date_range.dart';
 
 /// How hard a read should try.
 ///
@@ -12,48 +18,6 @@ enum FetchMode {
   live;
 
   String get wire => name;
-}
-
-class DateRange {
-  const DateRange(this.from, this.to);
-
-  final DateTime from;
-  final DateTime to;
-
-  static DateRange today() {
-    final DateTime now = DateTime.now();
-    final DateTime day = DateTime(now.year, now.month, now.day);
-    return DateRange(day, day);
-  }
-
-  static DateRange thisMonth() {
-    final DateTime now = DateTime.now();
-    return DateRange(DateTime(now.year, now.month), DateTime(now.year, now.month, now.day));
-  }
-
-  static DateRange lastDays(int days) {
-    final DateTime now = DateTime.now();
-    final DateTime end = DateTime(now.year, now.month, now.day);
-    return DateRange(end.subtract(Duration(days: days - 1)), end);
-  }
-
-  String get fromWire => _iso(from);
-  String get toWire => _iso(to);
-
-  bool get isSingleDay =>
-      from.year == to.year && from.month == to.month && from.day == to.day;
-
-  static String _iso(DateTime value) =>
-      '${value.year.toString().padLeft(4, '0')}-'
-      '${value.month.toString().padLeft(2, '0')}-'
-      '${value.day.toString().padLeft(2, '0')}';
-
-  @override
-  bool operator ==(Object other) =>
-      other is DateRange && other.fromWire == fromWire && other.toWire == toWire;
-
-  @override
-  int get hashCode => Object.hash(fromWire, toWire);
 }
 
 class DaybookReport {

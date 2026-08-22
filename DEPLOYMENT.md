@@ -1,7 +1,8 @@
 # Deploying TallyFlow
 
-Step-by-step for the two things that live on servers: the **backend API**
-(`apps/backend`) and the **marketing website** (`apps/website`).
+Step-by-step for the things that live on servers: the **backend API**
+(`apps/backend`), the **marketing website** (`apps/website`) and the
+**management portal** (`apps/portal`).
 
 The other two artefacts — the Windows connector and the mobile app — are not
 "deployed" so much as *published*: the connector installer is built on a Windows
@@ -17,6 +18,7 @@ Deploy in this order. Each part depends on the one before it:
 | 2 | Connector installer | Its backend URL is compiled in |
 | 3 | Mobile app | Its API URL is compiled in |
 | 4 | Marketing website | It links to the artefacts from 2 and 3 |
+| 5 | Management portal | It calls the API from 1, and needs its origin |
 
 ---
 
@@ -434,30 +436,42 @@ in B1–B3.
 
 ## B1. Make the content true before building
 
-Two modules are placeholders and will ship as-is if you don't touch them:
+The site reads its release facts from `/downloads/manifest.json` at runtime —
+the file `run.py publish` generates by measuring the bytes actually being
+served — so version, size and SHA-256 correct themselves the moment you
+publish, with no rebuild. What you still have to check is everything that
+**cannot** come from a manifest:
 
-**`apps/website/src/data/pricing.js`** — the plans and figures there are
-invented so the section could be designed. Nothing in it is commercially agreed.
-Replace it with real plans before launch. No component reads a price from
-anywhere else, so this one file is the whole change.
+**`apps/website/src/data/downloads.js`** holds the fallback shown before that
+fetch resolves and on a host with no manifest. It describes the last published
+build. If it names a version that is no longer in `/downloads`, its download
+link 404s for the first second of every visit — update it when you publish.
 
-**`apps/website/src/data/downloads.js`** — version numbers, file sizes and
-checksums for the connector installer and the app. Update after Part C produces
-the real artefacts:
+**`apps/website/src/data/site.js`** holds the contact address and the report
+list. The report list is a claim about the app: it must match the app's report
+index, or the site is promising screens that are not there.
 
-```js
-export const CONNECTOR_VERSION = '0.1.0';   // must match tally_connector.__version__
-export const APP_VERSION = '0.1.0';
-// ... size: '18.4 MB', checksum: 'sha256:  a7f3…9c21'
-```
+**`components/Security.jsx`** states only what the code does. If a mechanism
+listed there changes, the sentence goes in the same commit.
 
-The store buttons are `href: '#'` until the Play Store and App Store listings
-exist. Leave them until they do — a dead store link costs more trust than a
-missing one.
+**The hero prints live counts** from `GET /v1/public/stats` -- active
+businesses, paired Tally PCs, companies being read, and how many of those PCs
+are connected right now. It is the only route in the product that reads customer
+data without a token, and it returns four integers and a timestamp: no names, no
+identifiers. Two consequences for a deploy:
+
+- The site and the API must share a hostname, or the request is cross-origin and
+  the row silently does not appear. The Caddyfile already arranges this.
+- `TALLYFLOW_PUBLIC_STATS_ENABLED=false` turns it off. Publishing a customer
+  count is a commercial decision, and reversing it must not need a rebuild.
+
+There is no pricing module any more. There is no published price list and no
+self-service billing — accounts are activated by hand in the portal — and the
+site says exactly that. Do not reintroduce figures nobody has agreed to.
 
 Also check the support URL in the connector installer
 (`AppSupportURL=https://tallyflow.app/support`) resolves to a real page on the
-site.
+site — `/docs` is the obvious target.
 
 ## B2. Build
 
@@ -569,6 +583,75 @@ That last one is a real maintenance obligation — the copy is specific on purpo
 
 ---
 
+# Part B2 — Management portal
+
+Also a React 18 + Vite static build, and deployed the same way — but with one
+constraint that is not negotiable and is easy to get wrong.
+
+## The portal must be same-origin with the API
+
+The portal holds platform-wide authority: its token can approve accounts, set
+subscription limits, and read the server log. Serve it from the **same hostname
+as `/v1`**, so that token is never a cross-origin credential and no CORS rule is
+what stands between it and another origin.
+
+In the UAT stack that is already true — Caddy serves `/portal/*` from disk and
+proxies `/v1/*` to the API on one hostname (`deploy/uat/Caddyfile`), and the
+build happens inside `deploy/uat/web.Dockerfile`, so a `docker compose build`
+is the whole deploy. Nothing below is needed for UAT.
+
+If you host the portal separately, three values have to agree or the page loads
+once and 404s on the first navigation:
+
+| Where | Value |
+|---|---|
+| `apps/portal/vite.config.js` | `base: '/portal/'` |
+| `apps/portal/src/main.jsx` | `basename="/portal"` |
+| Your web server | serves those files at `/portal/`, with an SPA fallback |
+
+## Build and serve
+
+```powershell
+cd apps\portal
+npm ci
+npm run build        # -> apps\portal\dist
+```
+
+nginx, alongside the API on the same server block:
+
+```nginx
+location /portal/ {
+    alias /var/www/tallyflow-portal/;
+    # A client-side route must survive a refresh. The support view is the
+    # screen most likely to be bookmarked, and without this /portal/logs/...
+    # 404s on reload.
+    try_files $uri $uri/ /portal/index.html;
+}
+
+# Hashed filenames -- safe to cache hard. index.html never is: a browser
+# holding yesterday's copy asks for asset names that no longer exist, and the
+# portal renders as a blank page with nothing in any log to explain it.
+location /portal/assets/ {
+    alias /var/www/tallyflow-portal/assets/;
+    expires 1y;
+    add_header Cache-Control "public, immutable";
+}
+```
+
+Keep it off search engines and, if you have a fixed office IP, behind an
+allow-list — it lists customer businesses by name. The page already sends
+`noindex`; an `allow`/`deny` block is the stronger half.
+
+## Verify
+
+Sign in as the bootstrap owner (`TALLYFLOW_PORTAL_BOOTSTRAP_EMAIL`), which will
+force a password change on first use, then check three things: the Accounts list
+loads, **Server logs** shows live lines from the API you just deployed, and a
+hard refresh on a deep link like `/portal/logs/connector` still renders. That
+last one is the SPA fallback, and it is the failure that only shows up later.
+
+---
+
 # Part C — Publishing the connector and the app
 
 ## C1. Point the connector at your API — before building
@@ -624,13 +707,41 @@ python run.py release https://api.tallyflow.app
 # -> apps\mobile\build\web\                          (Flutter web)
 ```
 
-**Android release signing is not configured yet.**
-`apps/mobile/android/app/build.gradle:37` still carries Flutter's default
-`signingConfig = signingConfigs.debug`, so the bundle this produces is
-debug-signed and Play Console will reject it. Before the first release: generate
-an upload keystore, keep it and a `key.properties` out of git, and replace that
-block with a real `signingConfigs.release`. iOS is built and signed through Xcode
-with your distribution profile.
+### App signing
+
+Gradle reads the release key from `apps/mobile/android/key.properties`, which is
+gitignored. **Without it, `run.py release` refuses to build** — because Gradle
+falls back to the debug key so a fresh checkout can `flutter run --release`, and
+that fallback is exactly how a debug-signed APK reaches customers unnoticed: it
+builds cleanly, installs cleanly, and looks identical to a real one.
+
+It is not merely a Play Console rejection. The debug keystore's password is
+publicly documented (`android`), so **anyone can sign a package that Android will
+install over TallyFlow as an update.** For an app that reads a business's books,
+that is a supply-chain hole, not a signing detail.
+
+Generate the upload keystore once:
+
+```powershell
+keytool -genkey -v -keystore C:\keys\tallyflow-release.jks `
+        -keyalg RSA -keysize 2048 -validity 10000 -alias tallyflow
+```
+
+Then copy `key.properties.example` to `key.properties` and fill it in.
+
+**Back the keystore and both passwords up somewhere you will still have in five
+years, outside this repo** (a `git clean -xfd` deletes untracked files). Android
+identifies an app by its signing key: lose it and no existing install can ever be
+updated in place again — every user must uninstall and reinstall, losing their
+session. Play App Signing is the only recovery path, and it must be opted into
+before the first upload.
+
+> **The 0.1.0 APK already distributed is debug-signed** (verified: its
+> certificate is `CN=Android Debug`). Moving to a real key changes the signature,
+> so **existing 0.1.0 installs cannot update in place** — those users must
+> uninstall and reinstall once. Take that break now, while the pilot is small.
+
+iOS is built and signed through Xcode with your distribution profile.
 
 If you host the Flutter web build on the website domain, add that origin to
 `TALLYFLOW_CORS_ORIGINS` on the backend (A3) and redeploy the API — otherwise the
@@ -676,7 +787,9 @@ App:
 
 Website:
 
-- [ ] `pricing.js` replaced with agreed pricing
+- [ ] `site.js` report list still matches the app; `Security.jsx` claims still true
+- [ ] `/v1/public/stats` answers from the site's own hostname, and you are content
+      for those four counts to be public
 - [ ] `downloads.js` versions, sizes and checksums match the uploaded files
 - [ ] `/downloads/…` URLs return the files, not HTML
 - [ ] `index.html` served with no-cache; hashed assets cached long

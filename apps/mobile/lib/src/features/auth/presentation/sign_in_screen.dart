@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/widgets/primitives.dart';
 import '../application/auth_controller.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
@@ -54,8 +55,9 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: <Widget>[
-                    Icon(Icons.insights_rounded,
-                        size: 44, color: theme.colorScheme.primary),
+                    // The column stretches its children; the mark is a fixed
+                    // square and must not be stretched into a stripe.
+                    const Center(child: BrandMark(size: 76)),
                     const SizedBox(height: 20),
                     Text('Welcome back', style: theme.textTheme.headlineSmall),
                     const SizedBox(height: 6),

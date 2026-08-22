@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../money/money.dart';
 import '../money/money_format.dart';
+import 'primitives.dart';
 
 /// A headline figure with its context.
 ///
@@ -19,6 +20,7 @@ class KpiCard extends StatelessWidget {
     this.icon,
     this.onTap,
     this.tone = KpiTone.neutral,
+    this.wide = false,
   });
 
   final String label;
@@ -33,6 +35,11 @@ class KpiCard extends StatelessWidget {
   final VoidCallback? onTap;
   final KpiTone tone;
 
+  /// Lay the tile out as a row rather than a column. Used when this is the only
+  /// figure on the screen: a square tile alone in a full-width card is mostly
+  /// empty, and empty space where a figure should be reads as a failed read.
+  final bool wide;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -40,7 +47,10 @@ class KpiCard extends StatelessWidget {
       KpiTone.positive => context.positiveColor,
       KpiTone.negative => context.negativeColor,
       KpiTone.caution => context.cautionColor,
-      KpiTone.neutral => theme.colorScheme.primary,
+      // The tile palette, not the scheme's primary: on the dark skins primary
+      // lightens to stay readable as *text*, and a tile filled with that pale
+      // blue no longer matches the identical tile on the card below it.
+      KpiTone.neutral => AppTheme.tileBlue,
     };
 
     return Card(
@@ -48,54 +58,85 @@ class KpiCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
+          padding: const EdgeInsets.all(16),
+          child: wide
+              ? Row(
+                  children: <Widget>[
+                    if (icon != null) ...<Widget>[
+                      IconTile(icon: icon!, colour: accent, size: 40),
+                      const SizedBox(width: 14),
+                    ],
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: <Widget>[
+                          Text(
+                            label,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: context.mutedColor),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            MoneyFormat.compact(amount),
+                            style: theme.textTheme.headlineSmall,
+                          ),
+                        ],
+                      ),
+                    ),
+                    if (caption != null)
+                      Text(
+                        caption!,
+                        textAlign: TextAlign.end,
+                        style:
+                            theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+                      ),
+                  ],
+                )
+              : Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Row(
-                children: <Widget>[
-                  if (icon != null) ...<Widget>[
-                    Icon(icon, size: 16, color: accent),
-                    const SizedBox(width: 6),
-                  ],
-                  Expanded(
-                    child: Text(
-                      label,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium
-                          ?.copyWith(color: context.mutedColor),
-                    ),
-                  ),
-                ],
+              if (icon != null) ...<Widget>[
+                IconTile(icon: icon!, colour: accent, size: 34),
+                const SizedBox(height: 14),
+              ],
+              Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
               ),
-              const SizedBox(height: 10),
+              const SizedBox(height: 4),
               FittedBox(
                 fit: BoxFit.scaleDown,
                 alignment: Alignment.centerLeft,
                 child: Text(
                   MoneyFormat.compact(amount),
-                  style: theme.textTheme.headlineSmall?.copyWith(color: accent),
+                  style: theme.textTheme.headlineSmall,
                 ),
               ),
-              const SizedBox(height: 6),
-              Row(
-                children: <Widget>[
-                  if (changePct != null) ChangeChip(changePct: changePct!),
-                  if (changePct != null && caption != null) const SizedBox(width: 6),
-                  if (caption != null)
-                    Expanded(
-                      child: Text(
-                        caption!,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: theme.textTheme.bodySmall
-                            ?.copyWith(color: context.mutedColor),
+              if (changePct != null || caption != null) ...<Widget>[
+                const SizedBox(height: 8),
+                Row(
+                  children: <Widget>[
+                    if (changePct != null) ChangeChip(changePct: changePct!),
+                    if (changePct != null && caption != null) const SizedBox(width: 6),
+                    if (caption != null)
+                      Expanded(
+                        child: Text(
+                          caption!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall
+                              ?.copyWith(color: context.mutedColor),
+                        ),
                       ),
-                    ),
-                ],
-              ),
+                  ],
+                ),
+              ],
             ],
           ),
         ),
@@ -116,10 +157,10 @@ class ChangeChip extends StatelessWidget {
     final bool up = changePct >= 0;
     final Color colour = up ? context.positiveColor : context.negativeColor;
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: colour.withOpacity(0.10),
-        borderRadius: BorderRadius.circular(6),
+        borderRadius: BorderRadius.circular(999),
       ),
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -149,6 +190,7 @@ class SectionCard extends StatelessWidget {
     this.action,
     this.onAction,
     this.icon,
+    this.tint,
   });
 
   final String title;
@@ -158,6 +200,9 @@ class SectionCard extends StatelessWidget {
   final VoidCallback? onAction;
   final IconData? icon;
 
+  /// Colour of the header tile. Sections are categories, so they earn one.
+  final Color? tint;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -166,18 +211,18 @@ class SectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 8, 8),
+            padding: const EdgeInsets.fromLTRB(16, 16, 8, 10),
             child: Row(
               children: <Widget>[
                 if (icon != null) ...<Widget>[
-                  Icon(icon, size: 18, color: theme.colorScheme.primary),
-                  const SizedBox(width: 8),
+                  IconTile(icon: icon!, colour: tint ?? AppTheme.tileBlue, size: 34),
+                  const SizedBox(width: 12),
                 ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(title, style: theme.textTheme.titleSmall),
+                      Text(title, style: theme.textTheme.titleMedium),
                       if (subtitle != null)
                         Text(
                           subtitle!,
@@ -220,7 +265,11 @@ class SectionUnavailable extends StatelessWidget {
         padding: const EdgeInsets.all(16),
         child: Row(
           children: <Widget>[
-            Icon(Icons.cloud_off_outlined, size: 20, color: context.mutedColor),
+            const IconTile(
+              icon: Icons.cloud_off_outlined,
+              size: 34,
+              quiet: true,
+            ),
             const SizedBox(width: 12),
             Expanded(
               child: Column(

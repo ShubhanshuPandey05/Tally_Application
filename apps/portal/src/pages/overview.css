@@ -1,0 +1,35 @@
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(158px, 1fr));
+  gap: 12px;
+}
+
+.stat {
+  padding: 15px 17px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  text-decoration: none;
+  color: inherit;
+  transition: border-color .12s, box-shadow .12s;
+}
+a.stat:hover { border-color: var(--ink-3); box-shadow: var(--shadow-2); }
+a.stat:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
+
+.stat-value {
+  font-size: 27px;
+  font-weight: 680;
+  letter-spacing: -.02em;
+  line-height: 1.15;
+  font-variant-numeric: tabular-nums;
+}
+.stat-label { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
+.stat-note { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }
+
+/* Colour only where it means something. A dashboard where every tile is
+   tinted teaches the reader to ignore the tint, and then the amber one --
+   the only tile anybody has to act on -- stops being visible. */
+.stat-wait .stat-value { color: var(--wait); }
+.stat-wait { border-color: color-mix(in srgb, var(--wait) 35%, var(--line)); }
+.stat-ok   .stat-value { color: var(--ok); }
+.stat-stop .stat-value { color: var(--stop); }

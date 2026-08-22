@@ -15,16 +15,16 @@ class AppConfig {
 
   bool get isProduction => environment == 'prod';
 
-  /// The UAT backend, so a build made without `--dart-define` still reaches a
-  /// real server over TLS instead of a LAN address that stopped existing when
-  /// somebody's router handed out a new lease.
+  /// The production API, so a build made without `--dart-define` still reaches
+  /// a real server over TLS instead of a LAN address that stopped existing
+  /// when somebody's router handed out a new lease.
   ///
   /// Release builds should still pass `TALLYFLOW_API_URL` explicitly --
   /// `run.py release <url>` does -- because this default follows whichever
   /// environment was current when the app was cut.
-  static const String _uatBaseUrl = 'https://uat-tallyflow.theshubhanshu.dev';
+  static const String _fallbackBaseUrl = 'https://api-tallyflow.theshubhanshu.dev';
 
-  static String get _defaultBaseUrl => _uatBaseUrl;
+  static String get _defaultBaseUrl => _fallbackBaseUrl;
 
   factory AppConfig.fromEnvironment() {
     const String url = String.fromEnvironment('TALLYFLOW_API_URL');

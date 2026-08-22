@@ -130,6 +130,91 @@ class Settings(BaseSettings):
     #: Whether linking a company kicks off its history backfill automatically.
     sync_auto_start: bool = True
 
+    # --- Entitlement ceilings -------------------------------------------
+    #: What the management portal pre-fills the approval form with. They are
+    #: suggestions, not policy: the real ceilings live on the organisation row,
+    #: agreed per customer at approval. Nothing enforces these — an unapproved
+    #: organisation is capped at zero of everything by its own columns.
+    default_max_companies: int = 3
+    default_max_users: int = 5
+
+    # --- Management portal ----------------------------------------------
+    #: Portal sessions are a single long-lived token with no refresh family. The
+    #: portal is an internal tool used from a desktop browser by a handful of
+    #: people, and a refresh-rotation scheme there would be machinery guarding
+    #: nothing the tenant flow does not already guard better. The platform user
+    #: row is re-read on every request, so deactivating a partner takes effect
+    #: immediately rather than when their token happens to expire.
+    portal_token_ttl_seconds: int = 8 * 3600
+    #: Seeds the first portal owner at startup when the account does not exist.
+    #: Without this there is no way in: portal accounts are never self-service,
+    #: so somebody has to be created out of band. The seeded account is flagged
+    #: ``must_change_password`` because this value lives in a deployment
+    #: manifest, which is not where a credential belongs permanently.
+    portal_bootstrap_email: str = ""
+    portal_bootstrap_password: str = ""
+
+    # --- Diagnostics ----------------------------------------------------
+    #: Lines held in memory for the portal's live tail. Every level lands here;
+    #: only WARNING and above is persisted. Five thousand is roughly an hour of
+    #: a busy single instance, which is the window an incident is looked at in.
+    log_ring_capacity: int = 5000
+    #: Floor for what reaches the ring. DEBUG turns the portal into a firehose
+    #: and is worth having for exactly one afternoon at a time.
+    log_capture_level: str = "INFO"
+    #: Floor for what is written to ``server_logs`` and therefore survives a
+    #: redeploy. Lowering this to INFO writes a database row per request, on the
+    #: same database that serves customers' reports -- do not, except briefly.
+    log_persist_level: str = "WARNING"
+    #: How long persisted backend logs are kept.
+    log_retention_days: int = 30
+    #: How long logs pushed by customers' connectors are kept. Shorter than the
+    #: backend's: it is one table for the whole fleet, and a support question
+    #: older than a fortnight is answered by the customer, not by a log.
+    connector_log_retention_days: int = 14
+    #: Whether connectors' pushed logs are accepted at all. Off makes the
+    #: backend ignore the frames; connectors keep sending them and nothing
+    #: breaks, which is what makes this safe to flip during an incident.
+    connector_logs_enabled: bool = True
+    #: Lines held in memory between database writes, across the whole fleet.
+    #: Full means the newest are refused -- one flooding connector must not
+    #: evict every other customer's lines.
+    connector_log_buffer: int = 20_000
+
+    # --- Releases and updates -------------------------------------------
+    #: The manifest written by ``run.py publish``. Empty means "look in the usual
+    #: places" (see ``services.releases.DEFAULT_MANIFEST_PATHS``), and finding
+    #: nothing disables version checks rather than failing anything.
+    release_manifest_path: str = ""
+    #: Whether an app below the published floor is refused with 426. Off leaves
+    #: the advisory headers in place but serves the request -- the switch to
+    #: reach for if a bad floor ever locks the fleet out, since it restores
+    #: service without needing a corrected manifest to reach every client first.
+    enforce_min_app_version: bool = True
+    #: Whether the backend tells outdated connectors to update over the socket.
+    #: Off leaves them on their own six-hourly manifest poll.
+    push_connector_updates: bool = True
+
+    # --- Public statistics ------------------------------------------------
+    #: Whether ``/v1/public/stats`` answers. It publishes four aggregate counts
+    #: -- active businesses, paired PCs, companies being read, and how many of
+    #: those PCs are connected right now -- for the marketing site's hero.
+    #:
+    #: It is a switch rather than a constant because those counts are a
+    #: commercial fact about the business, readable by anyone who loads the
+    #: site. Turning it off is a decision someone may want to take without a
+    #: code change; the site simply stops showing the row.
+    public_stats_enabled: bool = True
+    #: How long a computed set of counts is reused. Every visitor to the home
+    #: page asks for these, and they do not change meaningfully within a minute.
+    #: Without the cache, a crawler turns a static page into four aggregate
+    #: queries per hit against the same database the phones read from.
+    public_stats_ttl_seconds: int = 60
+    #: How recently a connector must have been heard from to count as connected.
+    #: Generous relative to the heartbeat, so one dropped beat on a shop's
+    #: broadband does not make the number flicker.
+    public_stats_online_window_seconds: int = 300
+
     # --- HTTP -----------------------------------------------------------
     cors_origins: list[str] = Field(default_factory=list)
     #: Requests per minute per authenticated user (or per IP when anonymous).

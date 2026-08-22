@@ -27,9 +27,13 @@ class StockScreen extends ConsumerStatefulWidget {
   ConsumerState<StockScreen> createState() => _StockScreenState();
 }
 
+enum _StockSort { valueDesc, nameAsc, quantityDesc }
+
 class _StockScreenState extends ConsumerState<StockScreen> {
   late String? _only = widget.only;
   String _search = '';
+  String? _group;
+  _StockSort _sort = _StockSort.valueDesc;
 
   @override
   Widget build(BuildContext context) {
@@ -54,6 +58,25 @@ class _StockScreenState extends ConsumerState<StockScreen> {
         _ => 'Stock summary',
       },
       state: state,
+      actions: <Widget>[
+        PopupMenuButton<_StockSort>(
+          tooltip: 'Sort',
+          icon: const Icon(Icons.sort),
+          initialValue: _sort,
+          onSelected: (_StockSort sort) => setState(() => _sort = sort),
+          itemBuilder: (BuildContext context) => const <PopupMenuEntry<_StockSort>>[
+            PopupMenuItem<_StockSort>(
+              value: _StockSort.valueDesc,
+              child: Text('Value (highest first)'),
+            ),
+            PopupMenuItem<_StockSort>(value: _StockSort.nameAsc, child: Text('Name (A–Z)')),
+            PopupMenuItem<_StockSort>(
+              value: _StockSort.quantityDesc,
+              child: Text('Quantity (highest first)'),
+            ),
+          ],
+        ),
+      ],
       onRefresh: () => refreshReport<StockReport>(
         ref,
         stockProvider(args),
@@ -61,7 +84,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
             repository.stock(companyId, only: _only, mode: FetchMode.live),
       ),
       bottom: PreferredSize(
-        preferredSize: const Size.fromHeight(104),
+        preferredSize: const Size.fromHeight(152),
         child: Column(
           children: <Widget>[
             Padding(
@@ -97,6 +120,16 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                 ],
               ),
             ),
+            SizedBox(
+              height: 48,
+              child: state.valueOrNull == null
+                  ? const SizedBox.shrink()
+                  : _StockGroupFilterRow(
+                      groups: _distinctGroups(state.valueOrNull!.data.items),
+                      selected: _group,
+                      onSelected: (String? group) => setState(() => _group = group),
+                    ),
+            ),
           ],
         ),
       ),
@@ -115,12 +148,23 @@ class _StockScreenState extends ConsumerState<StockScreen> {
         },
       ),
       builder: (BuildContext context, StockReport report) {
-        final List<StockLine> items = _search.trim().isEmpty
-            ? report.items
-            : report.items
-                .where((StockLine item) =>
-                    item.name.toLowerCase().contains(_search.trim().toLowerCase()))
-                .toList(growable: false);
+        List<StockLine> items = report.items;
+        if (_group != null) {
+          items = items.where((StockLine item) => (item.group ?? 'Other') == _group).toList();
+        }
+        final String needle = _search.trim().toLowerCase();
+        if (needle.isNotEmpty) {
+          items = items
+              .where((StockLine item) => item.name.toLowerCase().contains(needle))
+              .toList(growable: false);
+        }
+        items = <StockLine>[...items]
+          ..sort((StockLine a, StockLine b) => switch (_sort) {
+                _StockSort.valueDesc => b.value.amount.abs().compareTo(a.value.amount.abs()),
+                _StockSort.nameAsc =>
+                  a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+                _StockSort.quantityDesc => b.quantity.abs().compareTo(a.quantity.abs()),
+              });
 
         if (report.items.isEmpty) return const <Widget>[];
 
@@ -163,6 +207,54 @@ class _StockScreenState extends ConsumerState<StockScreen> {
             ),
         ];
       },
+    );
+  }
+
+  static List<String> _distinctGroups(List<StockLine> items) {
+    final Set<String> groups = <String>{
+      for (final StockLine item in items) item.group ?? 'Other',
+    };
+    final List<String> sorted = groups.toList()..sort();
+    return sorted;
+  }
+}
+
+/// "All" plus every group present in the current data.
+class _StockGroupFilterRow extends StatelessWidget {
+  const _StockGroupFilterRow({
+    required this.groups,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<String> groups;
+  final String? selected;
+  final ValueChanged<String?> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView(
+      scrollDirection: Axis.horizontal,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      children: <Widget>[
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: ChoiceChip(
+            label: const Text('All groups'),
+            selected: selected == null,
+            onSelected: (_) => onSelected(null),
+          ),
+        ),
+        for (final String group in groups)
+          Padding(
+            padding: const EdgeInsets.only(right: 8),
+            child: ChoiceChip(
+              label: Text(group),
+              selected: selected == group,
+              onSelected: (_) => onSelected(group),
+            ),
+          ),
+      ],
     );
   }
 }

@@ -23,12 +23,13 @@ import time
 
 from fastapi import APIRouter, WebSocket, WebSocketDisconnect
 from sqlalchemy import select
-from tally_core.protocol import PROTOCOL_VERSION, Hello, HelloAck, sign_handshake
+from tally_core.protocol import PROTOCOL_VERSION, Hello, HelloAck, LogBatch, sign_handshake
 
 from ...core.crypto import SecretBox, SecretDecryptionError
 from ...core.security import constant_time_equals
 from ...db.models import Connector, ConnectorStatus, utc_now
 from ...hub import ConnectorHub, ConnectorLink
+from ...services.releases import ConnectorReleaseView
 
 logger = logging.getLogger(__name__)
 
@@ -111,16 +112,28 @@ async def connector_socket(websocket: WebSocket) -> None:
         heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
         heartbeat_grace_seconds=settings.heartbeat_grace_seconds,
         on_status_change=_status_persister(session_factory),
+        # Logs are handed to the ingest buffer, not written here. A database
+        # round trip on this receive loop would sit between two frames on the
+        # socket a customer's reports come back on.
+        on_logs=_log_receiver(getattr(websocket.app.state, "connector_logs", None)),
+        # The link stamps the published version onto every frame it sends and
+        # checks the version on every frame it receives, so an outdated connector
+        # is told to update within one heartbeat instead of at its next poll.
+        releases=ConnectorReleaseView(websocket.app.state.releases),
+        push_updates=settings.push_connector_updates,
     )
     link.capabilities = [c.model_dump() for c in hello.capabilities]
     link.host = hello.host.model_dump()
 
-    await websocket.send_text(
+    # Through `link.send`, not the raw socket, so the ack carries the published
+    # version like every other server frame. That makes the handshake itself the
+    # first opportunity for a connector to notice it is out of date.
+    await link.send(
         HelloAck(
             accepted=True,
             session_id=link.session_id,
             heartbeat_interval_seconds=settings.heartbeat_interval_seconds,
-        ).model_dump_json()
+        )
     )
     await hub.attach(link)
     logger.info(
@@ -129,6 +142,9 @@ async def connector_socket(websocket: WebSocket) -> None:
         hello.host.hostname,
         hello.host.connector_version,
     )
+    # Evaluated after attach so the socket is fully live before an update
+    # command can be sent on it.
+    await link.review_version(hello.host.connector_version)
 
     heartbeat = asyncio.create_task(link.heartbeat_loop())
     try:
@@ -177,6 +193,29 @@ def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool:
         secret=secret,
     )
     return constant_time_equals(expected, hello.signature)
+
+
+def _log_receiver(ingest):  # noqa: ANN001, ANN202 - closure over app state
+    """Route a connector's pushed log lines into the ingest buffer.
+
+    ``None`` when remote logging is switched off for this deployment, in which
+    case the frames are simply not handled -- the connector keeps sending them
+    and the link ignores them, which costs one discarded frame per interval and
+    needs no negotiation to turn off.
+    """
+    if ingest is None:
+        return None
+
+    def receive(link: ConnectorLink, batch: LogBatch) -> None:
+        ingest.submit(
+            org_id=link.org_id,
+            connector_id=link.connector_id,
+            session_id=link.session_id,
+            entries=batch.entries,
+            dropped=batch.dropped,
+        )
+
+    return receive
 
 
 def _status_persister(session_factory):  # noqa: ANN202 - closure over app state

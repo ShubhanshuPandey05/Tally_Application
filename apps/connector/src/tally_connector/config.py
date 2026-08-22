@@ -54,7 +54,7 @@ class ConnectorSettings(BaseSettings):
     connector_secret: str = ""
 
     # --- Backend --------------------------------------------------------
-    backend_url: str = "wss://uat-tallyflow.theshubhanshu.dev/v1/connector"
+    backend_url: str = "wss://api-tallyflow.theshubhanshu.dev/v1/connector"
     #: Only ever disabled for local development against a plaintext backend.
     verify_tls: bool = True
     reconnect_initial_seconds: float = 1.0
@@ -89,6 +89,66 @@ class ConnectorSettings(BaseSettings):
     log_level: str = "INFO"
     log_dir: Path | None = None
 
+    # --- Remote diagnostics ---------------------------------------------
+    #: Ship log lines to the backend over the socket that is already open, so
+    #: support can read them without asking a shop owner to find a file. Off
+    #: leaves the connector logging to disk only, which is what a customer who
+    #: does not want their machine talking about itself should get.
+    remote_logs: bool = True
+    #: Floor for what is shipped. INFO because the questions this exists to
+    #: answer -- "did the sync run?", "was Tally reachable at 11am?" -- are
+    #: answered by INFO lines; a WARNING-only feed shows the crash and not the
+    #: half hour that led to it.
+    remote_log_level: str = "INFO"
+    #: How often the buffer is drained onto the socket. Batched rather than per
+    #: line because these machines sit on asymmetric broadband where upload is
+    #: already the bottleneck for report exports.
+    remote_log_interval_seconds: float = 10.0
+    #: Lines held while the backend is unreachable. Bounded because an internet
+    #: outage must not turn into an out-of-memory kill on a shop's till; the
+    #: oldest are dropped and the count is reported in the next batch.
+    remote_log_buffer: int = 2000
+
+    # --- Updates --------------------------------------------------------
+    #: Install new builds without being asked. Off turns the updater into a
+    #: reporter: it still logs that a version is available, but the shop runs
+    #: the installer itself. Worth turning off on a machine where an unexpected
+    #: connector restart would be noticed.
+    #:
+    #: Does *not* apply to a release flagged mandatory, or to this build being
+    #: below the published floor. Those install regardless, because the setting
+    #: means "do not interrupt my shop for routine releases" -- not "leave me
+    #: serving figures I cannot compute correctly", which a shop owner has no way
+    #: to notice for themselves.
+    auto_update: bool = True
+    #: Fallback interval for re-reading the manifest, no longer the main trigger.
+    #:
+    #: The backend stamps the published version on every frame it sends, so a
+    #: connected connector normally hears about a release within one heartbeat
+    #: and checks immediately. This interval covers the case that mechanism
+    #: cannot: a connector that cannot reach the backend at all is exactly the
+    #: one that may need a new build, and it will never be told.
+    update_check_interval_seconds: float = 6 * 3600
+    #: Overrides where the manifest is fetched from. Empty means "derive it from
+    #: backend_url", which keeps a UAT connector pointed at UAT artefacts
+    #: without a second setting to get wrong.
+    update_manifest_url: str = ""
+
+    @property
+    def manifest_url(self) -> str:
+        """Where to look for the update manifest.
+
+        Derived from ``backend_url`` so there is one address to configure. The
+        websocket scheme maps to its HTTP equivalent, and the API path is
+        dropped: the manifest is served by the same host off /downloads.
+        """
+        if self.update_manifest_url:
+            return self.update_manifest_url
+        base = self.backend_url
+        base = "https://" + base[6:] if base.startswith("wss://") else "http://" + base[5:]
+        host = base.split("/v1/", 1)[0].rstrip("/")
+        return f"{host}/downloads/manifest.json"
+
     @field_validator("backend_url")
     @classmethod
     def _require_websocket_url(cls, value: str) -> str:
@@ -96,7 +156,7 @@ class ConnectorSettings(BaseSettings):
             raise ValueError("backend_url must be a ws:// or wss:// URL")
         return value
 
-    @field_validator("log_level")
+    @field_validator("log_level", "remote_log_level")
     @classmethod
     def _valid_level(cls, value: str) -> str:
         level = value.upper()

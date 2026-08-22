@@ -7,6 +7,7 @@ import 'package:tallyflow/src/features/companies/domain/company.dart';
 import 'package:tallyflow/src/features/connectors/domain/connector.dart';
 import 'package:tallyflow/src/features/dashboard/domain/dashboard.dart';
 import 'package:tallyflow/src/features/reports/domain/reports.dart';
+import 'package:tallyflow/src/features/subscription/domain/subscription.dart';
 
 import 'support/fixtures.dart';
 
@@ -239,9 +240,19 @@ void main() {
     test('decodes the signed-in user and role', () {
       final AppUser user = AppUser.fromJson(fixture('me'));
       expect(user.email, 'owner@bhatiastores.in');
-      expect(user.role, UserRole.owner);
+      expect(user.role, UserRole.admin);
       expect(user.role.canManageConnectors, isTrue);
       expect(user.initials, 'SO');
+    });
+
+    test('decodes the subscription that rides along with the user', () {
+      // Sent on /auth/me rather than its own endpoint, so the app has the role
+      // and the entitlement at the same instant it decides what to draw.
+      final AppUser user = AppUser.fromJson(fixture('me'));
+      expect(user.subscription.status, SubscriptionStatus.active);
+      expect(user.subscription.allowsChanges, isTrue);
+      expect(user.subscription.maxCompanies, greaterThan(0));
+      expect(user.canManageConnectors, isTrue);
     });
 
     test('decodes companies and connectors', () {

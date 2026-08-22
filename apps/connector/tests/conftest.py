@@ -49,7 +49,7 @@ class NeverRefuses(LoadedCompanies):
     it from this side.
     """
 
-    def __init__(self) -> None:  # noqa: D107 - deliberately takes no pipeline
+    def __init__(self) -> None:  # noqa: D107 - deliberately takes no runner
         pass
 
     async def ensure(self, company: str) -> None:

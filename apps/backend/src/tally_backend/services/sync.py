@@ -728,9 +728,24 @@ class SyncCoordinator:
         # The newest slice is itself an authoritative read of the recent window,
         # so it already did the reconcile's job. Not recording that would send
         # the very first delta off to re-read months the backfill just finished.
-        today = date.today()
-        reconcile_start = today - timedelta(days=self._settings.sync_reconcile_days)
-        if covered[0].from_date <= reconcile_start and covered[0].to_date >= today:
+        #
+        # Measured against the day the *plan* was built for, never the wall
+        # clock. `covered[0]` is always seq 0 -- the loop above starts at the
+        # lowest seq and stops at the first gap -- and the planner lays slices
+        # out newest-first from the `today` it was given, so `covered[0].to_date`
+        # *is* that day. Reading `date.today()` here compared the plan against a
+        # different date than it was built from, so the condition silently
+        # stopped firing as soon as the calendar moved on, and every first delta
+        # paid for a full re-read of the reconcile window.
+        #
+        # A run interrupted and resumed much later can still claim a reconcile
+        # its newest slice no longer covers. That is bounded by
+        # `sync_reconcile_interval_seconds` -- one skipped cycle, not a
+        # permanent one -- and a run only stays resumable for
+        # `sync_run_stale_after_seconds`, so the window is small.
+        plan_today = covered[0].to_date
+        reconcile_start = plan_today - timedelta(days=self._settings.sync_reconcile_days)
+        if covered[0].from_date <= reconcile_start:
             state.last_reconcile_at = utc_now()
 
     async def _finish(self, run_id: str, company_id: str) -> None:

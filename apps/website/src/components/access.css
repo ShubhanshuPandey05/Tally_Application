@@ -1,0 +1,84 @@
+.access-grid {
+  display: grid;
+  grid-template-columns: 1.05fr 0.95fr;
+  gap: clamp(24px, 4vw, 44px);
+  margin-top: 40px;
+  align-items: start;
+}
+
+.access-steps {
+  counter-reset: access;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: grid;
+  gap: 10px;
+}
+
+.access-steps li {
+  display: flex;
+  gap: 14px;
+  padding: 18px;
+  border-radius: var(--radius);
+  background: var(--surface);
+  font-size: 15px;
+  color: var(--muted);
+}
+
+.access-steps li::before {
+  counter-increment: access;
+  content: counter(access);
+  display: grid;
+  place-items: center;
+  flex: none;
+  width: 30px;
+  height: 30px;
+  border-radius: 9px;
+  background: var(--ink);
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+.access-steps b {
+  display: block;
+  margin-bottom: 3px;
+  color: var(--ink);
+  font-weight: 600;
+  font-size: 16px;
+}
+
+.access-card {
+  padding: 24px;
+}
+
+.access-card h3 {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+}
+
+.access-card p {
+  margin-top: 8px;
+  color: var(--muted);
+  font-size: 15.5px;
+}
+
+.access-card .btn {
+  margin-top: 18px;
+}
+
+.access-fine {
+  margin-top: 18px;
+  padding: 14px 16px;
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  font-size: 13.5px;
+  color: var(--muted);
+}
+
+@media (max-width: 880px) {
+  .access-grid {
+    grid-template-columns: 1fr;
+  }
+}

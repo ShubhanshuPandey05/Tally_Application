@@ -10,11 +10,13 @@ from sqlalchemy.orm import selectinload
 
 from ...db.models import Membership
 from ...services.audit import record
+from ...services.entitlements import count_companies, count_users
 from ..deps import AuthServiceDep, PrincipalDep, SessionDep
 from ..schemas import (
     LoginRequest,
     RefreshRequest,
     RegisterRequest,
+    SubscriptionResponse,
     TokenResponse,
     UserResponse,
 )
@@ -123,4 +125,14 @@ async def me(principal: PrincipalDep, session: SessionDep) -> UserResponse:
         org_id=principal.org_id,
         org_name=membership.organisation.name if membership else "",
         role=principal.role,
+        must_change_password=principal.user.must_change_password,
+        # Two counts on a call the app makes once per cold start. The
+        # alternative -- a separate subscription endpoint -- is a second round
+        # trip and a window in which the app's idea of the role and its idea of
+        # the entitlement disagree.
+        subscription=SubscriptionResponse.build(
+            principal.entitlement,
+            users_used=await count_users(session, principal.org_id),
+            companies_used=await count_companies(session, principal.org_id),
+        ),
     )

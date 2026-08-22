@@ -49,6 +49,43 @@ class Message(BaseModel):
     sent_at: datetime = Field(default_factory=utc_now)
 
 
+class ClientMessage(Message):
+    """Base for frames the connector sends.
+
+    ``connector_version`` is stamped on *every* frame, not just the handshake,
+    and the reason is the failure it removes rather than the bytes it costs. A
+    version known only at ``hello`` time is a version the backend learns once
+    per reconnect -- so a connector that stays connected for a week is a
+    connector the backend cannot re-evaluate for a week, which is exactly how a
+    fleet drifts months apart in version. Stamped per frame, the backend
+    re-checks on every heartbeat and the answer is never stale.
+
+    The cost is ~30 bytes on a frame whose payload is routinely megabytes.
+    """
+
+    connector_version: str = ""
+
+
+class ServerMessage(Message):
+    """Base for frames the backend sends.
+
+    Carries the release floor in the other direction, on the same reasoning:
+    the connector learns what it *should* be running from ordinary traffic --
+    every ping, every job -- instead of waiting out a poll interval. A backend
+    deploy therefore reaches the whole fleet within one heartbeat.
+
+    Both fields default to empty, which means "the backend did not say". An
+    empty value must always read as "no opinion, carry on" rather than as
+    version ``0`` -- a backend with no release manifest configured would
+    otherwise look like it was ordering every connector to downgrade.
+    """
+
+    #: Newest published connector build. Empty when the backend does not know.
+    latest_connector_version: str = ""
+    #: Below this a connector can no longer be served correctly. Empty = no floor.
+    min_connector_version: str = ""
+
+
 # --------------------------------------------------------------------------
 # Handshake
 # --------------------------------------------------------------------------
@@ -69,7 +106,7 @@ class HostInfo(BaseModel):
     python_version: str
 
 
-class Hello(Message):
+class Hello(ClientMessage):
     """First frame the connector sends after the socket opens.
 
     Authentication is an HMAC over ``connector_id|nonce|issued_at`` using the
@@ -134,7 +171,7 @@ def verify_handshake(hello: Hello, *, secret: str, max_age_seconds: int = 120) -
     return hmac.compare_digest(expected, hello.signature)
 
 
-class HelloAck(Message):
+class HelloAck(ServerMessage):
     """Backend's answer to :class:`Hello`."""
 
     type: Literal["hello_ack"] = "hello_ack"
@@ -149,12 +186,12 @@ class HelloAck(Message):
 # --------------------------------------------------------------------------
 
 
-class Ping(Message):
+class Ping(ServerMessage):
     type: Literal["ping"] = "ping"
     token: str
 
 
-class Pong(Message):
+class Pong(ClientMessage):
     """Heartbeat reply, piggybacking the connector's view of Tally.
 
     Bundling Tally's status onto the heartbeat means the app can show "Tally is
@@ -173,7 +210,7 @@ class Pong(Message):
 # --------------------------------------------------------------------------
 
 
-class JobRequest(Message):
+class JobRequest(ServerMessage):
     """A single read, addressed by registered query name."""
 
     type: Literal["job"] = "job"
@@ -194,7 +231,7 @@ class JobError(BaseModel):
     retryable: bool = False
 
 
-class JobResult(Message):
+class JobResult(ClientMessage):
     type: Literal["job_result"] = "job_result"
     job_id: str
     ok: bool
@@ -255,7 +292,7 @@ def decode_payload(encoding: str, payload: Any) -> Any:
 # --------------------------------------------------------------------------
 
 
-class StatusEvent(Message):
+class StatusEvent(ClientMessage):
     """Unsolicited notice that the connector's view of Tally changed."""
 
     type: Literal["status"] = "status"
@@ -264,7 +301,89 @@ class StatusEvent(Message):
     detail: str | None = None
 
 
+class UpdateCommand(ServerMessage):
+    """Tells a connector to install a new build now rather than at its next poll.
+
+    Strictly speaking redundant -- ``latest_connector_version`` rides on every
+    server frame, so a connector already has everything it needs to decide for
+    itself. This exists because the two carry different *intent*: the stamped
+    field is ambient ("this is what exists"), while receiving this frame is an
+    instruction the backend can log and, later, target at one connector rather
+    than the fleet.
+
+    It deliberately carries no URL or checksum. The connector resolves those
+    from the published manifest itself, which is the only path that hash-verifies
+    the download -- accepting a URL over the socket would make a compromised or
+    misconfigured backend able to install arbitrary code on a customer's PC.
+    """
+
+    type: Literal["update"] = "update"
+    #: The version being asked for, so the connector can ignore a stale command.
+    version: str
+    #: Install without waiting for a convenient moment. Still waits for Tally
+    #: to go idle -- that wait is not negotiable, see ``updater._wait_until_idle``.
+    mandatory: bool = False
+    reason: str = ""
+
+
+# --------------------------------------------------------------------------
+# Diagnostics
+# --------------------------------------------------------------------------
+
+#: A connector that ships more than this many lines in one frame is either
+#: melting down or being replayed at us. The excess is dropped and counted, so
+#: the support view says "1,842 lines dropped" instead of quietly showing a
+#: partial history that reads as a quiet period.
+MAX_LOG_ENTRIES_PER_BATCH = 500
+
+#: Longest single line kept. A stack trace is worth having; a megabyte of
+#: repr'd XML is the thing that would make remote logging cost more than the
+#: shop's upload bandwidth is worth.
+MAX_LOG_MESSAGE_CHARS = 4000
+
+
+class LogEntry(BaseModel):
+    """One line from a connector's log, on its way to the support view.
+
+    ``logged_at`` is the *connector's* clock and is not to be trusted for
+    ordering across machines -- a shop PC with a wrong system time is common
+    enough that the backend stamps its own receipt time alongside this one and
+    sorts by that. Keeping both is what makes "the customer's clock is six hours
+    out" diagnosable rather than merely confusing.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    logged_at: datetime
+    level: str = "INFO"
+    logger: str = ""
+    message: str = ""
+
+
+class LogBatch(ClientMessage):
+    """Log lines pushed from a connector, batched.
+
+    Batched rather than one frame per line for the obvious reason and one less
+    obvious one: connectors sit behind asymmetric home broadband where upload is
+    the bottleneck for report exports, and a frame per line would put the
+    connector's own diagnostics in competition with the data the customer is
+    waiting for.
+
+    ``dropped`` reports lines the connector's bounded buffer discarded because
+    the backend was unreachable or the connector was logging faster than it
+    could ship. It is part of the frame rather than something the backend could
+    infer: a support view that cannot tell "nothing happened" from "we lost the
+    part where it happened" sends somebody down the wrong path.
+    """
+
+    type: Literal["log_batch"] = "log_batch"
+    entries: list[LogEntry] = Field(default_factory=list)
+    dropped: int = 0
+
+
 #: Messages the connector may receive.
-Inbound = Annotated[HelloAck | Ping | JobRequest, Field(discriminator="type")]
+Inbound = Annotated[HelloAck | Ping | JobRequest | UpdateCommand, Field(discriminator="type")]
 #: Messages the connector may send.
-Outbound = Annotated[Hello | Pong | JobResult | StatusEvent, Field(discriminator="type")]
+Outbound = Annotated[
+    Hello | Pong | JobResult | StatusEvent | LogBatch, Field(discriminator="type")
+]

@@ -84,28 +84,168 @@ class TimestampMixin:
 
 
 class Role(StrEnum):
-    """What a member may do.
+    """What a member may do inside one organisation.
+
+    Two roles, and the line between them is "may this person change the shape of
+    the account?" -- add a PC, link a company, create a colleague. Everything an
+    admin can do is administrative; everything a staff member can do is read.
 
     Ordered least to most privileged; :meth:`allows` does the comparison so call
     sites never hardcode a set of roles that has to be updated when a role is
-    added.
+    added. Keeping the ordering (rather than an equality check) is what lets a
+    third role slot in between later without revisiting every call site.
+
+    Note this is the *intra-organisation* axis only. Reseller and platform
+    authority is a separate concern and must not be added to this ladder: a
+    partner outranks an admin over the subscription and outranks nobody over the
+    books, which is not a thing one ordered enum can express.
     """
 
-    VIEWER = "viewer"
-    ACCOUNTANT = "accountant"
-    OWNER = "owner"
+    STAFF = "staff"
+    ADMIN = "admin"
 
     def allows(self, required: Role) -> bool:
-        order = [Role.VIEWER, Role.ACCOUNTANT, Role.OWNER]
+        order = [Role.STAFF, Role.ADMIN]
         return order.index(self) >= order.index(required)
 
 
+class PlatformRole(StrEnum):
+    """Authority over the *business* of TallyFlow, not over anybody's books.
+
+    Deliberately a second ladder rather than two more rungs on :class:`Role`.
+    A channel partner outranks a shop's admin over that shop's subscription and
+    outranks nobody at all over its ledgers, and no single ordered enum can say
+    that. Keeping them apart is also what makes the dangerous mistake
+    impossible: there is no value of :class:`Role` that a tenant could ever hold
+    which grants portal access, because portal access is not on that scale.
+
+        PARTNER  sees and manages only the accounts assigned to them
+        OWNER    sees every account, and is the only one who can add a partner
+    """
+
+    PARTNER = "partner"
+    OWNER = "owner"
+
+    def allows(self, required: PlatformRole) -> bool:
+        order = [PlatformRole.PARTNER, PlatformRole.OWNER]
+        return order.index(self) >= order.index(required)
+
+
+class PlatformUser(Base, TimestampMixin):
+    """Somebody who signs in to the management portal.
+
+    A separate table from :class:`User`, and separate on purpose. These are not
+    customers: they approve customers. Sharing one table would mean the tenant
+    login path and the portal login path both read the same rows, and a single
+    mistake in the first -- a missing filter, a role trusted from a token --
+    would be an escalation into every business on the platform rather than a bug
+    in one account.
+
+    The two are distinct namespaces, so the same email address may exist on both
+    sides. That is correct: a partner who also runs a shop is two accounts.
+    """
+
+    __tablename__ = "platform_users"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    email: Mapped[str] = mapped_column(String(320), unique=True, index=True)
+    password_hash: Mapped[str] = mapped_column(String(255))
+    full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    role: Mapped[PlatformRole] = mapped_column(
+        SAEnum(PlatformRole, native_enum=False, length=20, values_callable=_enum_values),
+        # Least privilege, same reasoning as `Membership.role`: a row created
+        # without an explicit role must not be the one that can mint more of
+        # itself.
+        default=PlatformRole.PARTNER,
+    )
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Set when the account was created with a generated password -- including
+    #: the bootstrap owner, whose password comes from an environment variable and
+    #: is therefore visible in a deployment manifest until it is changed.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
+    last_login_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+
+class OrgStatus(StrEnum):
+    """Where an organisation sits with the people who run TallyFlow.
+
+    A signup does not provision itself. Anyone can install the app, create an
+    account and sign in -- but until somebody in the management portal says how
+    many people and how many companies this business is entitled to, there is
+    nothing they can add. That is the whole shape of the product's commercial
+    side, and it is one column.
+
+    ``PENDING`` is therefore the *only* correct default. A new organisation that
+    defaulted to ``ACTIVE`` would be a fully provisioned account handed to
+    whoever filled in the sign-up form, and the approval step would be an
+    optional formality that nobody would notice was being skipped.
+
+    ``REJECTED`` is kept rather than deleted: an account that was turned down
+    once must not become approvable again just by signing up a second time with
+    the same details, and the audit trail has to keep resolving.
+    """
+
+    PENDING = "pending"
+    ACTIVE = "active"
+    SUSPENDED = "suspended"
+    REJECTED = "rejected"
+
+
 class Organisation(Base, TimestampMixin):
+    """One customer business: the unit of billing, isolation and entitlement.
+
+    The row doubles as the onboarding request. There is deliberately no separate
+    ``onboarding_requests`` table -- a request *is* an organisation that nobody
+    has approved yet, and modelling it twice would mean two ids for one business
+    and a reconciliation step between them that only ever goes wrong.
+    """
+
     __tablename__ = "organisations"
+    __table_args__ = (
+        # How the portal's default screen reads: everything awaiting a decision,
+        # oldest first. Without the index that becomes a full scan as soon as the
+        # fleet is interesting.
+        Index("ix_organisations_status_created", "status", "created_at"),
+    )
 
     id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
     name: Mapped[str] = mapped_column(String(200))
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    status: Mapped[OrgStatus] = mapped_column(
+        SAEnum(OrgStatus, native_enum=False, length=20, values_callable=_enum_values),
+        default=OrgStatus.PENDING,
+    )
+
+    #: Ceilings agreed at approval. Zero, not "unlimited", is the right default:
+    #: an organisation nobody has approved has been promised nothing, and a
+    #: forgotten approval must fail closed rather than hand out a free fleet.
+    max_users: Mapped[int] = mapped_column(Integer, default=0)
+    max_companies: Mapped[int] = mapped_column(Integer, default=0)
+
+    #: End of the agreed term, or ``None`` for open-ended. Enforced exactly like
+    #: suspension, so setting a date is a real control and not a note. There is
+    #: no payment gateway in this system -- this is how a term ends.
+    expires_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    approved_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: The platform user who decided. ``SET NULL`` rather than cascade: a partner
+    #: leaving must not delete the record of the accounts they onboarded.
+    approved_by: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Which channel partner owns this account. Nullable because an account the
+    #: platform owner signed up directly belongs to nobody in particular.
+    partner_id: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: Internal, portal-only. Never reaches the customer's phone -- it is where
+    #: "spoke to Ravi, three shops, wants two more seats in April" lives.
+    notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     memberships: Mapped[list[Membership]] = relationship(back_populates="organisation")
     connectors: Mapped[list[Connector]] = relationship(back_populates="organisation")
@@ -121,6 +261,13 @@ class User(Base, TimestampMixin):
     password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    #: Set when an admin created this account with a temporary password. Until it
+    #: is cleared the only thing the session can do is set a new password.
+    #:
+    #: There is no email delivery in this system, so a new colleague's password
+    #: is necessarily handed over in person or over the phone -- which means the
+    #: admin knows it. This flag is what stops that being permanent.
+    must_change_password: Mapped[bool] = mapped_column(Boolean, default=False)
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
@@ -145,7 +292,9 @@ class Membership(Base, TimestampMixin):
     # ENUM type that needs a migration every time a role is added.
     role: Mapped[Role] = mapped_column(
         SAEnum(Role, native_enum=False, length=20, values_callable=_enum_values),
-        default=Role.VIEWER,
+        # Least privilege by default: a membership created without an explicit
+        # role must never be the one that hands out administrative access.
+        default=Role.STAFF,
     )
 
     user: Mapped[User] = relationship(back_populates="memberships")
@@ -273,6 +422,45 @@ class Company(Base, TimestampMixin):
     @property
     def label(self) -> str:
         return self.display_name or self.tally_name
+
+
+class CompanyAccess(Base, TimestampMixin):
+    """One staff member's permission to see one company's books.
+
+    Admins are deliberately absent from this table. Their access follows from
+    their role, so granting it per company would mean two sources of truth for
+    the same question and a way for an admin to lock themselves out of the
+    organisation they administer.
+
+    So the rule is asymmetric and reads exactly as the product describes it:
+
+        admin  ->  every company in the org
+        staff  ->  only the companies listed here
+
+    Deny-by-default matters more here than anywhere else in the schema. A staff
+    member with no rows sees nothing, so forgetting to grant access shows up
+    immediately as an empty list; the opposite default would show a new joiner
+    every set of books in the business and nobody would notice.
+    """
+
+    __tablename__ = "company_access"
+    __table_args__ = (
+        UniqueConstraint("user_id", "company_id", name="uq_company_access_user_company"),
+        Index("ix_company_access_user", "user_id"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    #: Who granted it. "Why can this person see that?" is the first question
+    #: asked when a staff member turns out to have seen more than intended.
+    granted_by: Mapped[str | None] = mapped_column(
+        ForeignKey("users.id", ondelete="SET NULL"), nullable=True
+    )
 
 
 # --------------------------------------------------------------------------
@@ -628,3 +816,102 @@ class JobStat(Base):
     from_cache: Mapped[bool] = mapped_column(Boolean, default=False)
     error_code: Mapped[str | None] = mapped_column(String(50), nullable=True)
     duration_ms: Mapped[float] = mapped_column(Float, default=0.0)
+
+
+# --------------------------------------------------------------------------
+# Diagnostics
+# --------------------------------------------------------------------------
+
+
+class LogLevel(StrEnum):
+    """The subset of Python's levels that is worth storing.
+
+    Stored as a string rather than Python's integer levels because every reader
+    of this table is a human or a filter box, and ``30`` is not a level anybody
+    types. ``NOTSET`` and ``CRITICAL`` collapse into ``DEBUG`` and ``ERROR`` on
+    the way in -- see ``services.logs.normalise_level`` -- so the filter has
+    four buckets and not nine.
+    """
+
+    DEBUG = "DEBUG"
+    INFO = "INFO"
+    WARNING = "WARNING"
+    ERROR = "ERROR"
+
+
+class ServerLog(Base):
+    """A backend log line worth keeping past a restart.
+
+    Only WARNING and above reach this table. Everything the process logs lives
+    in an in-memory ring (``services.logs.ServerLogStore``) that the portal
+    tails live; this is the half that has to survive a redeploy, because the
+    incident is usually reported after the container that produced it is gone.
+
+    Deliberately not a foreign key to anything. A log row must be writable when
+    the thing it describes is exactly what is broken -- including a request that
+    could not resolve an organisation at all.
+    """
+
+    __tablename__ = "server_logs"
+    __table_args__ = (Index("ix_server_logs_time", "created_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    level: Mapped[str] = mapped_column(String(10), index=True)
+    logger: Mapped[str] = mapped_column(String(120), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    #: Which backend process produced it. Meaningless on a single-instance
+    #: deploy and essential the moment there are two: "it only happens on one
+    #: instance" is otherwise an unanswerable question.
+    instance_id: Mapped[str] = mapped_column(String(32), default="", index=True)
+    #: Ties a log line back to the request id already on every API response, so
+    #: a customer's screenshot of an error is enough to find the line.
+    request_id: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
+    #: The formatted traceback, when the record carried one. Separate from
+    #: ``message`` so a list view can show one line per row without truncating
+    #: the one thing worth reading.
+    traceback: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class ConnectorLog(Base):
+    """A log line pushed from a customer's connector.
+
+    This is the support view's reason to exist: when a shop rings up, the person
+    who can help is not in the building, and asking an owner to find
+    ``%PROGRAMDATA%\TallyFlow\logs`` and email it is a support call that ends in
+    "never mind". So the connector ships its log over the socket it already
+    holds open.
+
+    ``org_id`` is denormalised off the connector rather than joined at read
+    time. A connector row can be deleted; the logs explaining why it was deleted
+    should not go with it, and the org scope is what a partner's visibility is
+    checked against on every query.
+
+    Two timestamps, and the distinction matters. ``created_at`` is when *we*
+    received the line and is the only safe sort key -- a shop PC with a wrong
+    system clock is common. ``logged_at`` is the connector's own clock, kept
+    because "the customer's machine thinks it is six hours ago" is a real
+    finding rather than noise.
+    """
+
+    __tablename__ = "connector_logs"
+    __table_args__ = (
+        Index("ix_connector_logs_org_time", "org_id", "created_at"),
+        Index("ix_connector_logs_connector_time", "connector_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    logged_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    org_id: Mapped[str] = mapped_column(String(32), index=True)
+    connector_id: Mapped[str] = mapped_column(String(32), index=True)
+    #: The session the line arrived on, so a support view can separate "this
+    #: happened before the reconnect" from "after" without guessing at gaps.
+    session_id: Mapped[str] = mapped_column(String(32), default="")
+    level: Mapped[str] = mapped_column(String(10), index=True)
+    logger: Mapped[str] = mapped_column(String(120), default="")
+    message: Mapped[str] = mapped_column(Text, default="")
+    #: Lines the connector's bounded buffer discarded before this one. Recorded
+    #: on the row rather than inferred, because a gap that reads as a quiet
+    #: period is how a support session goes down the wrong path.
+    dropped_before: Mapped[int] = mapped_column(Integer, default=0)

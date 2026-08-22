@@ -18,13 +18,39 @@ import 'widgets/report_scaffold.dart';
 /// Grouped rather than listed flat because that is how the question gets acted
 /// on: an owner rings a customer, not a bill. Each party expands to the
 /// individual invoices so the call can be specific.
-class OutstandingScreen extends ConsumerWidget {
+///
+/// Ageing is normally read "as of today," but the calendar action lets an
+/// owner ask the same question about a past date -- reconciling against last
+/// month's close, say -- since the backend already knows how to answer it.
+class OutstandingScreen extends ConsumerStatefulWidget {
   const OutstandingScreen({super.key, required this.kind});
 
   final OutstandingKind kind;
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<OutstandingScreen> createState() => _OutstandingScreenState();
+}
+
+class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
+  DateTime? _asOf;
+
+  Future<void> _pickAsOf(BuildContext context) async {
+    final DateTime now = DateTime.now();
+    final DateTime picked = await showDatePicker(
+          context: context,
+          initialDate: _asOf ?? now,
+          firstDate: DateTime(now.year - 6),
+          lastDate: now,
+          helpText: 'View outstanding as of',
+        ) ??
+        _asOf ??
+        now;
+    if (!context.mounted) return;
+    setState(() => _asOf = _isToday(picked) ? null : picked);
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -36,26 +62,39 @@ class OutstandingScreen extends ConsumerWidget {
       );
     }
 
-    final OutstandingArgs args = (companyId: companyId, kind: kind);
+    final OutstandingArgs args = (companyId: companyId, kind: widget.kind, asOf: _asOf);
     final AsyncValue<Fresh<OutstandingReport>> state =
         ref.watch(outstandingProvider(args));
 
     return ReportScaffold<OutstandingReport>(
-      title: kind.title,
-      subtitle: kind.question,
+      title: widget.kind.title,
+      subtitle: _asOf == null ? widget.kind.question : 'As of ${_formatDate(_asOf!)}',
+      actions: <Widget>[
+        IconButton(
+          tooltip: 'Choose a date',
+          onPressed: () => _pickAsOf(context),
+          icon: Icon(
+            _asOf == null ? Icons.calendar_month_outlined : Icons.event_available,
+          ),
+        ),
+      ],
       state: state,
       onRefresh: () => refreshReport<OutstandingReport>(
         ref,
         outstandingProvider(args),
-        (ReportsRepository repository) =>
-            repository.outstanding(companyId, kind: kind, mode: FetchMode.live),
+        (ReportsRepository repository) => repository.outstanding(
+          companyId,
+          kind: widget.kind,
+          asOf: _asOf,
+          mode: FetchMode.live,
+        ),
       ),
       emptyBuilder: (BuildContext context) => EmptyState(
         icon: Icons.check_circle_outline,
-        title: kind == OutstandingKind.receivable
+        title: widget.kind == OutstandingKind.receivable
             ? 'Nothing outstanding'
             : 'You owe nothing',
-        message: kind == OutstandingKind.receivable
+        message: widget.kind == OutstandingKind.receivable
             ? 'Every bill has been settled.'
             : 'All supplier bills are settled.',
       ),
@@ -135,6 +174,13 @@ class OutstandingScreen extends ConsumerWidget {
       },
     );
   }
+
+  static bool _isToday(DateTime date) {
+    final DateTime now = DateTime.now();
+    return date.year == now.year && date.month == now.month && date.day == now.day;
+  }
+
+  static String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 }
 
 class _PartyCard extends StatelessWidget {
