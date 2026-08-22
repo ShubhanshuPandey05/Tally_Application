@@ -32,7 +32,7 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Checks the company is open in TallyPrime before every read."
+    "notes": "Reads companies whose add-on TDL exports user-defined fields."
   },
   "android": {
     "mandatory": false,

@@ -63,6 +63,32 @@ def test_empty_body_raises():
         parse_xml("   ")
 
 
+def test_parses_undeclared_namespace_prefixes():
+    """Add-on TDL exports ``<UDF:...>`` with no ``xmlns:UDF`` anywhere.
+
+    Reported 2026-08-22 against "Textile Job-Work Out Solution": every
+    vouchers.list and outstanding.bills read failed with expat's "unbound
+    prefix", so the dashboard showed a zero for every figure the company had.
+    """
+    dirty = (
+        "<ENVELOPE><VOUCHER><LEDGERNAME>SARA</LEDGERNAME>"
+        '<UDF:JOBWORKREF.LIST TYPE="String"><UDF:JOBWORKREF>JW/1</UDF:JOBWORKREF>'
+        "</UDF:JOBWORKREF.LIST></VOUCHER></ENVELOPE>"
+    )
+    root = parse_xml(dirty)
+    assert text_of(root.find("VOUCHER/LEDGERNAME")) == "SARA"
+    # Flattened, not dropped: an add-on field must not land where a mapper
+    # looks for a real one.
+    assert root.find("VOUCHER/UDF_JOBWORKREF.LIST") is not None
+
+
+def test_prefix_flattening_leaves_attribute_values_alone():
+    """A colon inside data is data; only names are rewritten."""
+    dirty = '<ENVELOPE><UDF:NOTE DESC="Due Date: 30">x</UDF:NOTE></ENVELOPE>'
+    root = parse_xml(dirty)
+    assert root.find("UDF_NOTE").get("DESC") == "Due Date: 30"
+
+
 def test_unrecoverable_xml_raises_with_preview():
     with pytest.raises(TallyParseError, match="Malformed XML"):
         parse_xml("<ENVELOPE><UNCLOSED>")

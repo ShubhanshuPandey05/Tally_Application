@@ -6,6 +6,8 @@ Tally does not emit well-formed XML. In practice a response can contain:
   parser will accept;
 * bare ``&`` inside data ("Ram & Sons") that was never escaped on the way out;
 * no encoding declaration, with the payload actually in cp1252/latin-1;
+* namespace-prefixed tags such as ``<UDF:MYFIELD>`` with no matching
+  ``xmlns:UDF`` declaration anywhere in the document;
 * ``<LINEERROR>`` elements carrying a TDL error instead of an HTTP error status.
 
 Every one of those is a routine occurrence, not an edge case, so parsing runs
@@ -32,6 +34,16 @@ _BARE_AMPERSAND = re.compile(r"&(?!(?:[a-zA-Z][a-zA-Z0-9]{1,7}|#[0-9]{1,7}|#x[0-
 
 _ENCODINGS = ("utf-8", "cp1252", "latin-1")
 
+#: A start or end tag, or an attribute list -- deliberately not comments,
+#: processing instructions or doctypes, whose bodies are free text.
+_TAG = re.compile(r"</?[A-Za-z_][^<>]*>")
+#: ``PREFIX:`` at the head of a tag or attribute name, inside such a tag.
+_NAME_PREFIX = re.compile(r"(?<![\w.:-])([A-Za-z_][\w.-]*):(?=[A-Za-z_])")
+#: Attribute values, which may legitimately contain a colon ("Due Date: 30").
+_QUOTED = re.compile(r"\"[^\"]*\"|'[^']*'")
+#: expat's wording for a tag whose namespace prefix was never declared.
+_UNBOUND_PREFIX = "unbound prefix"
+
 
 def decode_bytes(raw: bytes) -> str:
     """Decode a Tally response body, tolerating its inconsistent encoding."""
@@ -53,6 +65,40 @@ def sanitize_xml(raw: str | bytes) -> str:
     return text
 
 
+def flatten_namespace_prefixes(text: str) -> str:
+    """Turn ``<UDF:MYFIELD>`` into ``<UDF_MYFIELD>`` throughout a payload.
+
+    A company carrying an add-on TDL -- any of Tally's own "Solution" companies,
+    and most of what a partner installs -- exports its user-defined fields with a
+    ``UDF:`` prefix and declares no ``xmlns:UDF`` for it. That is not a namespace
+    Tally means; it is a naming convention leaking into the wire format. A
+    conformant parser can only reject the whole document, so a single add-on
+    field inside one voucher line loses every voucher in the export.
+
+    The colon becomes an underscore rather than being dropped: collapsing
+    ``<UDF:NAME>`` to ``<NAME>`` would put an add-on's field where a mapper
+    looks for a real one, and reading the wrong value is worse than reading none.
+
+    Attribute *values* are stepped over -- ``TYPE="Due Date: 30"`` is data, and
+    rewriting data to make a document parse is how a report starts lying.
+    """
+
+    def flatten_tag(match: re.Match[str]) -> str:
+        tag = match.group(0)
+        if ":" not in tag:
+            return tag
+        out: list[str] = []
+        cursor = 0
+        for value in _QUOTED.finditer(tag):
+            out.append(_NAME_PREFIX.sub(r"\1_", tag[cursor : value.start()]))
+            out.append(value.group(0))
+            cursor = value.end()
+        out.append(_NAME_PREFIX.sub(r"\1_", tag[cursor:]))
+        return "".join(out)
+
+    return _TAG.sub(flatten_tag, text)
+
+
 def parse_xml(raw: str | bytes) -> ET.Element:
     """Sanitise and parse a Tally response into an element tree."""
     text = sanitize_xml(raw)
@@ -62,13 +108,23 @@ def parse_xml(raw: str | bytes) -> ET.Element:
     try:
         root = ET.fromstring(text)
     except ET.ParseError as exc:
-        preview = text[:400]
-        raise TallyParseError(
-            f"Malformed XML from Tally: {exc}. First 400 chars: {preview!r}"
-        ) from exc
+        # Only retried on the one error a rewrite can fix, and only after the
+        # document has already failed: exports run to several megabytes and
+        # scanning every tag of every response to pre-empt a problem almost no
+        # company has is a cost paid on the customer's machine.
+        if _UNBOUND_PREFIX not in str(exc):
+            raise _malformed(text, exc) from exc
+        try:
+            root = ET.fromstring(flatten_namespace_prefixes(text))
+        except ET.ParseError as retry_exc:
+            raise _malformed(text, retry_exc) from retry_exc
 
     _raise_for_line_errors(root)
     return root
+
+
+def _malformed(text: str, exc: ET.ParseError) -> TallyParseError:
+    return TallyParseError(f"Malformed XML from Tally: {exc}. First 400 chars: {text[:400]!r}")
 
 
 def _raise_for_line_errors(root: ET.Element) -> None:
