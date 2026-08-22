@@ -111,31 +111,46 @@ var
   UpgradeCached: Boolean;
 
 function IsUpgrade: Boolean;
+var
+  Dir: String;
 begin
   // An existing connector.json means this machine is already paired, so there
   // is nothing to ask for and nothing to overwrite. Decided from the file
   // rather than from Inno's own upgrade detection because a self-update reaches
   // this code exactly the way a hand-run installer does.
   //
-  // Resolved on first use, not at startup: the {app} constant is not
-  // expandable until Inno has settled the install directory. Cached so every
-  // later caller -- the two [Run] entries, ShouldSkipPage, CurStepChanged --
-  // gets one consistent answer rather than re-reading a directory that setup
-  // is midway through writing.
+  // WizardDirValue, NOT ExpandConstant of the app constant. This is the whole
+  // reason the function looks like this:
   //
-  // Two reasons this comment uses // and keeps its brackets off the start of
-  // a line, both learned by the compiler refusing to build:
+  //   The pairing page is created at wpWelcome, so ShouldSkipPage asks this
+  //   question before Setup has initialised its install directory. Expanding
+  //   the app constant there aborts the installer outright --
   //
-  //   * A { } comment ends at the FIRST closing brace, and Pascal comments do
-  //     not nest -- so an Inno constant like the one named above terminates
-  //     the comment early and everything after it is parsed as code.
-  //   * The section scanner strips leading whitespace before looking for a
-  //     header, so a line whose first text is [Something] is read as a section
-  //     tag even inside a comment, and the compile aborts with "Invalid
-  //     section tag" pointing at a line that is pure documentation.
+  //     Runtime error (at 1:111): Internal error: An attempt was made to
+  //     expand the "app" constant before it was initialized.
+  //
+  //   -- on the FIRST page a customer sees, with no way past it. WizardDirValue
+  //   is filled in when the wizard is built, from DefaultDirName or, on an
+  //   upgrade, from the previous install (UsePreviousAppDir). It is therefore
+  //   valid everywhere this is called, which the app constant is not.
+  //
+  // Not cached until the value is actually available, so an early call cannot
+  // freeze a wrong answer in. Cached afterwards so every later caller -- the
+  // two [Run] entries, ShouldSkipPage, NextButtonClick, CurStepChanged -- gets
+  // one consistent answer rather than re-reading a directory that setup is
+  // midway through writing.
+  //
+  // This comment uses // rather than braces because a { } comment ends at the
+  // FIRST closing brace and Pascal comments do not nest, so naming an Inno
+  // constant inside one terminates it early. The bracketed section names above
+  // are kept off the start of a line for the same class of reason: the section
+  // scanner strips leading whitespace, and reads such a line as a section tag.
   if not UpgradeChecked then begin
-    UpgradeCached := FileExists(ExpandConstant('{app}\connector.json'));
-    UpgradeChecked := True;
+    Dir := WizardDirValue;
+    if Dir <> '' then begin
+      UpgradeCached := FileExists(AddBackslash(Dir) + 'connector.json');
+      UpgradeChecked := True;
+    end;
   end;
   Result := UpgradeCached;
 end;

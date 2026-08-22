@@ -1,12 +1,12 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-22T08:24:38+00:00",
+  "generated_at": "2026-08-22T09:35:00+00:00",
   "connector": {
-    "version": "0.2.0",
-    "file": "TallyFlowConnector-Setup-0.2.0.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.0.exe",
-    "sha256": "ae076b6666537c6d912b85ad6098e6f731784498f0961af046dc9757e878358c",
-    "size_bytes": 38112711,
+    "version": "0.2.1",
+    "file": "TallyFlowConnector-Setup-0.2.1.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.1.exe",
+    "sha256": "932f7cde0fd23968cd5a609a5e806b57fc0374187331e3801d290c130a7cd9da",
+    "size_bytes": 38113814,
     "mandatory": false,
     "min_supported_version": "0.1.0",
     "notes": "Checks the company is open in TallyPrime before every read."

@@ -681,14 +681,38 @@ def mirror_downloads() -> None:
         if p.is_file() and p.suffix in {".exe", ".apk"}
     ]
     for artefact in artefacts:
-        shutil.copy2(artefact, PROD_DOWNLOADS / artefact.name)
-        print(f"  {artefact.name}")
+        _copy_artefact(artefact, PROD_DOWNLOADS / artefact.name)
 
     if MANIFEST.is_file():
-        shutil.copy2(MANIFEST, PROD_DOWNLOADS / MANIFEST.name)
-        print(f"  {MANIFEST.name}")
+        _copy_artefact(MANIFEST, PROD_DOWNLOADS / MANIFEST.name)
 
     print(f"Mirrored into {PROD_DOWNLOADS.relative_to(ROOT)}")
+
+
+def _copy_artefact(source: Path, destination: Path) -> None:
+    """Copy one file, tolerating a read-only destination and skipping no-ops.
+
+    Both cases come up on the second run and neither is interesting:
+
+    * ``copy2`` preserves permissions, so an artefact that was read-only in the
+      source directory lands read-only here -- and the *next* mirror then dies
+      with PermissionError on a file it wrote itself.
+    * Republishing usually changes one artefact. Re-copying 60 MB of unchanged
+      installers to prove it is just slow.
+    """
+    if destination.exists():
+        stat = destination.stat()
+        if stat.st_size == source.stat().st_size and int(stat.st_mtime) == int(
+            source.stat().st_mtime
+        ):
+            print(f"  {source.name} (unchanged)")
+            return
+        # Clear the read-only bit before overwriting, or Windows refuses.
+        destination.chmod(0o644)
+        destination.unlink()
+
+    shutil.copy2(source, destination)
+    print(f"  {source.name}")
 
 
 def cmd_prod(argv: list[str]) -> int:
