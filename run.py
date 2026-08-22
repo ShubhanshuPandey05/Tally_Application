@@ -26,13 +26,14 @@ Production:
     publish     Regenerate the update manifest from the staged artefacts
     prod        Everything above, in order, then commit and push
 
-`connector` and `release` stage their output and publish automatically. Run
-`publish` on its own after editing deploy/release-policy.json -- to mark a
-release mandatory, or to raise the floor below which clients refuse to run.
+`connector` and `release` stage their output and publish automatically, and
+publishing mirrors into the directory the production stack serves -- so any of
+the three reaches customers. Run `publish` on its own after editing
+deploy/release-policy.json -- to mark a release mandatory, or to raise the floor
+below which clients refuse to run.
 
 `prod` is the release-day command: check, build both artefacts against the
-production API URL, publish the manifest, mirror everything into the directory
-the production stack serves, and push. Windows only, because the connector is.
+production API URL, publish, and push. Windows only, because the connector is.
 """
 
 from __future__ import annotations
@@ -60,10 +61,11 @@ ENV_FILE = BACKEND / ".env"
 #: Where Caddy serves artefacts from (`deploy/uat/Caddyfile`, handle /downloads/*).
 #: Builds stage here and the manifest is generated from what lands in it.
 DOWNLOADS = ROOT / "deploy" / "uat" / "downloads"
-#: The production stack serves its own copy (`deploy/prod/Caddyfile`). `prod`
-#: mirrors DOWNLOADS into it after publishing, rather than either stack reading
-#: across into the other's directory -- a deployment that depends on a sibling
+#: The production stack serves its own copy (`deploy/prod/Caddyfile`). Every
+#: publish mirrors DOWNLOADS into it, rather than either stack reading across
+#: into the other's directory -- a deployment that depends on a sibling
 #: environment's files still being there is one `rm -rf` from a dead site.
+#: This is the directory customers actually reach; UAT alone is not shipped.
 PROD_DOWNLOADS = ROOT / "deploy" / "prod" / "downloads"
 #: The human half of the manifest: mandatory flags, floors, release notes.
 RELEASE_POLICY = ROOT / "deploy" / "release-policy.json"
@@ -555,6 +557,22 @@ def cmd_publish(_: list[str]) -> int:
     print(f"\nWrote {MANIFEST}")
     for line in missing:
         print(f"  ! not published (file absent) -- {line}")
+
+    # Every publish reaches production, not just the release-day command.
+    #
+    # This used to belong to `prod` alone, on the reasoning that a full
+    # release is when artefacts should cross into the live stack. In practice
+    # that made `run.py connector` a trap: it built the installer, generated a
+    # manifest, printed "Wrote ..." and returned 0, while the directory the
+    # production Caddy actually serves still held the previous release. The
+    # build log said shipped, the live host said 0.2.1, and the fleet was
+    # correctly told there was no update -- as far as any client could see,
+    # there was not.
+    #
+    # Mirroring here costs a no-op copy on a re-publish and removes the one
+    # failure mode a release process must not have: looking successful.
+    print()
+    mirror_downloads()
     print("\nClients poll this on their own schedule. Deploy it together with the")
     print("artefacts it names, or a phone will fetch a manifest whose download 404s.")
     return 0
@@ -779,11 +797,6 @@ def cmd_prod(argv: list[str]) -> int:
     release_argv = [PROD_API_URL] + [a for a in argv if a == "--allow-debug-signing"]
     if cmd_release(release_argv) != 0:
         return usage_error("app build failed")
-
-    # Both builds called publish already, so the manifest on disk now describes
-    # the bytes just staged. Mirror after, never before.
-    print("\n== staging for the production stack ==")
-    mirror_downloads()
 
     print("\n== git ==")
     if git(["add", "-A"])[0] != 0:

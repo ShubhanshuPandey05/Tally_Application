@@ -376,7 +376,9 @@ with it.
 
 ## 6. Releases and updates
 
-Publishing a release *is* writing `deploy/uat/downloads/manifest.json`. It is
+Publishing a release *is* writing `manifest.json` into both stacks'
+`downloads/` directories -- `deploy/uat` and, mirrored from it,
+`deploy/prod`, which is the one customers actually reach. It is
 **generated, never edited** — `run.py publish` measures version, SHA-256 and size
 from the bytes actually being served. A hand-typed checksum ships an update every
 client refuses. The human half lives in `deploy/release-policy.json`

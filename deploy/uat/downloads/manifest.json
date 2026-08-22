@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-22T10:00:04+00:00",
+  "generated_at": "2026-08-22T10:27:32+00:00",
   "connector": {
     "version": "0.2.2",
     "file": "TallyFlowConnector-Setup-0.2.2.exe",
