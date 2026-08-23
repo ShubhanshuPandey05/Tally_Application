@@ -129,9 +129,10 @@ class Release:
         """
         if self.mandatory:
             return True
-        return bool(self.min_supported_version) and compare_versions(
-            current, self.min_supported_version
-        ) < 0
+        return (
+            bool(self.min_supported_version)
+            and compare_versions(current, self.min_supported_version) < 0
+        )
 
 
 class UpdateManager:
@@ -285,11 +286,19 @@ class UpdateManager:
 
         try:
             await self.apply(release)
-        except UpdateError as exc:
+        except Exception as exc:  # noqa: BLE001 - see below
             # Remembered so the next check does not re-download a build that
             # has already proved unusable on this machine.
+            #
+            # Any exception, not just UpdateError. An unexpected one used to
+            # escape to the caller's warning and leave the version unmarked, so
+            # the next heartbeat tried the same install again -- and a failure
+            # that happens after setup has been launched detached means a shop
+            # PC running the installer on a loop. Whatever went wrong, this
+            # build has proved it does not install here; that is the fact worth
+            # remembering, and the reason is for the log to carry.
             self._failed.add(release.version)
-            logger.error("could not install connector %s: %s", release.version, exc)
+            logger.error("could not install connector %s: %s", release.version, exc, exc_info=True)
         return release
 
     async def available(self) -> Release | None:
@@ -348,9 +357,7 @@ class UpdateManager:
         partial = target.with_suffix(target.suffix + ".part")
         try:
             with partial.open("wb") as handle:
-                async with client.stream(
-                    "GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS
-                ) as response:
+                async with client.stream("GET", url, timeout=DOWNLOAD_TIMEOUT_SECONDS) as response:
                     response.raise_for_status()
                     async for chunk in response.aiter_bytes(256 * 1024):
                         handle.write(chunk)
@@ -426,8 +433,19 @@ class UpdateManager:
         # and a graceful drain would race it. The backend sees the socket drop,
         # which is the same thing it sees on any connector restart.
         logger.info("exiting so the installer can replace this build")
-        sys.stdout.flush()
-        sys.stderr.flush()
+        # Both streams are None in the windowed PyInstaller build -- a Windows
+        # service has no console attached -- and until 0.2.3 this raised
+        # AttributeError on the line before the exit. The installer had already
+        # been started detached by then, so the machine was left with setup
+        # running against a connector that never let go of its own files, and
+        # the caller retried the whole thing on the next heartbeat.
+        #
+        # Nothing may stand between a launched installer and this exit. The
+        # flush is a courtesy for the console build; the exit is the contract.
+        for stream in (sys.stdout, sys.stderr):
+            if stream is not None:
+                with contextlib.suppress(Exception):
+                    stream.flush()
         os._exit(0)
 
 

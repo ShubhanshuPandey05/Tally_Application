@@ -4,9 +4,11 @@ An unattended updater on a machine nobody visits has two ways to be worse than
 no updater at all: installing something that is not what the manifest described,
 and killing a Tally export that a phone is waiting on. Both are pinned here.
 
-``_launch`` is never exercised end to end -- it calls ``os._exit`` by design, so
-a test that reached it would take the test runner with it. Everything up to the
-handover is covered, and the handover itself is four lines.
+``_launch`` cannot be run end to end -- it calls ``os._exit`` by design, so a
+test that reached it would take the test runner with it -- but the handover is
+covered with ``os._exit`` and ``Popen`` stubbed. It is tested because the four
+lines that were once dismissed as too small to break shipped 0.2.2 with an
+``AttributeError`` between a launched installer and the exit it depends on.
 """
 
 from __future__ import annotations
@@ -199,6 +201,77 @@ async def test_a_build_that_failed_is_not_retried_every_cycle(tmp_path):
     """Re-downloading tens of megabytes on a loop is its own outage."""
     handler = serving(manifest("0.2.0"), body=b"corrupted")
     manager = manager_for(handler, tmp_path)
+
+    await manager.check_once()
+    assert await manager.available() is None
+    await manager.aclose()
+
+
+# --------------------------------------------------------------------------
+# The handover to the installer
+# --------------------------------------------------------------------------
+
+
+class _Exited(Exception):
+    """Stands in for ``os._exit``, which a test process cannot survive."""
+
+
+def _stub_handover(monkeypatch, *, console: bool):
+    """Replace the two calls that would end the test run, and the console."""
+    started: list[list[str]] = []
+    monkeypatch.setattr("subprocess.Popen", lambda cmd, **kw: started.append(cmd))
+
+    def fake_exit(code: int) -> None:
+        raise _Exited(code)
+
+    monkeypatch.setattr("os._exit", fake_exit)
+
+    class _Stream:
+        def flush(self) -> None:
+            pass
+
+    # None is what a windowed PyInstaller build actually has here; a Windows
+    # service has no console attached. The console build has a real stream, and
+    # both have to end the same way.
+    monkeypatch.setattr("sys.stdout", _Stream() if console else None)
+    monkeypatch.setattr("sys.stderr", _Stream() if console else None)
+    return started
+
+
+@pytest.mark.parametrize("console", [True, False], ids=["console", "windowed"])
+def test_the_installer_launch_always_reaches_the_exit(tmp_path, monkeypatch, console):
+    """Nothing may stand between a launched installer and ``os._exit``.
+
+    0.2.2 shipped with a bare ``sys.stdout.flush()`` here. In the service build
+    that is ``None.flush()``, so setup ran detached against a connector that
+    never exited and never released the files setup had to replace -- and the
+    caller then retried the whole install on the next heartbeat.
+    """
+    started = _stub_handover(monkeypatch, console=console)
+    manager = manager_for(serving(manifest()), tmp_path)
+    installer = tmp_path / "TallyFlowConnector-Setup-0.2.0.exe"
+    installer.write_bytes(INSTALLER_BYTES)
+
+    with pytest.raises(_Exited) as exit_code:
+        manager._launch(installer, Release.from_manifest(manifest()["connector"]))
+
+    assert exit_code.value.args[0] == 0
+    assert started and started[0][0] == str(installer)
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_install_failure_is_not_retried_forever(tmp_path, monkeypatch):
+    """A shop PC must not run the installer on a loop because of a stray bug.
+
+    ``UpdateError`` was already remembered. Anything else escaped, left the
+    version unmarked, and came round again on the next heartbeat.
+    """
+    manager = manager_for(serving(manifest("0.2.0")), tmp_path)
+
+    async def boom(release):
+        raise AttributeError("'NoneType' object has no attribute 'flush'")
+
+    monkeypatch.setattr(manager, "apply", boom)
 
     await manager.check_once()
     assert await manager.available() is None

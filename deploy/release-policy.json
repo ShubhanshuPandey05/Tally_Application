@@ -32,7 +32,7 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Reads companies whose add-on TDL exports user-defined fields."
+    "notes": "Reads add-on TDL companies; repairs the self-update handover."
   },
   "android": {
     "mandatory": false,

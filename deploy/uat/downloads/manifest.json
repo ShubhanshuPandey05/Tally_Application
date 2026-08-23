@@ -1,15 +1,15 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-22T10:27:32+00:00",
+  "generated_at": "2026-08-23T09:01:00+00:00",
   "connector": {
-    "version": "0.2.2",
-    "file": "TallyFlowConnector-Setup-0.2.2.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.2.exe",
-    "sha256": "2f430024d2fe5c6b93230e820f933880a355a29cd1deac28839905b4f3420e90",
-    "size_bytes": 38117995,
+    "version": "0.2.3",
+    "file": "TallyFlowConnector-Setup-0.2.3.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.3.exe",
+    "sha256": "887f263d1473c9fc3d6b280d657db8174786073f793052705582832ae11dce9d",
+    "size_bytes": 38117621,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Reads companies whose add-on TDL exports user-defined fields."
+    "notes": "Reads add-on TDL companies; repairs the self-update handover."
   },
   "android": {
     "version": "0.2.0",
