@@ -1,15 +1,15 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-30T17:25:36+00:00",
+  "generated_at": "2026-08-30T18:10:50+00:00",
   "connector": {
-    "version": "0.2.3",
-    "file": "TallyFlowConnector-Setup-0.2.3.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.3.exe",
-    "sha256": "887f263d1473c9fc3d6b280d657db8174786073f793052705582832ae11dce9d",
-    "size_bytes": 38117621,
+    "version": "0.2.4",
+    "file": "TallyFlowConnector-Setup-0.2.4.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.4.exe",
+    "sha256": "05c612de140d3dfd2981ed76b4bd50a16d263fa87f52b9e3379fae171837b801",
+    "size_bytes": 38140466,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Reads add-on TDL companies; repairs the self-update handover."
+    "notes": "Asks Tally for less: the daily deletion check reads voucher identities instead of full vouchers, and a balance refresh reads only the ledgers that actually moved."
   },
   "android": {
     "version": "0.3.0",

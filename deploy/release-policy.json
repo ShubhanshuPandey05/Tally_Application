@@ -32,7 +32,7 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Reads add-on TDL companies; repairs the self-update handover."
+    "notes": "Asks Tally for less: the daily deletion check reads voucher identities instead of full vouchers, and a balance refresh reads only the ledgers that actually moved."
   },
   "android": {
     "mandatory": false,
