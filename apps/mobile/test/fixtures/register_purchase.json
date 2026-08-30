@@ -1,0 +1,70 @@
+{
+  "data": {
+    "by_party": [
+      {
+        "amount": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "name": "SARA DISITIBUTOR",
+        "voucher_count": 1
+      }
+    ],
+    "by_product": [],
+    "from_date": "2026-01-01",
+    "kind": "purchase",
+    "months": [
+      {
+        "label": "Mar 2026",
+        "month": "2026-03",
+        "total": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "voucher_count": 1
+      }
+    ],
+    "to_date": "2026-03-15",
+    "total": {
+      "amount": "212600.00",
+      "currency": "INR",
+      "display": "212,600.00 Dr",
+      "side": "debit",
+      "signed": "212600.00"
+    },
+    "truncated": false,
+    "voucher_count": 1,
+    "vouchers": [
+      {
+        "amount": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "date": "2026-03-15",
+        "key": "h:f3a9ad350a0eb046ac64167f9cda5f565698891f",
+        "kind": "purchase",
+        "narration": null,
+        "party": "SARA DISITIBUTOR",
+        "voucher_number": "3",
+        "voucher_type": "Purchase"
+      }
+    ]
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": true,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

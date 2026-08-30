@@ -1,0 +1,73 @@
+{
+  "data": {
+    "amount": {
+      "amount": "212600.00",
+      "currency": "INR",
+      "display": "212,600.00 Dr",
+      "side": "debit",
+      "signed": "212600.00"
+    },
+    "credit_total": {
+      "amount": "212600.00",
+      "currency": "INR",
+      "display": "212,600.00 Dr",
+      "side": "debit",
+      "signed": "212600.00"
+    },
+    "date": "2026-03-15",
+    "debit_total": {
+      "amount": "212600.00",
+      "currency": "INR",
+      "display": "212,600.00 Dr",
+      "side": "debit",
+      "signed": "212600.00"
+    },
+    "inventory_entries": [],
+    "inventory_omitted": false,
+    "is_cancelled": false,
+    "is_optional": false,
+    "key": "h:f3a9ad350a0eb046ac64167f9cda5f565698891f",
+    "kind": "purchase",
+    "ledger_entries": [
+      {
+        "amount": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Dr",
+          "side": "debit",
+          "signed": "212600.00"
+        },
+        "bill_references": [],
+        "cost_centre": null,
+        "is_party": false,
+        "ledger": "Purchases"
+      },
+      {
+        "amount": {
+          "amount": "212600.00",
+          "currency": "INR",
+          "display": "212,600.00 Cr",
+          "side": "credit",
+          "signed": "-212600.00"
+        },
+        "bill_references": [],
+        "cost_centre": null,
+        "is_party": false,
+        "ledger": "SARA DISITIBUTOR"
+      }
+    ],
+    "narration": null,
+    "party": "SARA DISITIBUTOR",
+    "reference": null,
+    "voucher_number": "3",
+    "voucher_type": "Purchase"
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": true,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

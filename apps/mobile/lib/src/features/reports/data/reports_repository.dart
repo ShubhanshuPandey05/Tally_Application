@@ -1,5 +1,6 @@
 import '../../../core/model/freshness.dart';
 import '../../../core/network/api_client.dart';
+import '../domain/drilldown.dart';
 import '../domain/reports.dart';
 
 /// Reads for the report screens.
@@ -118,6 +119,86 @@ class ReportsRepository {
     );
     return Fresh<SlowMovingReport>(
       SlowMovingReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  // -- drill-down ----------------------------------------------------------
+  //
+  // None of these take a [FetchMode]. They are reached by tapping a row, and a
+  // customer opening ten vouchers in a row must not queue ten exports against
+  // the PC that is also running their till -- so the backend serves them from
+  // stored history and says so when it has none. Pull-to-refresh on the list
+  // the user came from is the way to get newer data.
+
+  Future<Fresh<VoucherDetail>> voucher(
+    String companyId, {
+    required String key,
+    required DateTime on,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/voucher',
+      query: <String, Object?>{'key': key, 'on': _isoDate(on)},
+    );
+    return Fresh<VoucherDetail>(
+      VoucherDetail.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<LedgerStatement>> ledgerStatement(
+    String companyId, {
+    required String ledger,
+    required DateRange range,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/ledger-statement',
+      query: <String, Object?>{
+        'ledger': ledger,
+        'from_date': range.fromWire,
+        'to_date': range.toWire,
+      },
+    );
+    return Fresh<LedgerStatement>(
+      LedgerStatement.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<RegisterReport>> register(
+    String companyId, {
+    required String kind,
+    required DateRange range,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/register',
+      query: <String, Object?>{
+        'kind': kind,
+        'from_date': range.fromWire,
+        'to_date': range.toWire,
+      },
+    );
+    return Fresh<RegisterReport>(
+      RegisterReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
+  Future<Fresh<ItemMovementReport>> itemMovement(
+    String companyId, {
+    required String item,
+    required DateRange range,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/stock/movement',
+      query: <String, Object?>{
+        'item': item,
+        'from_date': range.fromWire,
+        'to_date': range.toWire,
+      },
+    );
+    return Fresh<ItemMovementReport>(
+      ItemMovementReport.fromJson(body.envelopeData),
       body.envelopeFreshness,
     );
   }

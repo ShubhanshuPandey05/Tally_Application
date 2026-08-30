@@ -135,19 +135,19 @@ Map<String, Object?> _withFreshness(Map<String, Object?> freshness) {
 /// text finder would pass while the number sat under the wrong label.
 ///
 /// Two card types, because the headline figures live on the dark [HeroCard] and
-/// the rest on [KpiCard] tiles. The guarantee the helper exists for -- that the
-/// amount is under *this* label -- is the same either way.
+/// the rest on [MetricTile] tiles. The guarantee the helper exists for -- that
+/// the amount is under *this* label -- is the same either way.
 Finder _kpiAmount(String label, String amount) {
-  for (final Type card in <Type>[KpiCard, HeroCard]) {
+  for (final Type card in <Type>[MetricTile, HeroCard]) {
     final Finder holder = find.widgetWithText(card, label);
     if (holder.evaluate().isNotEmpty) {
       return find.descendant(of: holder, matching: find.text(amount));
     }
   }
-  // Nothing carries the label; return a finder that fails with the KpiCard
+  // Nothing carries the label; return a finder that fails with the MetricTile
   // message, which is the more common case and the more useful hint.
   return find.descendant(
-    of: find.widgetWithText(KpiCard, label),
+    of: find.widgetWithText(MetricTile, label),
     matching: find.text(amount),
   );
 }
@@ -339,8 +339,9 @@ void main() {
     expect(find.text('Sales · This month'), findsOneWidget);
     // The period total from the fixture, not today's 11,800.
     expect(_kpiAmount('Sales · This month', '₹16,800'), findsOneWidget);
-    // And the way back is always on screen, not buried in a menu.
-    expect(find.text('Back to today'), findsOneWidget);
+    // And the way back is always on screen, not buried in a menu: the period
+    // row keeps every window a tap away, "Today" included.
+    expect(find.text('Today'), findsOneWidget);
   });
 
   testWidgets('a period view declares which figures could not be scoped to it',
@@ -411,7 +412,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(repository.lastPeriod, isNotNull);
 
-    await tester.tap(find.text('Back to today'));
+    await tester.tap(find.text('Today'));
     await tester.pumpAndSettle();
 
     expect(repository.lastPeriod, isNull);

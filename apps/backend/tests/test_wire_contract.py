@@ -405,3 +405,180 @@ async def test_every_timestamp_reaches_the_app_with_a_utc_offset(
         assert datetime.fromisoformat(stamp).tzinfo is not None, (
             f"refreshed_at must carry a UTC offset, got {stamp!r}"
         )
+
+
+# --------------------------------------------------------------------------
+# Drill-down
+# --------------------------------------------------------------------------
+#
+# These four are served from stored history, so their fixtures are captured
+# after a real backfill rather than from a fresh snapshot. That is not just
+# setup: it is the path production uses, and capturing them any other way would
+# pin a shape the app never actually receives.
+
+
+@pytest.fixture
+async def backfilled(app, settings, linked_company, dated):
+    """A company whose history has been read, anchored to [AS_OF]."""
+    from tally_backend.services.sync import SyncCoordinator
+
+    coordinator = SyncCoordinator(app.state.session_factory, app.state.hub, settings)
+    await _run_backfill(coordinator, linked_company["company_id"])
+    return linked_company
+
+
+async def _run_backfill(coordinator, company_id: str) -> None:
+    """Start a backfill and await it, so these tests are not timing-dependent."""
+    await coordinator.start_backfill(company_id, today=AS_OF)
+    task = coordinator._tasks.get(company_id)
+    if task is not None:
+        await task
+
+
+async def _first_voucher_key(client: AsyncClient, linked_company) -> tuple[str, str]:
+    """A key and date straight from the day book, the way the app gets them."""
+    response = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/reports/daybook"
+        f"?from_date=2026-03-01&to_date={AS_OF.isoformat()}",
+        headers=linked_company["headers"],
+    )
+    assert response.status_code == 200, response.text
+    rows = response.json()["data"]["vouchers"]
+    assert rows, "expected the day book to list something to drill into"
+    # Pinned here as well as in the fixture: the whole drill-down depends on
+    # every listed row carrying an identity, and a row without one is a tap the
+    # app has to withhold.
+    assert all(row.get("key") for row in rows)
+    return rows[0]["key"], rows[0]["date"]
+
+
+async def test_voucher_detail_shape(
+    client: AsyncClient, backfilled, dated
+) -> None:
+    key, on = await _first_voucher_key(client, backfilled)
+
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/voucher"
+        f"?key={key}&on={on}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    # The point of the screen: the lines, with their sides intact.
+    assert body["data"]["ledger_entries"], "a voucher detail without its lines is a stub"
+    assert {e["amount"]["side"] for e in body["data"]["ledger_entries"]} <= {
+        "debit",
+        "credit",
+    }
+    check("voucher", body)
+
+
+async def test_a_voucher_opens_while_the_backfill_is_still_running(
+    client: AsyncClient, linked_company, dated, app, settings
+) -> None:
+    """Rows are on screen before a backfill finishes, and they must open.
+
+    The window rule that guards a *report* -- refuse rather than under-report a
+    half-read range -- would refuse these too, and the app would look broken at
+    exactly the moment it is working. One voucher is either stored or it is not.
+    """
+    from tally_backend.services.sync import SyncCoordinator
+    from tally_backend.services.voucher_store import VoucherStore
+
+    key, on = await _first_voucher_key(client, linked_company)
+
+    # History that holds the voucher but covers no window at all.
+    coordinator = SyncCoordinator(app.state.session_factory, app.state.hub, settings)
+    await _run_backfill(coordinator, linked_company["company_id"])
+
+    async with app.state.session_factory() as session:
+        from tally_backend.db.models import CompanySyncState
+
+        state = await session.get(CompanySyncState, linked_company["company_id"])
+        assert state is not None
+        stored = await VoucherStore(session).find(
+            linked_company["company_id"], key=key, on=date.fromisoformat(on)
+        )
+        assert stored is not None, "the backfill should have stored this voucher"
+        # Wind the coverage back so no window is covered, leaving only the rows.
+        state.backfilled_from = None
+        state.backfilled_to = None
+        await session.commit()
+
+    response = await client.get(
+        f"/v1/companies/{linked_company['company_id']}/reports/voucher"
+        f"?key={key}&on={on}",
+        headers=linked_company["headers"],
+    )
+    assert response.status_code == 200, response.text
+
+
+async def test_a_voucher_that_is_gone_says_why(
+    client: AsyncClient, backfilled, dated
+) -> None:
+    """Deleted or edited in Tally since the list was drawn. The user is looking
+    at the row, so "not found" on its own would read as a bug in the app."""
+    _, on = await _first_voucher_key(client, backfilled)
+
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/voucher"
+        f"?key=no-such-voucher&on={on}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 404, response.text
+    assert "Tally" in response.json()["error"]["message"]
+
+
+async def test_ledger_statement_shape(client: AsyncClient, backfilled, dated) -> None:
+    # The ledger list first, exactly as the app reaches this screen: from the
+    # balances report, or from a voucher line on a company whose dashboard has
+    # already read the masters. The statement serves "balance today" from that
+    # snapshot and never triggers a read of its own, so a fixture captured
+    # without it would pin the degraded shape as though it were the normal one.
+    warm = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/ledgers",
+        headers=backfilled["headers"],
+    )
+    assert warm.status_code == 200, warm.text
+
+    response = await client.get(
+        # A party rather than an income ledger: parties are what the app links
+        # to from a bill, from a voucher line and from the balances report, and
+        # they are the ledgers that actually have a master record behind them.
+        f"/v1/companies/{backfilled['company_id']}/reports/ledger-statement"
+        f"?ledger=Reliance%20Retail&from_date=2026-01-01&to_date={AS_OF.isoformat()}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+
+    # Movement and balance are different figures and the app labels them
+    # differently. Both keys must be present, or the screen quietly renders one
+    # of them as the other.
+    assert "net_movement" in body["data"]
+    assert body["data"]["closing_balance"] is not None
+    check("ledger_statement", body)
+
+
+@pytest.mark.parametrize("kind", ["sales", "purchase"])
+async def test_register_shape(
+    client: AsyncClient, backfilled, dated, kind: str
+) -> None:
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/register"
+        f"?kind={kind}&from_date=2026-01-01&to_date={AS_OF.isoformat()}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    check(f"register_{kind}", response.json())
+
+
+async def test_stock_movement_shape(client: AsyncClient, backfilled, dated) -> None:
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/stock/movement"
+        f"?item=Rice&from_date=2026-01-01&to_date={AS_OF.isoformat()}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    check("stock_movement", response.json())

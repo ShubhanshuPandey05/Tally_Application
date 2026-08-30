@@ -1,16 +1,17 @@
 import 'package:flutter/material.dart';
-import '../../../core/layout/adaptive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/shell.dart';
 import '../../../app/theme.dart';
+import '../../../core/layout/adaptive.dart';
 import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/cards.dart';
+import '../../../core/widgets/charts.dart';
 import '../../../core/widgets/freshness_banner.dart';
 import '../../../core/widgets/period_picker.dart';
 import '../../../core/widgets/primitives.dart';
@@ -40,6 +41,11 @@ const int _maxDashboardDays = 400;
 /// seconds, knows what they sold, who owes them, where their cash is and what
 /// is running out. So the order here is by question, not by module: money in
 /// and money owed first, then trend, then stock, then detail.
+///
+/// Every card leads with a picture and keeps its numbers underneath it. That is
+/// the difference between a dashboard and a list of balances: an owner reads
+/// "the line is flat and half of what I am owed is over ninety days late" in
+/// one glance, and only then starts reading names and amounts.
 class DashboardScreen extends ConsumerWidget {
   const DashboardScreen({super.key});
 
@@ -101,13 +107,6 @@ class _Dashboard extends ConsumerWidget {
             subtitle: company.tallyName != company.name ? company.tallyName : null),
         actions: <Widget>[
           IconButton(
-            tooltip: 'Choose a period',
-            onPressed: () => _pickPeriod(context, ref),
-            icon: Icon(
-              period == null ? Icons.calendar_month_outlined : Icons.event_available,
-            ),
-          ),
-          IconButton(
             tooltip: 'Refresh from Tally',
             onPressed: () => ref.read(dashboardProvider(company.id).notifier).refresh(),
             icon: const Icon(Icons.refresh),
@@ -115,14 +114,16 @@ class _Dashboard extends ConsumerWidget {
         ],
         // A persistent bar rather than a scrolling one: which window the
         // figures cover changes what every number on the screen means, so it
-        // must not be possible to scroll the reminder out of sight.
-        bottom: period == null
-            ? null
-            : _PeriodBar(
-                selection: period,
-                onClear: () =>
-                    ref.read(dashboardPeriodProvider(company.id).notifier).backToToday(),
-              ),
+        // must not be possible to scroll the reminder out of sight. It is a row
+        // of periods rather than a calendar button because switching window is
+        // the gesture an owner makes most, and burying it behind an icon made
+        // the dashboard feel like a fixed report.
+        bottom: _PeriodBar(
+          selection: period,
+          onSelect: (PeriodSelection? selection) =>
+              ref.read(dashboardPeriodProvider(company.id).notifier).select(selection),
+          onCustom: () => _pickPeriod(context, ref),
+        ),
       ),
       // The first read of a real set of books takes minutes, so it gets the
       // whole screen and a determinate bar. Everything after it -- including
@@ -185,8 +186,133 @@ class _DashboardBody extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    if (dashboard.isEmpty) {
-      return ContentPane(
+    if (dashboard.isEmpty) return _empty(context, ref);
+
+    final TradeSummary? sales = dashboard.sales.data;
+    final TradeSummary? purchases = dashboard.purchases.data;
+
+    return ContentPane(
+      maxWidth: Breakpoints.dashboard,
+      child: ListView(
+        padding: EdgeInsets.only(bottom: HomeShell.contentInset(context)),
+        children: <Widget>[
+          FreshnessBanner(freshness: dashboard.freshness, onRefresh: onRefresh),
+          // Renders nothing at all unless a sync is actually in flight or has
+          // stopped short, so a settled company keeps a clean dashboard.
+          SyncProgressStrip(companyId: companyId),
+          // Likewise silent unless an optional update exists. A required one
+          // never reaches here -- UpdateGate has already replaced the whole app.
+          const UpdateBanner(),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
+            child: _Headline(dashboard: dashboard, periodLabel: periodLabel),
+          ),
+          const SizedBox(height: 12),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: _MetricGrid(dashboard: dashboard),
+          ),
+          const SizedBox(height: 14),
+          if (dashboard.sales.hasData)
+            _Padded(
+              child: TradeSection(
+                title: 'Sales',
+                summary: sales!,
+                // Purchases ride on the sales axis rather than getting a card
+                // of their own: the gap between the two lines is the margin,
+                // and a gap cannot be read across a scroll.
+                compareWith: purchases,
+                compareLabel: 'Purchases',
+                currency: dashboard.currency,
+                periodLabel: periodLabel,
+              ),
+            )
+          else
+            _Padded(
+              child: SectionUnavailable(title: 'Sales', reason: dashboard.sales.error),
+            ),
+          if (dashboard.receivables.hasData)
+            _Padded(
+              child: OutstandingSection(
+                title: 'Receivables',
+                summary: dashboard.receivables.data!,
+                kindQuery: 'receivable',
+              ),
+            )
+          else
+            _Padded(
+              child: SectionUnavailable(
+                title: 'Receivables',
+                reason: dashboard.receivables.error,
+              ),
+            ),
+          // Cash, bank and stock cannot be rewound -- see [CurrentOnlyNote].
+          if (dashboard.funds.hasData)
+            _Padded(
+              child: FundsSection(
+                summary: dashboard.funds.data!,
+                alwaysCurrent: _isPeriod,
+              ),
+            ),
+          if (dashboard.inventory.hasData)
+            _Padded(
+              child: InventorySection(
+                summary: dashboard.inventory.data!,
+                alwaysCurrent: _isPeriod,
+              ),
+            ),
+          if (dashboard.payables.hasData && !dashboard.payables.data!.total.isZero)
+            _Padded(
+              child: OutstandingSection(
+                title: 'Payables',
+                summary: dashboard.payables.data!,
+                kindQuery: 'payable',
+              ),
+            ),
+          if (sales != null && sales.topProducts.isNotEmpty)
+            _Padded(
+              child: RankedSection(
+                title: 'Top products',
+                subtitle: 'By sales value',
+                icon: Icons.local_offer_outlined,
+                tint: AppTheme.tileAmber,
+                action: 'Slow movers',
+                onAction: () => context.push(Routes.slowMoving),
+                whole: sales.period?.total ?? sales.thisMonth,
+                entries: <RankedEntry>[
+                  for (final ProductTotal product in sales.topProducts)
+                    RankedEntry(
+                      name: product.name,
+                      amount: product.amount,
+                      subtitle: MoneyFormat.quantity(product.quantity, product.unit),
+                      onTap: () => context.push(
+                        '${Routes.stockMovement}?item=${Uri.encodeQueryComponent(product.name)}',
+                      ),
+                    ),
+                ],
+              ),
+            ),
+          // Purchases only get a card of their own when there is no sales chart
+          // for them to sit on. Otherwise this would be the same series drawn
+          // twice on one screen.
+          if (sales == null && purchases != null && !purchases.headline.isZero)
+            _Padded(
+              child: TradeSection(
+                title: 'Purchases',
+                summary: purchases,
+                currency: dashboard.currency,
+                periodLabel: periodLabel,
+                tint: AppTheme.tileViolet,
+              ),
+            ),
+          if (dashboard.activity.hasData)
+            _Padded(child: ActivitySection(summary: dashboard.activity.data!)),
+        ],
+      ),
+    );
+  }
+
+  Widget _empty(BuildContext context, WidgetRef ref) => ContentPane(
         maxWidth: Breakpoints.dashboard,
         child: ListView(
           children: <Widget>[
@@ -239,200 +365,144 @@ class _DashboardBody extends ConsumerWidget {
           ],
         ),
       );
-    }
+}
 
-    final TradeSummary? sales = dashboard.sales.data;
-    final TradeSummary? purchases = dashboard.purchases.data;
+/// The period switcher, pinned under the app bar.
+///
+/// The five windows an owner actually asks for, as a row of pills, with the
+/// calendar for anything else. It is always on screen because every figure
+/// below it means something different depending on which pill is lit -- and a
+/// custom range takes a pill of its own so a chosen window can never be lit
+/// while the row still reads "Today".
+class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
+  const _PeriodBar({
+    required this.selection,
+    required this.onSelect,
+    required this.onCustom,
+  });
 
-    return ContentPane(
-      maxWidth: Breakpoints.dashboard,
+  final PeriodSelection? selection;
+  final ValueChanged<PeriodSelection?> onSelect;
+  final VoidCallback onCustom;
+
+  /// Presets, shortest first. A subset of [periodPresets]: the sheet behind the
+  /// calendar carries the rest, and eight pills is a row nobody reads.
+  static const List<String> _quick = <String>[
+    'Today',
+    'This week',
+    'This month',
+    'This quarter',
+    'This year',
+  ];
+
+  @override
+  Size get preferredSize => const Size.fromHeight(48);
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    // Null is today -- see DashboardPeriodController.select.
+    final String active = selection?.label ?? 'Today';
+    final bool isCustom = !_quick.contains(active);
+
+    return SizedBox(
+      height: 48,
       child: ListView(
-        padding: EdgeInsets.only(bottom: HomeShell.contentInset(context)),
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
         children: <Widget>[
-          FreshnessBanner(freshness: dashboard.freshness, onRefresh: onRefresh),
-          // Renders nothing at all unless a sync is actually in flight or has
-          // stopped short, so a settled company keeps a clean dashboard.
-          SyncProgressStrip(companyId: companyId),
-          // Likewise silent unless an optional update exists. A required one
-          // never reaches here -- UpdateGate has already replaced the whole app.
-          const UpdateBanner(),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: _Headline(dashboard: dashboard, periodLabel: periodLabel),
-          ),
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: _KpiGrid(dashboard: dashboard, periodLabel: periodLabel),
-          ),
-          const SizedBox(height: 14),
-          if (dashboard.sales.hasData)
-            _Padded(
-              child: TrendSection(
-                title: 'Sales',
-                summary: sales!,
-                currency: dashboard.currency,
-                periodLabel: periodLabel,
-              ),
-            )
-          else
-            _Padded(
-              child: SectionUnavailable(title: 'Sales', reason: dashboard.sales.error),
-            ),
-          if (dashboard.receivables.hasData)
-            _Padded(
-              child: OutstandingSection(
-                title: 'Receivables',
-                summary: dashboard.receivables.data!,
-                kindQuery: 'receivable',
-              ),
-            )
-          else
-            _Padded(
-              child: SectionUnavailable(
-                title: 'Receivables',
-                reason: dashboard.receivables.error,
+          for (final String label in _quick)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _PeriodPill(
+                label: label == 'Today' ? 'Today' : label.replaceFirst('This ', ''),
+                selected: !isCustom && active == label,
+                onTap: () {
+                  if (label == 'Today') {
+                    onSelect(null);
+                    return;
+                  }
+                  final PeriodPreset preset = periodPresets
+                      .firstWhere((PeriodPreset p) => p.label == label);
+                  onSelect(PeriodSelection(preset.range(), preset.label));
+                },
               ),
             ),
-          // Cash, bank and stock cannot be rewound -- see [CurrentOnlyNote].
-          if (dashboard.funds.hasData)
-            _Padded(
-              child: FundsSection(
-                summary: dashboard.funds.data!,
-                alwaysCurrent: _isPeriod,
+          if (isCustom)
+            Padding(
+              padding: const EdgeInsets.only(right: 8),
+              child: _PeriodPill(
+                label: formatRangeLabel(selection!.range),
+                selected: true,
+                onTap: onCustom,
               ),
             ),
-          if (dashboard.inventory.hasData)
-            _Padded(
-              child: InventorySection(
-                summary: dashboard.inventory.data!,
-                alwaysCurrent: _isPeriod,
-              ),
-            ),
-          if (dashboard.payables.hasData && !dashboard.payables.data!.total.isZero)
-            _Padded(
-              child: OutstandingSection(
-                title: 'Payables',
-                summary: dashboard.payables.data!,
-                kindQuery: 'payable',
-              ),
-            ),
-          if (sales != null && sales.topParties.isNotEmpty)
-            _Padded(
-              child: SectionCard(
-                title: 'Top customers',
-                subtitle: periodLabel ?? 'This period',
-                icon: Icons.emoji_events_outlined,
-                child: Column(
-                  children: <Widget>[
-                    for (final PartyTotal party in sales.topParties)
-                      AmountRow(
-                        title: party.name,
-                        amount: party.amount,
-                        subtitle: '${party.voucherCount} vouchers',
-                      ),
-                  ],
+          // The way to everything the five pills do not cover, and the only
+          // control here that opens something rather than switching something.
+          Material(
+            color: context.surfaceColor,
+            shape: const StadiumBorder(),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              onTap: onCustom,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Icon(
+                  Icons.calendar_month_outlined,
+                  size: 17,
+                  color: theme.colorScheme.onSurface,
                 ),
               ),
             ),
-          if (sales != null && sales.topProducts.isNotEmpty)
-            _Padded(
-              child: SectionCard(
-                title: 'Top products',
-                subtitle: 'By sales value',
-                icon: Icons.local_offer_outlined,
-                action: 'Slow movers',
-                onAction: () => context.push(Routes.slowMoving),
-                child: Column(
-                  children: <Widget>[
-                    for (final ProductTotal product in sales.topProducts)
-                      AmountRow(
-                        title: product.name,
-                        amount: product.amount,
-                        subtitle:
-                            '${MoneyFormat.quantity(product.quantity, product.unit)} sold',
-                      ),
-                  ],
-                ),
-              ),
-            ),
-          if (purchases != null && !purchases.headline.isZero)
-            _Padded(
-              child: TrendSection(
-                title: 'Purchases',
-                summary: purchases,
-                currency: dashboard.currency,
-                periodLabel: periodLabel,
-              ),
-            ),
-          if (dashboard.activity.hasData)
-            _Padded(child: ActivitySection(summary: dashboard.activity.data!)),
+          ),
         ],
       ),
     );
   }
 }
 
-/// The "you are looking at a chosen window" bar, pinned under the app bar.
-///
-/// Deliberately loud. Every figure below it means something different from
-/// what the same screen showed a moment ago, and the one-tap way back to today
-/// is what stops a period view from being a trap.
-class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
-  const _PeriodBar({required this.selection, required this.onClear});
+class _PeriodPill extends StatelessWidget {
+  const _PeriodPill({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
 
-  final PeriodSelection selection;
-  final VoidCallback onClear;
-
-  @override
-  Size get preferredSize => const Size.fromHeight(44);
+  final String label;
+  final bool selected;
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    // A preset names itself ("This month"); a custom range is already spelled
-    // out as dates, so repeating them under it would just be noise.
-    final String dates = formatRangeLabel(selection.range);
-    final String text = selection.label == dates ? dates : '${selection.label} · $dates';
+    final bool isLight = theme.brightness == Brightness.light;
+    // The same inversion the nav bar's selected pill makes, so "this is where
+    // you are" reads the same way wherever it appears.
+    final Color fill = selected
+        ? (isLight ? AppTheme.ink : Colors.white)
+        : context.surfaceColor;
+    final Color ink = selected
+        ? (isLight ? Colors.white : AppTheme.ink)
+        : context.mutedColor;
 
-    return Container(
-      height: 44,
-      width: double.infinity,
-      color: theme.scaffoldBackgroundColor,
-      padding: const EdgeInsets.fromLTRB(16, 0, 8, 8),
-      child: Row(
-        children: <Widget>[
-          Flexible(
-            child: Container(
-              height: 32,
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: context.cautionColor.withOpacity(0.12),
-                borderRadius: BorderRadius.circular(999),
-              ),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  Icon(Icons.date_range, size: 15, color: context.cautionColor),
-                  const SizedBox(width: 7),
-                  Flexible(
-                    child: Text(
-                      text,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.labelMedium?.copyWith(
-                        color: context.cautionColor,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                  ),
-                ],
+    return Material(
+      color: fill,
+      shape: const StadiumBorder(),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14),
+          child: Center(
+            child: Text(
+              label,
+              style: theme.textTheme.labelMedium?.copyWith(
+                color: ink,
+                fontWeight: selected ? FontWeight.w700 : FontWeight.w600,
               ),
             ),
           ),
-          const Spacer(),
-          TextButton(onPressed: onClear, child: const Text('Back to today')),
-        ],
+        ),
       ),
     );
   }
@@ -446,7 +516,7 @@ class _Padded extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
         child: child,
       );
 }
@@ -455,14 +525,20 @@ class _Padded extends StatelessWidget {
 ///
 /// Sales answers the brief's first question -- "how much did I sell today?" --
 /// so it gets the card the eye lands on, and everything else becomes a tile
-/// beneath it. When there is no sales figure there is no dark card either: an
-/// empty hero is a hole where the most important thing should be, which reads
-/// worse than a screen that simply starts with tiles.
+/// beneath it. The trend runs across the bottom of the card so the headline is
+/// never a number without a direction, and the three figures under it are the
+/// rest of the brief's first four questions at a glance.
+///
+/// When there is no sales figure there is no dark card either: an empty hero is
+/// a hole where the most important thing should be, which reads worse than a
+/// screen that simply starts with tiles.
 class _Headline extends StatelessWidget {
   const _Headline({required this.dashboard, this.periodLabel});
 
   final Dashboard dashboard;
   final String? periodLabel;
+
+  static const Color _dim = Color(0xFF9AA0AE);
 
   @override
   Widget build(BuildContext context) {
@@ -472,10 +548,12 @@ class _Headline extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final bool isPeriod = dashboard.period != null;
     final FundsSummary? funds = dashboard.funds.data;
+    final TradeSummary? purchases = dashboard.purchases.data;
     final double? change =
-        isPeriod ? sales.period?.changePct : _KpiGrid._versusYesterday(sales);
+        isPeriod ? sales.period?.changePct : _versusYesterday(sales);
 
     return HeroCard(
+      padding: const EdgeInsets.fromLTRB(18, 15, 18, 14),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -483,7 +561,7 @@ class _Headline extends StatelessWidget {
             children: <Widget>[
               const IconTile(
                 icon: Icons.point_of_sale_outlined,
-                size: 34,
+                size: 30,
                 background: Color(0x1FFFFFFF),
                 foreground: Colors.white,
               ),
@@ -493,13 +571,13 @@ class _Headline extends StatelessWidget {
                   isPeriod ? 'Sales · ${periodLabel ?? 'period'}' : "Today's sales",
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.titleSmall?.copyWith(color: Colors.white),
+                  style: theme.textTheme.labelMedium?.copyWith(color: _dim),
                 ),
               ),
               if (change != null) _DarkChangeChip(changePct: change),
             ],
           ),
-          const SizedBox(height: 16),
+          const SizedBox(height: 10),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -512,34 +590,101 @@ class _Headline extends StatelessWidget {
               style: theme.textTheme.displaySmall?.copyWith(color: Colors.white),
             ),
           ),
-          const SizedBox(height: 4),
           Text(
             isPeriod ? 'compared with the previous period' : 'compared with yesterday',
-            style: theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF9AA0AE)),
+            style: theme.textTheme.labelSmall?.copyWith(color: _dim),
           ),
-          if (funds != null) ...<Widget>[
-            const SizedBox(height: 16),
-            const Divider(height: 1, color: Color(0x1FFFFFFF)),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                const Icon(Icons.savings_outlined, size: 16, color: Color(0xFF9AA0AE)),
-                const SizedBox(width: 8),
-                Text(
-                  'Cash & bank',
-                  style:
-                      theme.textTheme.bodySmall?.copyWith(color: const Color(0xFF9AA0AE)),
-                ),
-                const Spacer(),
-                Text(
-                  MoneyFormat.compact(funds.total),
-                  style: theme.textTheme.bodyMedium
-                      ?.merge(AppTheme.amount)
-                      .copyWith(color: Colors.white),
-                ),
-              ],
+          if (sales.trend.length > 1) ...<Widget>[
+            const SizedBox(height: 10),
+            Sparkline(
+              values: <double>[for (final TrendPoint p in sales.trend) p.value],
+              // White, not the accent: on near-black the brand blue is the one
+              // colour that disappears, and this line has to read at a glance
+              // from across a counter.
+              colour: Colors.white,
+              height: 34,
             ),
           ],
+          const SizedBox(height: 12),
+          const Divider(height: 1, color: Color(0x1FFFFFFF)),
+          const SizedBox(height: 11),
+          // Deliberately none of the figures that are tiles below. Repeating a
+          // number a few pixels under itself reads as a bug rather than as
+          // emphasis, so the card carries what the grid does not: what the day
+          // cost, where the money is, and what the month has come to so far.
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: <Widget>[
+              if (purchases != null)
+                _DarkStat(
+                  label: 'Purchases',
+                  value: MoneyFormat.compact(purchases.headline),
+                ),
+              if (funds != null)
+                _DarkStat(
+                  label: 'Cash & bank',
+                  value: MoneyFormat.compact(funds.total),
+                ),
+              // On a period the headline *is* the period total, so the useful
+              // third figure is what it is being compared against. A baseline
+              // outside the window that was read is unknown, not zero.
+              _DarkStat(
+                label: isPeriod ? 'Previous period' : 'Month to date',
+                value: isPeriod
+                    ? (sales.period?.previousTotal == null
+                        ? '--'
+                        : MoneyFormat.compact(sales.period!.previousTotal!))
+                    : MoneyFormat.compact(sales.thisMonth),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Today against yesterday. Null when yesterday was zero -- a percentage
+  /// against a zero baseline is not a movement of 0% or 100%, it is an
+  /// unanswerable question.
+  static double? _versusYesterday(TradeSummary sales) {
+    final double yesterday = sales.yesterday.amount.toDouble();
+    if (yesterday == 0) return null;
+    final double today = sales.today.amount.toDouble();
+    return (today - yesterday) / yesterday * 100;
+  }
+}
+
+/// One of the three supporting figures on the dark card.
+class _DarkStat extends StatelessWidget {
+  const _DarkStat({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Expanded(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: <Widget>[
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: theme.textTheme.labelSmall?.copyWith(color: _Headline._dim),
+          ),
+          const SizedBox(height: 2),
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              style: theme.textTheme.titleSmall
+                  ?.merge(AppTheme.amount)
+                  .copyWith(color: Colors.white),
+            ),
+          ),
         ],
       ),
     );
@@ -581,12 +726,15 @@ class _DarkChangeChip extends StatelessWidget {
   }
 }
 
-/// The four figures that answer the brief's first four questions.
-class _KpiGrid extends StatelessWidget {
-  const _KpiGrid({required this.dashboard, this.periodLabel});
+/// The figures that are not on the dark card, each with the shape behind it.
+///
+/// A tile is a number *and* its evidence: what you are owed carries the share
+/// of it that is late, stock carries the share of items below reorder level.
+/// Both are one-glance judgements that a bare total cannot make.
+class _MetricGrid extends StatelessWidget {
+  const _MetricGrid({required this.dashboard});
 
   final Dashboard dashboard;
-  final String? periodLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -594,86 +742,110 @@ class _KpiGrid extends StatelessWidget {
     final FundsSummary? funds = dashboard.funds.data;
     final OutstandingSummary? receivables = dashboard.receivables.data;
     final OutstandingSummary? payables = dashboard.payables.data;
-    final bool isPeriod = dashboard.period != null;
+    final InventorySummary? inventory = dashboard.inventory.data;
+    final ActivitySummary? activity = dashboard.activity.data;
 
-    final List<KpiCard> tiles = <KpiCard>[
+    final List<Widget> tiles = <Widget>[
       // Sales and cash & bank are on the dark card above. Repeating a figure a
       // few pixels below itself reads as a bug, not as emphasis.
       if (sales == null && funds != null)
-        KpiCard(
+        MetricTile(
           label: 'Cash & bank',
-          amount: funds.total,
+          value: MoneyFormat.compact(funds.total),
           icon: Icons.savings_outlined,
-          caption: isPeriod ? 'balance today' : 'across all accounts',
+          tone: MetricTone.positive,
+          caption: '${funds.cashAccounts.length + funds.bankAccounts.length} accounts',
         ),
       if (receivables != null)
-        KpiCard(
+        MetricTile(
           label: 'You are owed',
-          amount: receivables.total,
+          value: MoneyFormat.compact(receivables.total),
           icon: Icons.call_received,
-          tone: receivables.overdue.isZero ? KpiTone.neutral : KpiTone.caution,
-          caption: receivables.overdue.isZero
+          tone: receivables.overdue.isZero ? MetricTone.neutral : MetricTone.caution,
+          meter: receivables.overdueShare,
+          meterCaption: receivables.overdue.isZero
               ? 'nothing overdue'
-              : '${(receivables.overdueShare * 100).round()}% overdue',
+              : '${(receivables.overdueShare * 100).round()}% overdue'
+                  ' · ${MoneyFormat.compact(receivables.overdue)}',
           onTap: () => context.push('${Routes.outstanding}?kind=receivable'),
         ),
       if (payables != null)
-        KpiCard(
+        MetricTile(
           label: 'You owe',
-          amount: payables.total,
+          value: MoneyFormat.compact(payables.total),
           icon: Icons.call_made,
-          tone: payables.overdue.isZero ? KpiTone.neutral : KpiTone.negative,
-          caption: payables.overdue.isZero
+          tone: payables.overdue.isZero ? MetricTone.neutral : MetricTone.negative,
+          meter: payables.overdueShare,
+          meterCaption: payables.overdue.isZero
               ? 'nothing overdue'
-              : '${(payables.overdueShare * 100).round()}% overdue',
+              : '${(payables.overdueShare * 100).round()}% overdue'
+                  ' · ${MoneyFormat.compact(payables.overdue)}',
           onTap: () => context.push('${Routes.outstanding}?kind=payable'),
+        ),
+      if (inventory != null)
+        MetricTile(
+          label: 'Stock value',
+          value: MoneyFormat.compact(inventory.value),
+          icon: Icons.inventory_2_outlined,
+          tone: inventory.negativeStockCount > 0
+              ? MetricTone.negative
+              : inventory.lowStockCount > 0
+                  ? MetricTone.caution
+                  : MetricTone.neutral,
+          // The share of the catalogue that needs attention, not the share that
+          // is fine -- a meter that is nearly full of "healthy" says nothing.
+          meter: inventory.itemCount == 0
+              ? null
+              : (inventory.lowStockCount + inventory.negativeStockCount) /
+                  inventory.itemCount,
+          meterCaption: inventory.lowStockCount == 0 &&
+                  inventory.negativeStockCount == 0
+              ? '${inventory.itemCount} items, all healthy'
+              : '${inventory.lowStockCount} low · '
+                  '${inventory.negativeStockCount} negative',
+          onTap: () => context.push(Routes.stock),
+        ),
+      if (activity != null && sales != null)
+        MetricTile(
+          label: 'Vouchers',
+          value: '${activity.voucherCount}',
+          icon: Icons.receipt_long_outlined,
+          caption: dashboard.period == null ? 'today' : 'in this period',
+          // The trend the count belongs to. Amounts, not counts -- the backend
+          // sends a value series and not a voucher-count series, and inventing
+          // a second axis for a sparkline nobody reads exactly would be worse
+          // than showing the money the vouchers moved.
+          spark: <double>[for (final TrendPoint p in sales.trend) p.value],
+          onTap: () => context.push(Routes.daybook),
         ),
     ];
 
     if (tiles.isEmpty) return const SizedBox.shrink();
 
-    // One figure gets the full width rather than half of it with a hole
-    // alongside; on a dashboard an empty half-row reads as a tile that failed
-    // to load rather than as a tile that was never there.
-    if (tiles.length == 1) {
-      final KpiCard only = tiles.single;
-      return KpiCard(
-        label: only.label,
-        amount: only.amount,
-        caption: only.caption,
-        changePct: only.changePct,
-        icon: only.icon,
-        onTap: only.onTap,
-        tone: only.tone,
-        wide: true,
-      );
-    }
-
     // Four across once the pane is wide enough to hold them at a readable
     // size. A tile is a self-contained block, so extra width should buy another
-    // column rather than stretch the three that are already there.
+    // column rather than stretch the two that are already there.
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final int columns = constraints.maxWidth >= 560 ? 4 : 2;
-        return GridView.count(
+        return GridView(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
-          crossAxisCount: columns,
-          crossAxisSpacing: 12,
-          mainAxisSpacing: 12,
-          childAspectRatio: columns == 4 ? 0.92 : 1.02,
+          gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+            crossAxisCount: columns,
+            crossAxisSpacing: 12,
+            mainAxisSpacing: 12,
+            // A fixed height rather than an aspect ratio. A tile always holds
+            // the same four things -- label, figure, caption, one strip of
+            // evidence -- so its height does not depend on its width, and tying
+            // the two together parks a band of empty space under every tile as
+            // soon as the pane gets wider.
+            mainAxisExtent: 138,
+          ),
           children: tiles,
         );
       },
     );
-  }
-
-  /// Today against yesterday. Null when yesterday was zero -- see [KpiCard].
-  static double? _versusYesterday(TradeSummary sales) {
-    final double yesterday = sales.yesterday.amount.toDouble();
-    if (yesterday == 0) return null;
-    final double today = sales.today.amount.toDouble();
-    return (today - yesterday) / yesterday * 100;
   }
 }
 
@@ -685,27 +857,27 @@ class _DashboardSkeleton extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: const <Widget>[
-        SkeletonBox(height: 14, width: 160),
-        SizedBox(height: 18),
+        SkeletonBox(height: 168, radius: 20),
+        SizedBox(height: 14),
         Row(
           children: <Widget>[
-            Expanded(child: SkeletonBox(height: 92, radius: 16)),
+            Expanded(child: SkeletonBox(height: 116, radius: 20)),
             SizedBox(width: 12),
-            Expanded(child: SkeletonBox(height: 92, radius: 16)),
+            Expanded(child: SkeletonBox(height: 116, radius: 20)),
           ],
         ),
         SizedBox(height: 12),
         Row(
           children: <Widget>[
-            Expanded(child: SkeletonBox(height: 92, radius: 16)),
+            Expanded(child: SkeletonBox(height: 116, radius: 20)),
             SizedBox(width: 12),
-            Expanded(child: SkeletonBox(height: 92, radius: 16)),
+            Expanded(child: SkeletonBox(height: 116, radius: 20)),
           ],
         ),
         SizedBox(height: 16),
-        SkeletonBox(height: 220, radius: 16),
+        SkeletonBox(height: 300, radius: 20),
         SizedBox(height: 14),
-        SkeletonBox(height: 180, radius: 16),
+        SkeletonBox(height: 260, radius: 20),
       ],
     );
   }

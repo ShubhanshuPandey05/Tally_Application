@@ -26,6 +26,7 @@
               "signed": "212600.00"
             },
             "date": "2026-03-15",
+            "key": "h:f3a9ad350a0eb046ac64167f9cda5f565698891f",
             "kind": "purchase",
             "narration": null,
             "party": "SARA DISITIBUTOR",
@@ -41,6 +42,7 @@
               "signed": "11800.00"
             },
             "date": "2026-03-15",
+            "key": "h:4c9c155fee61fbecb7abedad0383dcb6b9c5d027",
             "kind": "sales",
             "narration": null,
             "party": "Reliance Retail",
@@ -56,6 +58,7 @@
               "signed": "5000.00"
             },
             "date": "2026-03-14",
+            "key": "h:ba91f31115deff21e7560facfb002640269d54dd",
             "kind": "sales",
             "narration": null,
             "party": "Local Kirana",

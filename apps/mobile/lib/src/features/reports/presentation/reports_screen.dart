@@ -81,6 +81,18 @@ class ReportsScreen extends ConsumerWidget {
                         subtitle: 'Every voucher, day by day',
                         route: Routes.daybook,
                       ),
+                      _ReportEntry(
+                        icon: Icons.trending_up,
+                        title: 'Sales register',
+                        subtitle: 'Every sale, by month, customer and item',
+                        route: '${Routes.register}?kind=sales',
+                      ),
+                      _ReportEntry(
+                        icon: Icons.trending_down,
+                        title: 'Purchase register',
+                        subtitle: 'Every purchase, by month, supplier and item',
+                        route: '${Routes.register}?kind=purchase',
+                      ),
                     ],
                   ),
                   SizedBox(height: 18),

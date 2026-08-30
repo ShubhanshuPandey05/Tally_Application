@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../core/model/figures.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
@@ -17,7 +18,11 @@ import '../features/reports/presentation/ledgers_screen.dart';
 import '../features/reports/presentation/outstanding_screen.dart';
 import '../features/reports/presentation/reports_screen.dart';
 import '../features/reports/presentation/slow_moving_screen.dart';
+import '../features/reports/presentation/register_screen.dart';
+import '../features/reports/presentation/stock_item_screen.dart';
 import '../features/reports/presentation/stock_screen.dart';
+import '../features/reports/presentation/ledger_statement_screen.dart';
+import '../features/reports/presentation/voucher_screen.dart';
 import '../features/reports/domain/reports.dart';
 import '../features/settings/presentation/settings_screen.dart';
 import '../features/team/presentation/change_password_screen.dart';
@@ -42,8 +47,35 @@ class Routes {
   static const String stock = '/reports/stock';
   static const String ledgers = '/reports/ledgers';
   static const String slowMoving = '/reports/slow-moving';
+
+  // Drill-downs. Each takes what it is about as a query parameter rather than a
+  // path segment: a ledger or an item is named by a customer, and those names
+  // contain slashes, ampersands and full stops that a path would have to fight.
+  static const String voucher = '/reports/voucher';
+  static const String ledgerStatement = '/reports/ledger-statement';
+  static const String register = '/reports/register';
+  static const String stockMovement = '/reports/stock/movement';
   static const String team = '/team';
   static const String changePassword = '/change-password';
+}
+
+/// Where a voucher row goes when it is tapped, or null when it cannot go
+/// anywhere.
+///
+/// One function rather than the same string built at each of the four places
+/// that list vouchers. A row whose [TransactionLine.key] is null -- an older
+/// backend, which does not send one -- returns null here, and callers render it
+/// as a plain row: an inert tap that looks live is worse than no tap at all.
+///
+/// The date rides along because the lookup narrows to a single day, which is
+/// what keeps opening a voucher cheap however long a company's history is.
+String? voucherLink(TransactionLine line) {
+  final String? key = line.key;
+  if (key == null || key.isEmpty) return null;
+  final String on = '${line.date.year.toString().padLeft(4, '0')}-'
+      '${line.date.month.toString().padLeft(2, '0')}-'
+      '${line.date.day.toString().padLeft(2, '0')}';
+  return '${Routes.voucher}?key=${Uri.encodeQueryComponent(key)}&on=$on';
 }
 
 final GlobalKey<NavigatorState> _rootKey = GlobalKey<NavigatorState>();
@@ -156,6 +188,44 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
           kind: state.uri.queryParameters['kind'] == 'payable'
               ? OutstandingKind.payable
               : OutstandingKind.receivable,
+        ),
+      ),
+      GoRoute(
+        path: Routes.voucher,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => VoucherScreen(
+          voucherKey: state.uri.queryParameters['key'] ?? '',
+          // The row that was tapped knows the date; the lookup needs it to stay
+          // cheap. Falling back to today rather than failing keeps a
+          // hand-typed or stale link on a screen that can explain itself.
+          on: DateTime.tryParse(state.uri.queryParameters['on'] ?? '') ??
+              DateTime.now(),
+        ),
+      ),
+      GoRoute(
+        path: Routes.ledgerStatement,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => LedgerStatementScreen(
+          ledger: state.uri.queryParameters['ledger'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: Routes.register,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => RegisterScreen(
+          kind: state.uri.queryParameters['kind'] == 'purchase'
+              ? 'purchase'
+              : 'sales',
+        ),
+      ),
+      // Declared before `stock` for the same reason the group report is
+      // declared before `outstanding`: both are literal today, but a path
+      // parameter added to the shorter one later must not swallow this.
+      GoRoute(
+        path: Routes.stockMovement,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => StockItemScreen(
+          item: state.uri.queryParameters['item'] ?? '',
         ),
       ),
       GoRoute(

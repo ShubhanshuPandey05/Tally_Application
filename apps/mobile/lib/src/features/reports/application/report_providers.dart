@@ -4,6 +4,7 @@ import '../../../core/model/freshness.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/providers.dart';
 import '../data/reports_repository.dart';
+import '../domain/drilldown.dart';
 import '../domain/reports.dart';
 
 final Provider<ReportsRepository> reportsRepositoryProvider =
@@ -72,6 +73,49 @@ final AutoDisposeFutureProviderFamily<Fresh<SlowMovingReport>, SlowMovingArgs>
     FutureProvider.autoDispose.family<Fresh<SlowMovingReport>, SlowMovingArgs>(
   (Ref ref, SlowMovingArgs args) =>
       ref.watch(reportsRepositoryProvider).slowMoving(args.companyId, days: args.days),
+);
+
+// -- drill-down --------------------------------------------------------------
+//
+// Auto-disposed like the rest: a drill-down is opened, read and closed, and
+// keeping the last twenty vouchers somebody looked at resident would be paying
+// memory for a back button that already works.
+
+typedef VoucherArgs = ({String companyId, String key, DateTime on});
+typedef LedgerStatementArgs = ({String companyId, String ledger, DateRange range});
+typedef RegisterArgs = ({String companyId, String kind, DateRange range});
+typedef ItemMovementArgs = ({String companyId, String item, DateRange range});
+
+final AutoDisposeFutureProviderFamily<Fresh<VoucherDetail>, VoucherArgs>
+    voucherProvider =
+    FutureProvider.autoDispose.family<Fresh<VoucherDetail>, VoucherArgs>(
+  (Ref ref, VoucherArgs args) => ref
+      .watch(reportsRepositoryProvider)
+      .voucher(args.companyId, key: args.key, on: args.on),
+);
+
+final AutoDisposeFutureProviderFamily<Fresh<LedgerStatement>, LedgerStatementArgs>
+    ledgerStatementProvider =
+    FutureProvider.autoDispose.family<Fresh<LedgerStatement>, LedgerStatementArgs>(
+  (Ref ref, LedgerStatementArgs args) => ref
+      .watch(reportsRepositoryProvider)
+      .ledgerStatement(args.companyId, ledger: args.ledger, range: args.range),
+);
+
+final AutoDisposeFutureProviderFamily<Fresh<RegisterReport>, RegisterArgs>
+    registerProvider =
+    FutureProvider.autoDispose.family<Fresh<RegisterReport>, RegisterArgs>(
+  (Ref ref, RegisterArgs args) => ref
+      .watch(reportsRepositoryProvider)
+      .register(args.companyId, kind: args.kind, range: args.range),
+);
+
+final AutoDisposeFutureProviderFamily<Fresh<ItemMovementReport>, ItemMovementArgs>
+    itemMovementProvider =
+    FutureProvider.autoDispose.family<Fresh<ItemMovementReport>, ItemMovementArgs>(
+  (Ref ref, ItemMovementArgs args) => ref
+      .watch(reportsRepositoryProvider)
+      .itemMovement(args.companyId, item: args.item, range: args.range),
 );
 
 /// Pull-to-refresh for a report: force one live read, then re-read the

@@ -54,6 +54,21 @@ class MoneyFormat {
     return '$prefix${_grouped(value, decimals: value != value.truncate())}';
   }
 
+  /// Compact form for a bare chart value.
+  ///
+  /// A plotting library deals in doubles, so by the time an axis label or a
+  /// tooltip is being built the [Money] wrapper is gone. This puts it back
+  /// rather than letting every chart invent its own rupee formatting -- the
+  /// axis and the figure beside the chart must round the same way, or they
+  /// look like two different readings of the same number.
+  static String compactValue(double value, String currency) => compact(
+        Money.fromJson(<String, Object?>{
+          'amount': value.abs().toStringAsFixed(2),
+          'side': value < 0 ? 'credit' : 'debit',
+          'currency': currency,
+        }),
+      );
+
   /// Signed presentation for balances, where direction is the point.
   static String signed(Money money) {
     final String body = _grouped(money.signed.abs(), decimals: true);

@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
@@ -221,7 +223,7 @@ class _PartyCard extends StatelessWidget {
           children: <Widget>[
             for (final OutstandingBill bill in party.bills)
               _BillRow(bill: bill),
-            const SizedBox(height: 6),
+            _PartyStatementLink(party: party.party),
           ],
         ),
       ),
@@ -288,5 +290,34 @@ class _BillRow extends StatelessWidget {
       return '${bill.daysOverdue} days overdue${due == null ? '' : ' · $due'}';
     }
     return due ?? ageingLabel(bill.ageingBucket);
+  }
+}
+
+/// The way from a party's bills to everything that party has ever done.
+///
+/// Bills answer "what is outstanding"; the ledger answers "and what have they
+/// been paying like". Kept as an explicit action at the foot of the expansion
+/// rather than a tap on the party row, which already has a job -- opening and
+/// closing the bills.
+class _PartyStatementLink extends StatelessWidget {
+  const _PartyStatementLink({required this.party});
+
+  final String party;
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
+        child: TextButton.icon(
+          onPressed: () => context.push(
+            '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party)}',
+          ),
+          icon: const Icon(Icons.receipt_long_outlined, size: 17),
+          label: const Text('Statement for this party'),
+        ),
+      ),
+    );
   }
 }

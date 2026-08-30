@@ -3,54 +3,71 @@ import 'package:flutter/material.dart';
 import '../../app/theme.dart';
 import '../money/money.dart';
 import '../money/money_format.dart';
+import 'charts.dart';
 import 'primitives.dart';
 
-/// A headline figure with its context.
+/// A headline figure, its movement, and the shape behind it.
 ///
-/// The amount is compact (₹12.4L) because that is the shape an owner reads at a
+/// The amount is compact (₹12.4L) because that is what an owner reads at a
 /// glance, and the exact value is one tap away on the detail screen. A tile
-/// that shows ₹1,243,891.50 makes you count digits.
-class KpiCard extends StatelessWidget {
-  const KpiCard({
+/// that shows ₹12,43,891.50 makes you count digits.
+///
+/// Every tile carries a second row of evidence under the figure -- a sparkline,
+/// or a proportional meter. A number on its own says what; the shape under it
+/// says whether that is good, which is the question the owner actually opened
+/// the app with.
+class MetricTile extends StatelessWidget {
+  const MetricTile({
     super.key,
     required this.label,
-    required this.amount,
+    required this.value,
     this.caption,
     this.changePct,
     this.icon,
     this.onTap,
-    this.tone = KpiTone.neutral,
-    this.wide = false,
+    this.tone = MetricTone.neutral,
+    this.spark,
+    this.meter,
+    this.meterCaption,
   });
 
   final String label;
-  final Money amount;
+
+  /// Already formatted. Tiles carry counts as often as amounts -- "14 items
+  /// running low" is a metric too -- so this is a string rather than a [Money].
+  final String value;
+
   final String? caption;
 
-  /// Null renders as "--". Percent change against a zero baseline is not a
-  /// movement of 0% or 100%; it is an unanswerable question.
+  /// Null renders as nothing at all. Percent change against a zero baseline is
+  /// not a movement of 0% or 100%; it is an unanswerable question.
   final double? changePct;
 
   final IconData? icon;
   final VoidCallback? onTap;
-  final KpiTone tone;
+  final MetricTone tone;
 
-  /// Lay the tile out as a row rather than a column. Used when this is the only
-  /// figure on the screen: a square tile alone in a full-width card is mostly
-  /// empty, and empty space where a figure should be reads as a failed read.
-  final bool wide;
+  /// A short series to draw under the figure. Takes precedence over [meter]
+  /// when both are given -- a trend says more than a proportion.
+  final List<double>? spark;
+
+  /// A proportion, 0..1, for figures whose context is a share rather than a
+  /// history: how much of what you are owed is overdue, how much of the stock
+  /// is below its reorder level.
+  final double? meter;
+  final String? meterCaption;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final Color accent = switch (tone) {
-      KpiTone.positive => context.positiveColor,
-      KpiTone.negative => context.negativeColor,
-      KpiTone.caution => context.cautionColor,
+      MetricTone.positive => context.positiveColor,
+      MetricTone.negative => context.negativeColor,
+      MetricTone.caution => context.cautionColor,
       // The tile palette, not the scheme's primary: on the dark skins primary
       // lightens to stay readable as *text*, and a tile filled with that pale
       // blue no longer matches the identical tile on the card below it.
-      KpiTone.neutral => AppTheme.tileBlue,
+      MetricTone.neutral => AppTheme.tileBlue,
     };
 
     return Card(
@@ -58,84 +75,73 @@ class KpiCard extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.all(16),
-          child: wide
-              ? Row(
-                  children: <Widget>[
-                    if (icon != null) ...<Widget>[
-                      IconTile(icon: icon!, colour: accent, size: 40),
-                      const SizedBox(width: 14),
-                    ],
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        mainAxisSize: MainAxisSize.min,
-                        children: <Widget>[
-                          Text(
-                            label,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: theme.textTheme.bodySmall
-                                ?.copyWith(color: context.mutedColor),
-                          ),
-                          const SizedBox(height: 2),
-                          Text(
-                            MoneyFormat.compact(amount),
-                            style: theme.textTheme.headlineSmall,
-                          ),
-                        ],
-                      ),
-                    ),
-                    if (caption != null)
-                      Text(
-                        caption!,
-                        textAlign: TextAlign.end,
-                        style:
-                            theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
-                      ),
-                  ],
-                )
-              : Column(
+          padding: const EdgeInsets.fromLTRB(13, 12, 13, 11),
+          child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              if (icon != null) ...<Widget>[
-                IconTile(icon: icon!, colour: accent, size: 34),
-                const SizedBox(height: 14),
-              ],
-              Text(
-                label,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
-              ),
-              const SizedBox(height: 4),
-              FittedBox(
-                fit: BoxFit.scaleDown,
-                alignment: Alignment.centerLeft,
-                child: Text(
-                  MoneyFormat.compact(amount),
-                  style: theme.textTheme.headlineSmall,
-                ),
-              ),
-              if (changePct != null || caption != null) ...<Widget>[
-                const SizedBox(height: 8),
-                Row(
-                  children: <Widget>[
-                    if (changePct != null) ChangeChip(changePct: changePct!),
-                    if (changePct != null && caption != null) const SizedBox(width: 6),
-                    if (caption != null)
-                      Expanded(
-                        child: Text(
-                          caption!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall
-                              ?.copyWith(color: context.mutedColor),
-                        ),
-                      ),
+              Row(
+                children: <Widget>[
+                  if (icon != null) ...<Widget>[
+                    IconTile(icon: icon!, colour: accent, size: 24),
+                    const SizedBox(width: 8),
                   ],
+                  Expanded(
+                    child: Text(
+                      label,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: context.mutedColor),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: <Widget>[
+                  Flexible(
+                    child: FittedBox(
+                      fit: BoxFit.scaleDown,
+                      alignment: Alignment.centerLeft,
+                      child: Text(value, style: theme.textTheme.titleLarge),
+                    ),
+                  ),
+                  if (changePct != null) ...<Widget>[
+                    const SizedBox(width: 6),
+                    Padding(
+                      padding: const EdgeInsets.only(bottom: 2),
+                      child: ChangeChip(changePct: changePct!),
+                    ),
+                  ],
+                ],
+              ),
+              if (caption != null) ...<Widget>[
+                const SizedBox(height: 3),
+                Text(
+                  caption!,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
                 ),
+              ],
+              if (spark != null && spark!.length > 1) ...<Widget>[
+                const SizedBox(height: 8),
+                Sparkline(values: spark!, colour: accent, height: 24),
+              ] else if (meter != null) ...<Widget>[
+                const SizedBox(height: 9),
+                Meter(fraction: meter, colour: accent),
+                if (meterCaption != null) ...<Widget>[
+                  const SizedBox(height: 5),
+                  Text(
+                    meterCaption!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style:
+                        theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
+                  ),
+                ],
               ],
             ],
           ),
@@ -145,37 +151,46 @@ class KpiCard extends StatelessWidget {
   }
 }
 
-enum KpiTone { neutral, positive, negative, caution }
+enum MetricTone { neutral, positive, negative, caution }
 
 class ChangeChip extends StatelessWidget {
-  const ChangeChip({super.key, required this.changePct});
+  const ChangeChip({super.key, required this.changePct, this.compact = false});
 
   final double changePct;
+
+  /// Drop the tinted pill and show the arrow and figure alone. For places that
+  /// are already inside a coloured or crowded row, where a second pill starts
+  /// competing with the figure it is annotating.
+  final bool compact;
 
   @override
   Widget build(BuildContext context) {
     final bool up = changePct >= 0;
     final Color colour = up ? context.positiveColor : context.negativeColor;
+    final Widget body = Row(
+      mainAxisSize: MainAxisSize.min,
+      children: <Widget>[
+        Icon(up ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: colour),
+        const SizedBox(width: 2),
+        Text(
+          '${changePct.abs().toStringAsFixed(changePct.abs() >= 100 ? 0 : 1)}%',
+          style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                color: colour,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+      ],
+    );
+
+    if (compact) return body;
+
     return Container(
-      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
       decoration: BoxDecoration(
         color: colour.withOpacity(0.10),
         borderRadius: BorderRadius.circular(999),
       ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          Icon(up ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: colour),
-          const SizedBox(width: 2),
-          Text(
-            '${changePct.abs().toStringAsFixed(changePct.abs() >= 100 ? 0 : 1)}%',
-            style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                  color: colour,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
-      ),
+      child: body,
     );
   }
 }
@@ -191,6 +206,7 @@ class SectionCard extends StatelessWidget {
     this.onAction,
     this.icon,
     this.tint,
+    this.trailing,
   });
 
   final String title;
@@ -203,6 +219,12 @@ class SectionCard extends StatelessWidget {
   /// Colour of the header tile. Sections are categories, so they earn one.
   final Color? tint;
 
+  /// A control that belongs to the whole card -- the line/bars switch on the
+  /// trend card, most often. Sits where [action] would, and the two are not
+  /// used together: a header with a toggle *and* a link has two competing
+  /// things to press.
+  final Widget? trailing;
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
@@ -211,28 +233,31 @@ class SectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 16, 8, 10),
+            padding: EdgeInsets.fromLTRB(14, 13, trailing != null ? 14 : 8, 8),
             child: Row(
               children: <Widget>[
                 if (icon != null) ...<Widget>[
-                  IconTile(icon: icon!, colour: tint ?? AppTheme.tileBlue, size: 34),
-                  const SizedBox(width: 12),
+                  IconTile(icon: icon!, colour: tint ?? AppTheme.tileBlue, size: 30),
+                  const SizedBox(width: 10),
                 ],
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: <Widget>[
-                      Text(title, style: theme.textTheme.titleMedium),
+                      Text(title, style: theme.textTheme.titleSmall),
                       if (subtitle != null)
                         Text(
                           subtitle!,
-                          style: theme.textTheme.bodySmall
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.labelSmall
                               ?.copyWith(color: context.mutedColor),
                         ),
                     ],
                   ),
                 ),
-                if (action != null)
+                if (trailing != null) trailing!,
+                if (trailing == null && action != null)
                   TextButton(onPressed: onAction, child: Text(action!)),
               ],
             ),
@@ -262,14 +287,10 @@ class SectionUnavailable extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Row(
           children: <Widget>[
-            const IconTile(
-              icon: Icons.cloud_off_outlined,
-              size: 34,
-              quiet: true,
-            ),
+            const IconTile(icon: Icons.cloud_off_outlined, size: 30, quiet: true),
             const SizedBox(width: 12),
             Expanded(
               child: Column(
@@ -293,7 +314,7 @@ class SectionUnavailable extends StatelessWidget {
   }
 }
 
-/// One name-and-amount row: top customers, cash accounts, ledger balances.
+/// One name-and-amount row: cash accounts, ledger balances, bill lists.
 class AmountRow extends StatelessWidget {
   const AmountRow({
     super.key,
@@ -320,7 +341,7 @@ class AmountRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
         child: Row(
           children: <Widget>[
             if (leading != null) ...<Widget>[leading!, const SizedBox(width: 12)],
@@ -341,7 +362,8 @@ class AmountRow extends StatelessWidget {
                       subtitle!,
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: context.mutedColor),
                     ),
                 ],
               ),
@@ -359,7 +381,8 @@ class AmountRow extends StatelessWidget {
                 if (trailing != null)
                   Text(
                     trailing!,
-                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: context.mutedColor),
                   ),
               ],
             ),

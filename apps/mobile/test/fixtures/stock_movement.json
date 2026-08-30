@@ -1,0 +1,62 @@
+{
+  "data": {
+    "from_date": "2026-01-01",
+    "item": "Rice",
+    "movements": [
+      {
+        "amount": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "date": "2026-03-15",
+        "direction": "out",
+        "key": "h:4c9c155fee61fbecb7abedad0383dcb6b9c5d027",
+        "kind": "sales",
+        "narration": null,
+        "party": "Reliance Retail",
+        "quantity": 100.0,
+        "unit": "KG",
+        "value": {
+          "amount": "10000.00",
+          "currency": "INR",
+          "display": "10,000.00 Dr",
+          "side": "debit",
+          "signed": "10000.00"
+        },
+        "voucher_number": "1",
+        "voucher_type": "Sales"
+      }
+    ],
+    "net_quantity": -100.0,
+    "quantity_in": 0.0,
+    "quantity_out": 100.0,
+    "to_date": "2026-03-15",
+    "unit": "KG",
+    "value_in": {
+      "amount": "0.00",
+      "currency": "INR",
+      "display": "0.00 Dr",
+      "side": "debit",
+      "signed": "0.00"
+    },
+    "value_out": {
+      "amount": "10000.00",
+      "currency": "INR",
+      "display": "10,000.00 Dr",
+      "side": "debit",
+      "signed": "10000.00"
+    },
+    "voucher_count": 1
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": true,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

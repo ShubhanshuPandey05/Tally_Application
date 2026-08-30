@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/material.dart';
 import 'package:go_router/go_router.dart';
 
@@ -7,114 +9,245 @@ import '../../../../core/model/figures.dart';
 import '../../../../core/money/money.dart';
 import '../../../../core/money/money_format.dart';
 import '../../../../core/widgets/cards.dart';
-import '../../../../core/widgets/trend_chart.dart';
+import '../../../../core/widgets/charts.dart';
 import '../../domain/dashboard.dart';
 
-/// The sales chart plus the month-on-month comparison.
-class TrendSection extends StatelessWidget {
-  const TrendSection({
+/// The dashboard's cards.
+///
+/// Each one is built the same way and in the same order: the picture first,
+/// then the figures that picture is made of, then the rows behind those
+/// figures. An owner who only glances gets the shape; an owner who is checking
+/// something gets the names and the amounts without leaving the screen.
+
+/// Trade over time -- sales, and purchases against them.
+///
+/// Two series on one axis rather than two cards, because "am I buying faster
+/// than I am selling?" is a question about the gap between the lines, and a gap
+/// cannot be read across a scroll.
+class TradeSection extends StatefulWidget {
+  const TradeSection({
     super.key,
     required this.title,
     required this.summary,
     required this.currency,
+    this.compareWith,
+    this.compareLabel,
     this.periodLabel,
+    this.tint,
   });
 
   final String title;
   final TradeSummary summary;
   final String currency;
 
-  /// Set when the dashboard is scoped to a period. The chart and the two
-  /// figures below it then describe that window, so they must not keep calling
+  /// The second line. Optional: a company that records no purchases would get
+  /// a legend entry and a flat zero series, which says nothing and takes up the
+  /// same room as something that would.
+  final TradeSummary? compareWith;
+  final String? compareLabel;
+
+  /// Set when the dashboard is scoped to a period. The chart and the figures
+  /// below it then describe that window, so they must not keep calling
   /// themselves "this month".
   final String? periodLabel;
 
+  final Color? tint;
+
+  @override
+  State<TradeSection> createState() => _TradeSectionState();
+}
+
+class _TradeSectionState extends State<TradeSection> {
+  /// Bars by default over the shortest windows. Six days of trade drawn as a
+  /// curve implies a continuum between days that a shop does not have; over a
+  /// month the line is what shows direction.
+  TrendShape _shape = TrendShape.line;
+
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
+    final TradeSummary summary = widget.summary;
     final TradePeriod? period = summary.period;
 
     final Money current = period?.total ?? summary.thisMonth;
     final Money? baseline = period == null ? summary.lastMonth : period.previousTotal;
     final double? changePct = period == null ? summary.changePct : period.changePct;
 
+    final List<TrendPoint> points = summary.trend;
+    final List<TrendPoint>? comparePoints = widget.compareWith?.trend;
+
+    final List<ChartSeries> series = <ChartSeries>[
+      ChartSeries(
+        label: widget.title,
+        colour: widget.tint ?? AppTheme.tileBlue,
+        values: <double>[for (final TrendPoint p in points) p.value],
+      ),
+      // Only when the two series line up day for day. A shorter second series
+      // would slide against the dates and draw a comparison that is off by a
+      // week without anything on screen saying so.
+      if (comparePoints != null && comparePoints.length == points.length)
+        ChartSeries(
+          label: widget.compareLabel ?? 'Purchases',
+          colour: AppTheme.tileViolet,
+          values: <double>[for (final TrendPoint p in comparePoints) p.value],
+        ),
+    ];
+
+    // The busiest day in the window. A headline figure divided by its days is
+    // an average; this is the ceiling, and an owner plans stock against the
+    // ceiling.
+    final double busiest = points.fold<double>(
+      0,
+      (double highest, TrendPoint p) => math.max(highest, p.value),
+    );
+
     return SectionCard(
-      title: title,
-      subtitle: periodLabel ?? 'Last 30 days',
+      title: widget.title,
+      subtitle: widget.periodLabel ?? 'Last ${points.length} days',
       icon: Icons.show_chart,
+      tint: widget.tint,
+      trailing: _ShapeToggle(
+        shape: _shape,
+        onChanged: (TrendShape shape) => setState(() => _shape = shape),
+      ),
       child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          TrendChart(points: summary.trend, currency: currency),
-          const Divider(indent: 16, endIndent: 16),
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: _MiniStat(
-                    label: period == null ? 'This month' : 'This period',
-                    value: MoneyFormat.compact(current),
-                  ),
-                ),
-                Expanded(
-                  child: _MiniStat(
-                    label: period == null ? 'Last month' : 'Previous',
-                    // A baseline outside the window that was read is unknown,
-                    // not zero -- and a zero here would read as a total
-                    // collapse in trade that never happened.
-                    value: baseline == null ? '--' : MoneyFormat.compact(baseline),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text(
-                        'Change',
-                        style: theme.textTheme.labelSmall
-                            ?.copyWith(color: context.mutedColor),
-                      ),
-                      const SizedBox(height: 4),
-                      if (changePct == null)
-                        // No baseline is not a movement of zero. "--" is the
-                        // only honest rendering.
-                        Text('--', style: theme.textTheme.titleSmall)
-                      else
-                        ChangeChip(changePct: changePct),
-                    ],
-                  ),
-                ),
-              ],
+          if (series.length > 1)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
+              child: ChartLegend(series: series),
             ),
+          TrendChart(
+            series: series,
+            dates: <DateTime>[for (final TrendPoint p in points) p.date],
+            currency: widget.currency,
+            shape: _shape,
           ),
+          const SizedBox(height: 6),
+          const Divider(indent: 16, endIndent: 16),
+          const SizedBox(height: 10),
+          StatStrip(
+            stats: <Stat>[
+              Stat(
+                label: period == null ? 'This month' : 'This period',
+                value: MoneyFormat.compact(current),
+              ),
+              Stat(
+                label: period == null ? 'Last month' : 'Previous',
+                // A baseline outside the window that was read is unknown, not
+                // zero -- and a zero here would read as a total collapse in
+                // trade that never happened.
+                value: baseline == null ? '--' : MoneyFormat.compact(baseline),
+              ),
+              Stat(
+                label: 'Change',
+                // No baseline is not a movement of zero, and an empty cell
+                // where a percentage usually sits reads as "no change". "--"
+                // is the only honest rendering of an unanswerable question.
+                value: changePct == null ? '--' : '',
+                trailing: changePct == null
+                    ? null
+                    : ChangeChip(changePct: changePct, compact: true),
+              ),
+              Stat(
+                label: 'Busiest day',
+                value: busiest <= 0
+                    ? '--'
+                    : MoneyFormat.compactValue(busiest, widget.currency),
+              ),
+            ],
+          ),
+          if (summary.topParties.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            _SubHeading(
+              label: '${widget.title} by party',
+              trailing: '${summary.topParties.length} shown',
+            ),
+            ...rankedRows(
+              entries: <RankedEntry>[
+                for (final PartyTotal party in summary.topParties)
+                  RankedEntry(
+                    name: party.name,
+                    amount: party.amount,
+                    subtitle: party.voucherCount > 0
+                        ? '${party.voucherCount} vch'
+                        : null,
+                    // "Who is my biggest customer" is nearly always followed by
+                    // "and what have they been doing", which is their ledger.
+                    onTap: () => context.push(
+                      '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.name)}',
+                    ),
+                  ),
+              ],
+              whole: current,
+              colour: widget.tint ?? AppTheme.tileBlue,
+            ),
+          ],
         ],
       ),
     );
   }
 }
 
-class _MiniStat extends StatelessWidget {
-  const _MiniStat({required this.label, required this.value});
+/// Line or bars. A [SegmentedPill] would be the app's usual answer, but this
+/// lives inside a card header where there is room for two icons and none for
+/// two words.
+class _ShapeToggle extends StatelessWidget {
+  const _ShapeToggle({required this.shape, required this.onChanged});
 
-  final String label;
-  final String value;
+  final TrendShape shape;
+  final ValueChanged<TrendShape> onChanged;
 
   @override
   Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(3),
+      decoration: BoxDecoration(
+        color: context.surfaceColor,
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: <Widget>[
+          _button(context, TrendShape.line, Icons.show_chart, 'Line'),
+          _button(context, TrendShape.bars, Icons.bar_chart_rounded, 'Bars'),
+        ],
+      ),
+    );
+  }
+
+  Widget _button(BuildContext context, TrendShape value, IconData icon, String tip) {
     final ThemeData theme = Theme.of(context);
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: <Widget>[
-        Text(label,
-            style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor)),
-        const SizedBox(height: 4),
-        Text(value, style: theme.textTheme.titleSmall),
-      ],
+    final bool selected = value == shape;
+    return Tooltip(
+      message: tip,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: () => onChanged(value),
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 150),
+          width: 32,
+          height: 26,
+          decoration: BoxDecoration(
+            color: selected ? theme.cardTheme.color : Colors.transparent,
+            borderRadius: BorderRadius.circular(999),
+          ),
+          child: Icon(
+            icon,
+            size: 16,
+            color: selected ? theme.colorScheme.onSurface : context.mutedColor,
+          ),
+        ),
+      ),
     );
   }
 }
 
 /// "Who owes me money?" -- the single most-asked question in the brief.
+///
+/// The ring is the point of this card. A total and an overdue figure side by
+/// side leave the reader working out the ratio; the ring states it, and the
+/// legend keeps every bucket's exact amount next to its wedge.
 class OutstandingSection extends StatelessWidget {
   const OutstandingSection({
     super.key,
@@ -129,65 +262,74 @@ class OutstandingSection extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
     final bool anythingOverdue = !summary.overdue.isZero;
 
     return SectionCard(
       title: title,
-      subtitle: '${summary.billCount} bills across ${summary.partyCount} parties',
+      subtitle: '${summary.billCount} bills · ${summary.partyCount} parties',
       icon: Icons.account_balance_wallet_outlined,
+      tint: anythingOverdue ? AppTheme.tileRose : AppTheme.tileGreen,
       action: 'See all',
       onAction: () => context.push('${Routes.outstanding}?kind=$kindQuery'),
       child: Column(
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: _MiniStat(
-                    label: 'Total',
-                    value: MoneyFormat.compact(summary.total),
-                  ),
-                ),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: <Widget>[
-                      Text('Overdue',
-                          style: theme.textTheme.labelSmall
-                              ?.copyWith(color: context.mutedColor)),
-                      const SizedBox(height: 4),
-                      Text(
-                        MoneyFormat.compact(summary.overdue),
-                        style: theme.textTheme.titleSmall?.copyWith(
-                          color: anythingOverdue ? context.negativeColor : null,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+            child: DonutBreakdown(
+              centreLabel: 'total',
+              centreValue: MoneyFormat.compact(summary.total),
+              slices: <DonutSlice>[
+                for (final String bucket in ageingOrder)
+                  if ((summary.ageing[bucket]?.amount.toDouble() ?? 0) > 0)
+                    DonutSlice(
+                      label: ageingLabel(bucket),
+                      value: summary.ageing[bucket]!.amount.toDouble(),
+                      colour: ageingColours[bucket]!,
+                      display: MoneyFormat.compact(summary.ageing[bucket]!),
+                    ),
               ],
             ),
           ),
-          if (anythingOverdue) ...<Widget>[
-            const SizedBox(height: 12),
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: AgeingBar(ageing: summary.ageing, total: summary.total),
-            ),
-          ],
-          if (summary.topParties.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 8),
-            const Divider(indent: 16, endIndent: 16),
-            for (final PartyTotal party in summary.topParties.take(4))
-              AmountRow(
-                title: party.name,
-                amount: party.amount,
-                subtitle: party.daysOverdue > 0
-                    ? '${party.daysOverdue} days overdue'
-                    : 'Not yet due',
+          StatStrip(
+            stats: <Stat>[
+              Stat(label: 'Total', value: MoneyFormat.compact(summary.total)),
+              Stat(
+                label: 'Overdue',
+                value: MoneyFormat.compact(summary.overdue),
+                colour: anythingOverdue ? context.negativeColor : null,
               ),
+              Stat(
+                label: 'Overdue share',
+                value: anythingOverdue
+                    ? '${(summary.overdueShare * 100).round()}%'
+                    : 'none',
+                colour: anythingOverdue ? context.negativeColor : null,
+              ),
+            ],
+          ),
+          if (summary.topParties.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            const _SubHeading(label: 'Largest balances'),
+            ...rankedRows(
+              entries: <RankedEntry>[
+                for (final PartyTotal party in summary.topParties.take(5))
+                  RankedEntry(
+                    name: party.name,
+                    amount: party.amount,
+                    subtitle: party.daysOverdue > 0
+                        ? '${party.daysOverdue}d late'
+                        : 'not due',
+                    // Overdue parties borrow the ageing scale's own red, so a
+                    // late row here and a late wedge above are the same colour.
+                    colour: party.daysOverdue > 0 ? ageingColours['91_180'] : null,
+                    onTap: () => context.push(
+                      '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.name)}',
+                    ),
+                  ),
+              ],
+              whole: summary.total,
+              colour: AppTheme.tileBlue,
+            ),
           ],
         ],
       ),
@@ -195,25 +337,31 @@ class OutstandingSection extends StatelessWidget {
   }
 }
 
+/// The ageing scale. Older is worse, and the ramp says so without a legend
+/// having to explain the ordering.
+///
+/// Public because the ring on the dashboard and the stacked bar on the reports
+/// screens must colour the same bucket the same way -- two scales for one set
+/// of buckets is how a reader concludes they are looking at different figures.
+const Map<String, Color> ageingColours = <String, Color>{
+  'not_due': Color(0xFF12805C),
+  '1_30': Color(0xFF7BA428),
+  '31_60': Color(0xFFB86E00),
+  '61_90': Color(0xFFD1541F),
+  '91_180': Color(0xFFC4314B),
+  '180_plus': Color(0xFF8B1E36),
+};
+
 /// Ageing as a single proportional bar.
 ///
-/// A stacked bar answers "how bad is it?" in one look, where six numbers make
-/// the reader do the arithmetic. The buckets are Tally's own, so the colours
-/// only have to encode "older is worse".
+/// The reports' form of the same figures. A ring needs a card's width and a
+/// legend; a report screen puts this above a list of two hundred bills, where
+/// eight pixels of height is all the summary can afford.
 class AgeingBar extends StatelessWidget {
   const AgeingBar({super.key, required this.ageing, required this.total});
 
   final Map<String, Money> ageing;
   final Money total;
-
-  static const Map<String, Color> _colours = <String, Color>{
-    'not_due': Color(0xFF12805C),
-    '1_30': Color(0xFF7BA428),
-    '31_60': Color(0xFFB86E00),
-    '61_90': Color(0xFFD1541F),
-    '91_180': Color(0xFFC4314B),
-    '180_plus': Color(0xFF8B1E36),
-  };
 
   @override
   Widget build(BuildContext context) {
@@ -227,7 +375,7 @@ class AgeingBar extends StatelessWidget {
       segments.add(
         Expanded(
           flex: (value / totalValue * 1000).round().clamp(1, 1000),
-          child: Container(color: _colours[bucket]),
+          child: Container(color: ageingColours[bucket]),
         ),
       );
     }
@@ -248,7 +396,7 @@ class AgeingBar extends StatelessWidget {
             for (final String bucket in ageingOrder)
               if ((ageing[bucket]?.amount.toDouble() ?? 0) > 0)
                 _LegendDot(
-                  colour: _colours[bucket]!,
+                  colour: ageingColours[bucket]!,
                   label: ageingLabel(bucket),
                   value: MoneyFormat.compact(ageing[bucket]!),
                 ),
@@ -279,10 +427,8 @@ class _LegendDot extends StatelessWidget {
         const SizedBox(width: 5),
         Text(
           '$label  $value',
-          style: Theme.of(context)
-              .textTheme
-              .labelSmall
-              ?.copyWith(color: context.mutedColor),
+          style:
+              Theme.of(context).textTheme.labelSmall?.copyWith(color: context.mutedColor),
         ),
       ],
     );
@@ -304,7 +450,7 @@ class CurrentOnlyNote extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 2, 16, 6),
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -324,6 +470,10 @@ class CurrentOnlyNote extends StatelessWidget {
 }
 
 /// "Which products are running out?" and "what is my stock worth?"
+///
+/// The rows are drawn as cover against the reorder level rather than as bare
+/// quantities: "40 pcs" means nothing without knowing the item reorders at 200,
+/// and a bar that is one fifth full says it before the numbers are read.
 class InventorySection extends StatelessWidget {
   const InventorySection({
     super.key,
@@ -340,64 +490,63 @@ class InventorySection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+
     return SectionCard(
       title: 'Inventory',
       subtitle: '${summary.itemCount} items',
       icon: Icons.inventory_2_outlined,
+      tint: AppTheme.tileAmber,
       action: 'See all',
       onAction: () => context.push(Routes.stock),
       child: Column(
         children: <Widget>[
           if (alwaysCurrent) const CurrentOnlyNote(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: _MiniStat(
-                    label: 'Stock value',
-                    value: MoneyFormat.compact(summary.value),
-                  ),
-                ),
-                Expanded(
-                  child: _CountStat(
-                    label: 'Running low',
-                    count: summary.lowStockCount,
-                    colour: summary.lowStockCount > 0 ? context.cautionColor : null,
-                    onTap: summary.lowStockCount > 0
-                        ? () => context.push('${Routes.stock}?only=low')
-                        : null,
-                  ),
-                ),
-                Expanded(
-                  child: _CountStat(
-                    label: 'Negative',
-                    count: summary.negativeStockCount,
-                    colour: summary.negativeStockCount > 0 ? context.negativeColor : null,
-                    onTap: summary.negativeStockCount > 0
-                        ? () => context.push('${Routes.stock}?only=negative')
-                        : null,
-                  ),
-                ),
-              ],
-            ),
+          StatStrip(
+            stats: <Stat>[
+              Stat(label: 'Stock value', value: MoneyFormat.compact(summary.value)),
+              Stat(
+                label: 'Running low',
+                value: '${summary.lowStockCount}',
+                colour: summary.lowStockCount > 0 ? context.cautionColor : null,
+                onTap: summary.lowStockCount > 0
+                    ? () => context.push('${Routes.stock}?only=low')
+                    : null,
+              ),
+              Stat(
+                label: 'Negative',
+                value: '${summary.negativeStockCount}',
+                colour: summary.negativeStockCount > 0 ? context.negativeColor : null,
+                onTap: summary.negativeStockCount > 0
+                    ? () => context.push('${Routes.stock}?only=negative')
+                    : null,
+              ),
+              Stat(
+                label: 'Healthy',
+                value:
+                    '${math.max(0, summary.itemCount - summary.lowStockCount - summary.negativeStockCount)}',
+              ),
+            ],
           ),
           if (summary.lowStock.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 10),
-            const Divider(indent: 16, endIndent: 16),
-            for (final StockLine item in summary.lowStock.take(4))
+            const SizedBox(height: 12),
+            const _SubHeading(label: 'Cover against reorder level'),
+            for (int i = 0; i < math.min(5, summary.lowStock.length); i++)
+              _StockCoverRow(rank: i + 1, item: summary.lowStock[i]),
+          ] else if (summary.negativeStock.isNotEmpty) ...<Widget>[
+            const SizedBox(height: 12),
+            const _SubHeading(label: 'Negative stock'),
+            for (final StockLine item in summary.negativeStock.take(5))
               ListTile(
                 dense: true,
+                onTap: () => context.push(
+                  '${Routes.stockMovement}?item=${Uri.encodeQueryComponent(item.name)}',
+                ),
                 title: Text(item.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                subtitle: item.reorderLevel == null
-                    ? null
-                    : Text('Reorder at ${MoneyFormat.quantity(item.reorderLevel!, item.unit)}'),
                 trailing: Text(
                   MoneyFormat.quantity(item.quantity, item.unit),
-                  style: theme.textTheme.bodyMedium?.copyWith(
-                    color: context.cautionColor,
-                    fontWeight: FontWeight.w600,
-                  ),
+                  style: theme.textTheme.bodyMedium?.merge(AppTheme.amount).copyWith(
+                        color: context.negativeColor,
+                      ),
                 ),
               ),
           ],
@@ -407,44 +556,44 @@ class InventorySection extends StatelessWidget {
   }
 }
 
-class _CountStat extends StatelessWidget {
-  const _CountStat({
-    required this.label,
-    required this.count,
-    this.colour,
-    this.onTap,
-  });
+/// One low-stock item, drawn as how far its quantity reaches towards the level
+/// it should be reordered at.
+class _StockCoverRow extends StatelessWidget {
+  const _StockCoverRow({required this.rank, required this.item});
 
-  final String label;
-  final int count;
-  final Color? colour;
-  final VoidCallback? onTap;
+  final int rank;
+  final StockLine item;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return InkWell(
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: <Widget>[
-          Text(label,
-              style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor)),
-          const SizedBox(height: 4),
-          Text('$count', style: theme.textTheme.titleSmall?.copyWith(color: colour)),
-        ],
+    final double? level = item.reorderLevel;
+    // With no reorder level there is nothing to measure against. An empty bar
+    // would read as "out of stock", so such an item gets a full-width bar in
+    // the quiet colour and its quantity as the fact.
+    final double fraction =
+        level == null || level <= 0 ? 1 : (item.quantity / level).clamp(0.0, 1.0);
+
+    return ShareRow(
+      rank: rank,
+      title: item.name,
+      value: MoneyFormat.quantity(item.quantity, item.unit),
+      fraction: fraction,
+      colour: item.quantity <= 0 ? context.negativeColor : context.cautionColor,
+      subtitle: level == null
+          ? 'no level set'
+          : 'of ${MoneyFormat.quantity(level, item.unit)}',
+      // The item, not the filtered list this row came from. "Why is this low"
+      // is answered by what has been moving it, not by the other low items.
+      onTap: () => context.push(
+        '${Routes.stockMovement}?item=${Uri.encodeQueryComponent(item.name)}',
       ),
     );
   }
 }
 
-/// Cash and bank, with the accounts behind the total.
+/// Cash and bank, split by where the money actually sits.
 class FundsSection extends StatelessWidget {
-  const FundsSection({
-    super.key,
-    required this.summary,
-    this.alwaysCurrent = false,
-  });
+  const FundsSection({super.key, required this.summary, this.alwaysCurrent = false});
 
   final FundsSummary summary;
 
@@ -463,34 +612,185 @@ class FundsSection extends StatelessWidget {
       title: 'Cash & bank',
       subtitle: '${accounts.length} accounts',
       icon: Icons.savings_outlined,
+      tint: AppTheme.tileGreen,
       child: Column(
         children: <Widget>[
           if (alwaysCurrent) const CurrentOnlyNote(),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: _MiniStat(
+          if (!summary.cash.isZero || !summary.bank.isZero)
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+              child: DonutBreakdown(
+                centreLabel: 'available',
+                centreValue: MoneyFormat.compact(summary.total),
+                slices: <DonutSlice>[
+                  DonutSlice(
                     label: 'Cash in hand',
-                    value: MoneyFormat.compact(summary.cash),
+                    value: summary.cash.amount.toDouble(),
+                    colour: AppTheme.tileGreen,
+                    display: MoneyFormat.compact(summary.cash),
                   ),
-                ),
-                Expanded(
-                  child: _MiniStat(
+                  DonutSlice(
                     label: 'In bank',
-                    value: MoneyFormat.compact(summary.bank),
+                    value: summary.bank.amount.toDouble(),
+                    colour: AppTheme.tileBlue,
+                    display: MoneyFormat.compact(summary.bank),
                   ),
-                ),
+                ],
+              ),
+            ),
+          if (accounts.isNotEmpty) ...<Widget>[
+            const _SubHeading(label: 'By account'),
+            ...rankedRows(
+              entries: <RankedEntry>[
+                for (final BalanceLine account in accounts.take(6))
+                  RankedEntry(
+                    name: account.name,
+                    amount: account.balance,
+                    onTap: () => context.push(
+                      '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(account.name)}',
+                    ),
+                  ),
               ],
+              whole: summary.total,
+              colour: AppTheme.tileGreen,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+}
+
+/// A ranked list on its own card: top customers, top products.
+class RankedSection extends StatelessWidget {
+  const RankedSection({
+    super.key,
+    required this.title,
+    required this.subtitle,
+    required this.icon,
+    required this.entries,
+    required this.whole,
+    this.tint,
+    this.action,
+    this.onAction,
+  });
+
+  final String title;
+  final String subtitle;
+  final IconData icon;
+  final List<RankedEntry> entries;
+
+  /// The total these entries are a part of, for the share percentages. Null
+  /// when the whole is unknown -- an entry's share of an unknown total is not
+  /// 100%, so the column simply goes away.
+  final Money? whole;
+
+  final Color? tint;
+  final String? action;
+  final VoidCallback? onAction;
+
+  @override
+  Widget build(BuildContext context) {
+    return SectionCard(
+      title: title,
+      subtitle: subtitle,
+      icon: icon,
+      tint: tint,
+      action: action,
+      onAction: onAction,
+      child: Column(
+        children: rankedRows(
+          entries: entries,
+          whole: whole,
+          colour: tint ?? AppTheme.tileBlue,
+        ),
+      ),
+    );
+  }
+}
+
+/// One row's worth of ranked-list input.
+class RankedEntry {
+  const RankedEntry({
+    required this.name,
+    required this.amount,
+    this.subtitle,
+    this.colour,
+    this.onTap,
+  });
+
+  final String name;
+  final Money amount;
+  final String? subtitle;
+  final Color? colour;
+  final VoidCallback? onTap;
+}
+
+/// Turns entries into bars measured against the largest of them.
+///
+/// Against the largest rather than against [whole], because a list of five
+/// customers out of two hundred would otherwise be five slivers -- the bar is
+/// there to compare the rows with each other, and the share percentage beside
+/// it is what relates them to the total.
+List<Widget> rankedRows({
+  required List<RankedEntry> entries,
+  required Color colour,
+  Money? whole,
+}) {
+  if (entries.isEmpty) return const <Widget>[];
+
+  final double largest = entries.fold<double>(
+    0,
+    (double highest, RankedEntry e) => math.max(highest, e.amount.amount.toDouble()),
+  );
+  final double total = whole?.amount.toDouble() ?? 0;
+
+  return <Widget>[
+    for (int i = 0; i < entries.length; i++)
+      ShareRow(
+        rank: i + 1,
+        title: entries[i].name,
+        value: MoneyFormat.compact(entries[i].amount),
+        fraction:
+            largest <= 0 ? 0 : entries[i].amount.amount.toDouble() / largest,
+        share: total <= 0
+            ? null
+            : '${(entries[i].amount.amount.toDouble() / total * 100).round()}%',
+        subtitle: entries[i].subtitle,
+        colour: entries[i].colour ?? colour,
+        onTap: entries[i].onTap,
+      ),
+  ];
+}
+
+/// A quiet label between a card's chart and the rows that follow it.
+class _SubHeading extends StatelessWidget {
+  const _SubHeading({required this.label, this.trailing});
+
+  final String label;
+  final String? trailing;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
+      child: Row(
+        children: <Widget>[
+          Text(
+            label.toUpperCase(),
+            style: theme.textTheme.labelSmall?.copyWith(
+              color: context.mutedColor,
+              letterSpacing: 0.7,
+              fontWeight: FontWeight.w700,
             ),
           ),
-          if (accounts.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 8),
-            const Divider(indent: 16, endIndent: 16),
-            for (final BalanceLine account in accounts.take(6))
-              AmountRow(title: account.name, amount: account.balance),
-          ],
+          const Spacer(),
+          if (trailing != null)
+            Text(
+              trailing!,
+              style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
+            ),
         ],
       ),
     );
@@ -509,27 +809,59 @@ class ActivitySection extends StatelessWidget {
       return SectionCard(
         title: 'Recent activity',
         icon: Icons.history,
+        tint: AppTheme.tileViolet,
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
           child: Text(
             'No vouchers in this period.',
-            style: Theme.of(context)
-                .textTheme
-                .bodyMedium
-                ?.copyWith(color: context.mutedColor),
+            style:
+                Theme.of(context).textTheme.bodyMedium?.copyWith(color: context.mutedColor),
           ),
         ),
       );
+    }
+
+    // What kinds of voucher the period is made of. Six recent rows show what
+    // happened last; this shows what the period was mostly *about*.
+    final Map<String, int> byKind = <String, int>{};
+    for (final TransactionLine line in summary.recent) {
+      byKind[line.kind] = (byKind[line.kind] ?? 0) + 1;
     }
 
     return SectionCard(
       title: 'Recent activity',
       subtitle: '${summary.voucherCount} vouchers in the period',
       icon: Icons.history,
+      tint: AppTheme.tileViolet,
       action: 'Day book',
       onAction: () => context.push(Routes.daybook),
       child: Column(
         children: <Widget>[
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: <Widget>[
+                for (final MapEntry<String, int> kind in byKind.entries)
+                  Container(
+                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: context.surfaceColor,
+                      borderRadius: BorderRadius.circular(999),
+                    ),
+                    child: Text(
+                      '${TransactionTile.kindLabel(kind.key)} ${kind.value}',
+                      style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                            color: context.mutedColor,
+                            fontWeight: FontWeight.w600,
+                          ),
+                    ),
+                  ),
+              ],
+            ),
+          ),
+          const Divider(indent: 16, endIndent: 16),
           for (final TransactionLine line in summary.recent.take(6))
             TransactionTile(line: line),
         ],
@@ -557,6 +889,20 @@ class TransactionTile extends StatelessWidget {
     'stock_journal': Icons.inventory_2_outlined,
   };
 
+  /// The family's own name, for a chip that has no room for an icon and a word.
+  static String kindLabel(String kind) => switch (kind) {
+        'sales' => 'Sales',
+        'purchase' => 'Purchase',
+        'receipt' => 'Receipt',
+        'payment' => 'Payment',
+        'credit_note' => 'Credit note',
+        'debit_note' => 'Debit note',
+        'journal' => 'Journal',
+        'contra' => 'Contra',
+        'stock_journal' => 'Stock journal',
+        _ => 'Other',
+      };
+
   Color _colour(BuildContext context) => switch (line.kind) {
         'sales' || 'receipt' => context.positiveColor,
         'purchase' || 'payment' => context.negativeColor,
@@ -567,15 +913,21 @@ class TransactionTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final Color colour = _colour(context);
 
+    // Every voucher row in the product opens the same detail screen. A row
+    // whose backend did not send an identity simply does not tap -- an inert
+    // tap that looks live is worse than a row that plainly is not one.
+    final String? link = voucherLink(line);
+
     return AmountRow(
+      onTap: link == null ? null : () => context.push(link),
       leading: Container(
-        width: 34,
-        height: 34,
+        width: 32,
+        height: 32,
         decoration: BoxDecoration(
           color: colour.withOpacity(0.10),
           borderRadius: BorderRadius.circular(9),
         ),
-        child: Icon(_icons[line.kind] ?? Icons.receipt_long, size: 17, color: colour),
+        child: Icon(_icons[line.kind] ?? Icons.receipt_long, size: 16, color: colour),
       ),
       title: line.party ?? line.voucherType ?? 'Voucher',
       subtitle: <String?>[

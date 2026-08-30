@@ -26,7 +26,13 @@ from typing import Any
 
 from tally_core.domain.masters import Ledger, StockItem, VoucherType, VoucherTypeKind
 from tally_core.domain.money import Money, Side
-from tally_core.domain.transactions import OutstandingBill, OutstandingKind, Voucher
+from tally_core.domain.transactions import (
+    InventoryEntry,
+    LedgerEntry,
+    OutstandingBill,
+    OutstandingKind,
+    Voucher,
+)
 
 #: Tally's standard primary groups for liquid funds. Matched case-insensitively
 #: against a ledger's parent group. Customers do rename groups, so the company
@@ -281,19 +287,15 @@ def top_products(
 
 
 def recent_transactions(vouchers: list[Voucher], *, limit: int = 10) -> list[dict[str, Any]]:
+    """Newest first, in the row shape every list in the product shares.
+
+    Goes through :func:`_row_out` rather than building its own dict so these
+    rows carry a ``key``: the dashboard's recent activity and the day book both
+    have to open the same voucher detail as everything else, and a row without
+    an identity is a dead end the user can see but not follow.
+    """
     ordered = sorted(vouchers, key=lambda v: (v.date, v.voucher_number or ""), reverse=True)
-    return [
-        {
-            "date": v.date.isoformat(),
-            "voucher_number": v.voucher_number,
-            "voucher_type": v.voucher_type,
-            "kind": str(v.kind),
-            "party": v.party_name,
-            "narration": v.narration,
-            "amount": money_out(voucher_value(v)),
-        }
-        for v in ordered[:limit]
-    ]
+    return [_row_out(v) for v in ordered[:limit]]
 
 
 # --------------------------------------------------------------------------
@@ -589,3 +591,356 @@ def slow_moving(
     idle = [i for i in items if i.name not in sold and i.closing_quantity > 0]
     idle.sort(key=lambda i: i.closing_value.amount, reverse=True)
     return [_stock_line(item) for item in idle[:limit]]
+
+
+# --------------------------------------------------------------------------
+# Drill-down
+# --------------------------------------------------------------------------
+#
+# Everything below answers "show me *this* one, in full". The dashboard and the
+# list reports summarise; these functions deliberately do not. A voucher detail
+# that hid a ledger line, or a statement that rounded a movement away, would be
+# the one screen in the product an accountant checks a real figure against --
+# and it would be wrong.
+#
+# All of it is derived from vouchers the sync has already stored. No new read of
+# a customer's TallyPrime happens because somebody tapped a row.
+
+
+def voucher_key(voucher: Voucher) -> str:
+    """The identity a stored voucher is filed under.
+
+    Delegates to :func:`~.voucher_store.record_key` rather than reimplementing
+    it. Two algorithms for one identity is how a drill-down ends up opening a
+    different voucher from the row that was tapped, and the failure is invisible
+    until somebody notices the amounts disagree.
+
+    ``date`` is passed as an ISO string because that is what the stored payload
+    holds -- the fallback key is a hash of those exact characters, and a
+    ``date`` object would stringify differently and never match.
+    """
+    from .voucher_store import record_key
+
+    return record_key(
+        {
+            "guid": voucher.guid,
+            "master_id": voucher.master_id,
+            "voucher_type": voucher.voucher_type,
+            "voucher_number": voucher.voucher_number,
+            "date": voucher.date.isoformat(),
+            "party_name": voucher.party_name,
+        }
+    )
+
+
+def _entry_out(entry: LedgerEntry) -> dict[str, Any]:
+    """One ledger line.
+
+    The side is kept rather than flattened to a magnitude: which line is Dr and
+    which is Cr *is* the content of this row.
+    """
+    return {
+        "ledger": entry.ledger_name,
+        "amount": money_out(entry.amount),
+        "is_party": entry.is_party,
+        "cost_centre": entry.cost_centre,
+        "bill_references": list(entry.bill_references),
+    }
+
+
+def _inventory_out(entry: InventoryEntry) -> dict[str, Any]:
+    return {
+        "item": entry.item_name,
+        "quantity": round(abs(entry.quantity), 3),
+        "unit": entry.unit,
+        "rate": money_out(entry.rate) if entry.rate is not None else None,
+        "amount": money_out(magnitude(entry.amount)),
+        "godown": entry.godown,
+        "batch": entry.batch,
+    }
+
+
+def voucher_detail(voucher: Voucher, *, inventory_kept: bool = True) -> dict[str, Any]:
+    """Everything posted on one voucher.
+
+    ``debit_total`` and ``credit_total`` are emitted so the app can show that
+    the voucher balances. They are not decoration: sides that do not agree mean
+    the read dropped a line, and showing both totals is the only way a reader
+    can tell that from a voucher that genuinely has one entry.
+    """
+    debits = _sum([e.amount for e in voucher.ledger_entries if e.amount.side is Side.DEBIT])
+    credits = _sum([e.amount for e in voucher.ledger_entries if e.amount.side is Side.CREDIT])
+
+    return {
+        "key": voucher_key(voucher),
+        "date": voucher.date.isoformat(),
+        "voucher_number": voucher.voucher_number,
+        "voucher_type": voucher.voucher_type,
+        "kind": str(voucher.kind),
+        "party": voucher.party_name,
+        "narration": voucher.narration,
+        "reference": voucher.reference,
+        "amount": money_out(voucher_value(voucher)),
+        # Cancelled and optional vouchers are excluded from every total in this
+        # product, so a detail screen that showed one without saying so would be
+        # explaining a figure that is in none of the figures around it.
+        "is_cancelled": voucher.is_cancelled,
+        "is_optional": voucher.is_optional,
+        "debit_total": money_out(magnitude(debits)),
+        "credit_total": money_out(magnitude(credits)),
+        "ledger_entries": [_entry_out(e) for e in voucher.ledger_entries],
+        "inventory_entries": [_inventory_out(e) for e in voucher.inventory_entries],
+        # Whether an empty stock list means "this voucher had no items" or
+        # "we did not keep them for a voucher this old".
+        #
+        # The history sync drops inventory lines from slices older than
+        # ``sync_inventory_days`` -- line items are what make a voucher export
+        # large, and keeping four years of them would be what freezes a shop's
+        # Tally during a backfill. That is the right trade, but it leaves this
+        # screen able to show an old invoice with no Items card at all, which
+        # states that the invoice sold nothing. Same rule as everywhere else in
+        # the product: never render missing data as a figure.
+        "inventory_omitted": not inventory_kept and not voucher.inventory_entries,
+    }
+
+
+def find_voucher(vouchers: list[Voucher], key: str) -> Voucher | None:
+    for voucher in vouchers:
+        if voucher_key(voucher) == key:
+            return voucher
+    return None
+
+
+def _row_out(voucher: Voucher) -> dict[str, Any]:
+    """The list-row shape, shared by every drill-down that lists vouchers.
+
+    Carries ``key`` so every row in the product is tappable through to the same
+    voucher detail, wherever the row was rendered.
+    """
+    return {
+        "key": voucher_key(voucher),
+        "date": voucher.date.isoformat(),
+        "voucher_number": voucher.voucher_number,
+        "voucher_type": voucher.voucher_type,
+        "kind": str(voucher.kind),
+        "party": voucher.party_name,
+        "narration": voucher.narration,
+        "amount": money_out(voucher_value(voucher)),
+    }
+
+
+def ledger_statement(
+    vouchers: list[Voucher], *, ledger: str, since: date, until: date
+) -> dict[str, Any]:
+    """Every voucher that touched one ledger, with a running total.
+
+    The running figure is the movement *within the requested window*, not the
+    ledger's balance. Tally evaluates a closing balance against today and takes
+    no date to evaluate against (see CLAUDE.md), so an opening balance for an
+    arbitrary past window is not available to us -- and manufacturing one by
+    subtracting backwards from today's closing would produce a figure an
+    accountant could reconcile against nothing. The caller pairs this with the
+    ledger's real closing balance and labels the two differently.
+
+    A voucher can post to the same ledger more than once -- an invoice split
+    across two cost centres, say. Those lines are netted into one row, because
+    two rows for one voucher makes the running column step twice for a single
+    transaction.
+    """
+    wanted = _norm(ledger)
+
+    matched: list[tuple[Voucher, Money]] = []
+    for voucher in vouchers:
+        if not (since <= voucher.date <= until):
+            continue
+        lines = [e for e in voucher.ledger_entries if _norm(e.ledger_name) == wanted]
+        if not lines:
+            continue
+        matched.append((voucher, _sum([line.amount for line in lines])))
+
+    # Oldest first: a running total that counts down the page is not a running
+    # total. The app reverses it for display if it wants newest at the top.
+    matched.sort(key=lambda pair: (pair[0].date, pair[0].voucher_number or ""))
+
+    rows: list[dict[str, Any]] = []
+    running = Money.zero()
+    debits = Money.zero()
+    credits = Money.zero()
+    for voucher, movement in matched:
+        running = running + movement
+        if movement.side is Side.DEBIT:
+            debits = debits + movement
+        else:
+            credits = credits + movement
+        rows.append(
+            {
+                **_row_out(voucher),
+                "movement": money_out(movement),
+                "running": money_out(running),
+            }
+        )
+
+    return {
+        "ledger": ledger,
+        "from_date": since.isoformat(),
+        "to_date": until.isoformat(),
+        "voucher_count": len(rows),
+        "debit_total": money_out(magnitude(debits)),
+        "credit_total": money_out(magnitude(credits)),
+        "net_movement": money_out(running),
+        "entries": rows,
+    }
+
+
+_MONTH_NAMES = (
+    "Jan",
+    "Feb",
+    "Mar",
+    "Apr",
+    "May",
+    "Jun",
+    "Jul",
+    "Aug",
+    "Sep",
+    "Oct",
+    "Nov",
+    "Dec",
+)
+
+
+def register(
+    vouchers: list[Voucher],
+    kind: VoucherTypeKind,
+    *,
+    since: date,
+    until: date,
+    limit: int = 500,
+) -> dict[str, Any]:
+    """A sales or purchase register: the vouchers, plus the two cuts of them an
+    owner actually asks for -- by month and by party.
+
+    Both cuts are computed over the *whole* window rather than over the
+    truncated row list. A monthly chart that only covered the first 500
+    vouchers would disagree with the total printed above it, which is worse
+    than showing no chart.
+    """
+    selected = [v for v in vouchers if v.kind is kind and since <= v.date <= until]
+    selected.sort(key=lambda v: (v.date, v.voucher_number or ""), reverse=True)
+
+    monthly: dict[str, Money] = defaultdict(Money.zero)
+    counts: dict[str, int] = defaultdict(int)
+    total = Money.zero()
+    for voucher in selected:
+        value = voucher_value(voucher)
+        total = total + value
+        bucket = f"{voucher.date.year:04d}-{voucher.date.month:02d}"
+        monthly[bucket] = monthly[bucket] + value
+        counts[bucket] += 1
+
+    months = [
+        {
+            "month": bucket,
+            "label": f"{_MONTH_NAMES[int(bucket[5:7]) - 1]} {bucket[:4]}",
+            "total": money_out(magnitude(monthly[bucket])),
+            "voucher_count": counts[bucket],
+        }
+        for bucket in sorted(monthly)
+    ]
+
+    return {
+        "kind": str(kind),
+        "from_date": since.isoformat(),
+        "to_date": until.isoformat(),
+        "voucher_count": len(selected),
+        "total": money_out(magnitude(total)),
+        "months": months,
+        "by_party": top_parties(selected, kind, limit=20),
+        "by_product": top_products(selected, kind, limit=20),
+        # Truncated on purpose; ``voucher_count`` above is the honest count, so
+        # a capped list never reads as a shorter register than the real one.
+        "vouchers": [_row_out(v) for v in selected[:limit]],
+        "truncated": len(selected) > limit,
+    }
+
+
+#: Voucher classes that bring stock in and take it out. Direction is taken from
+#: the accounting class rather than from the sign on the quantity: Tally's
+#: inventory lines are signed inconsistently between voucher types, and a
+#: purchase counted as an outward movement turns a stock report into fiction.
+_INWARD_KINDS = {
+    VoucherTypeKind.PURCHASE,
+    VoucherTypeKind.RECEIPT_NOTE,
+    # A sales return brings the goods back onto the shelf.
+    VoucherTypeKind.CREDIT_NOTE,
+}
+_OUTWARD_KINDS = {
+    VoucherTypeKind.SALES,
+    VoucherTypeKind.DELIVERY_NOTE,
+    # A purchase return sends them back to the supplier.
+    VoucherTypeKind.DEBIT_NOTE,
+}
+
+
+def item_movement(
+    vouchers: list[Voucher], *, item: str, since: date, until: date
+) -> dict[str, Any]:
+    """Everything that moved one stock item in the window."""
+    wanted = _norm(item)
+
+    rows: list[dict[str, Any]] = []
+    qty_in = qty_out = 0.0
+    value_in = Money.zero()
+    value_out = Money.zero()
+    unit: str | None = None
+
+    for voucher in vouchers:
+        if not (since <= voucher.date <= until):
+            continue
+        lines = [e for e in voucher.inventory_entries if _norm(e.item_name) == wanted]
+        if not lines:
+            continue
+
+        quantity = sum(abs(line.quantity) for line in lines)
+        value = _sum([line.amount for line in lines])
+        unit = unit or next((line.unit for line in lines if line.unit), None)
+
+        if voucher.kind in _INWARD_KINDS:
+            direction = "in"
+            qty_in += quantity
+            value_in = value_in + value
+        elif voucher.kind in _OUTWARD_KINDS:
+            direction = "out"
+            qty_out += quantity
+            value_out = value_out + value
+        else:
+            # Stock journals, physical verification, and anything a shop named
+            # something we cannot classify. Counted in neither total rather than
+            # guessed into one -- an owner reconciling a shortfall needs the row
+            # visible and the arithmetic honest about not including it.
+            direction = "other"
+
+        rows.append(
+            {
+                **_row_out(voucher),
+                "direction": direction,
+                "quantity": round(quantity, 3),
+                "unit": unit,
+                "value": money_out(magnitude(value)),
+            }
+        )
+
+    rows.sort(key=lambda row: row["date"], reverse=True)
+
+    return {
+        "item": item,
+        "unit": unit,
+        "from_date": since.isoformat(),
+        "to_date": until.isoformat(),
+        "voucher_count": len(rows),
+        "quantity_in": round(qty_in, 3),
+        "quantity_out": round(qty_out, 3),
+        "net_quantity": round(qty_in - qty_out, 3),
+        "value_in": money_out(magnitude(value_in)),
+        "value_out": money_out(magnitude(value_out)),
+        "movements": rows,
+    }

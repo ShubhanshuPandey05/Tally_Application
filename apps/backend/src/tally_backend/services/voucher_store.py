@@ -147,6 +147,32 @@ class VoucherStore:
         await self._session.flush()
         return result
 
+    async def reconcile(
+        self,
+        company_id: str,
+        vouchers: list[dict[str, Any]],
+        *,
+        window: tuple[date, date],
+    ) -> int:
+        """Delete stored vouchers a complete read of ``window`` did not return.
+
+        The deletion half of :meth:`ingest`, on its own. It exists because the
+        cheap way to ask "what still exists?" is an identity-only read -- no
+        ledger lines, no inventory lines, 13x smaller -- and that payload must
+        never reach :meth:`ingest`. Ingesting it would faithfully overwrite every
+        stored voucher in the window with a copy that has no lines at all,
+        destroying exactly the data the reconcile is meant to protect.
+
+        So this writes nothing. It reads the returned identities, prunes what is
+        missing, and leaves every surviving row untouched.
+        """
+        keep = {
+            record_key(voucher)
+            for voucher in vouchers
+            if isinstance(voucher, dict) and _voucher_date(voucher) is not None
+        }
+        return await self._prune(company_id, window, keep=keep)
+
     async def _existing(
         self,
         company_id: str,
@@ -236,6 +262,28 @@ class VoucherStore:
             .order_by(VoucherRecord.voucher_date, VoucherRecord.record_key)
         )
         return [payload for (payload,) in (await self._session.execute(stmt)).all()]
+
+    async def find(self, company_id: str, *, key: str, on: date) -> dict[str, Any] | None:
+        """One stored voucher, by the key a listed row carried.
+
+        Separate from :meth:`read` because the coverage rule that guards a
+        window does not apply to a single row. A report for a half-covered
+        window must refuse rather than under-report -- a day book missing the
+        half it does not have looks exactly like a quiet fortnight. One voucher
+        has no such failure mode: either this key is stored or it is not, and
+        answering from a partially backfilled company is strictly better than
+        refusing a tap on a row that is visibly right there.
+
+        ``on`` is the voucher's own date and only narrows the scan; the key is
+        what identifies it. The store is indexed on (company, date), so this
+        never walks a company's history.
+        """
+        stmt = select(VoucherRecord.payload).where(
+            VoucherRecord.company_id == company_id,
+            VoucherRecord.record_key == key,
+            VoucherRecord.voucher_date == on,
+        )
+        return await self._session.scalar(stmt)
 
     async def count(self, company_id: str) -> int:
         return int(

@@ -1,0 +1,77 @@
+{
+  "data": {
+    "closing_balance": {
+      "amount": "11800.00",
+      "currency": "INR",
+      "display": "11,800.00 Dr",
+      "side": "debit",
+      "signed": "11800.00"
+    },
+    "credit_total": {
+      "amount": "0.00",
+      "currency": "INR",
+      "display": "0.00 Dr",
+      "side": "debit",
+      "signed": "0.00"
+    },
+    "debit_total": {
+      "amount": "11800.00",
+      "currency": "INR",
+      "display": "11,800.00 Dr",
+      "side": "debit",
+      "signed": "11800.00"
+    },
+    "entries": [
+      {
+        "amount": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "date": "2026-03-15",
+        "key": "h:4c9c155fee61fbecb7abedad0383dcb6b9c5d027",
+        "kind": "sales",
+        "movement": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "narration": null,
+        "party": "Reliance Retail",
+        "running": {
+          "amount": "11800.00",
+          "currency": "INR",
+          "display": "11,800.00 Dr",
+          "side": "debit",
+          "signed": "11800.00"
+        },
+        "voucher_number": "1",
+        "voucher_type": "Sales"
+      }
+    ],
+    "from_date": "2026-01-01",
+    "group": "Sundry Debtors",
+    "ledger": "Reliance Retail",
+    "net_movement": {
+      "amount": "11800.00",
+      "currency": "INR",
+      "display": "11,800.00 Dr",
+      "side": "debit",
+      "signed": "11800.00"
+    },
+    "to_date": "2026-03-15",
+    "voucher_count": 1
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": true,
+    "is_stale": false,
+    "refreshed_at": "2026-03-15T00:00:00+00:00"
+  }
+}

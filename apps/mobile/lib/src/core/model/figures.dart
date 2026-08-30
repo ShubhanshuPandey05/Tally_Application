@@ -116,11 +116,19 @@ class TransactionLine {
     required this.date,
     required this.amount,
     required this.kind,
+    this.key,
     this.voucherNumber,
     this.voucherType,
     this.party,
     this.narration,
   });
+
+  /// The voucher's identity, for opening its detail.
+  ///
+  /// Nullable because an older backend does not send it. A row without one is
+  /// still a perfectly good row -- it simply does not open, and the app must
+  /// not offer a tap that leads nowhere.
+  final String? key;
 
   final DateTime date;
   final Money amount;
@@ -136,6 +144,7 @@ class TransactionLine {
   final String? narration;
 
   factory TransactionLine.fromJson(Map<String, Object?> json) => TransactionLine(
+        key: json['key'] as String?,
         date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
         amount: Money.fromJson(json['amount']),
         kind: json['kind'] as String? ?? 'other',
@@ -231,3 +240,11 @@ class LedgerLine {
         phone: json['phone'] as String?,
       );
 }
+
+/// "1 voucher", "2 vouchers".
+///
+/// Small, but these counts sit in card subtitles all over the reports, and
+/// "1 vouchers" on the screen an accountant opens to check a figure is the kind
+/// of detail that makes a reader trust the figures less.
+String countOf(int count, String singular, [String? plural]) =>
+    '$count ${count == 1 ? singular : plural ?? '${singular}s'}';

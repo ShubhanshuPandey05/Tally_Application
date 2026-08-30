@@ -269,6 +269,32 @@ class ReadService:
             heavy=True,
         )
 
+    async def fetch_voucher(
+        self, company: Company, *, key: str, on: date
+    ) -> DataResult | None:
+        """One stored voucher, or ``None`` when history does not hold it.
+
+        Deliberately not routed through :meth:`fetch_vouchers`. That method only
+        consults the store for a window the backfill has formally *covered*,
+        because a report built from half a window is worse than a slow one -- a
+        day book missing the half it does not have is indistinguishable from a
+        quiet fortnight. A single voucher has no such failure mode: either this
+        key is stored or it is not.
+
+        The distinction matters most on a company whose backfill is still
+        running. Rows are already on screen, drawn from what has landed, and
+        refusing to open one because the month around it is not finished would
+        make the app look broken exactly when it is working.
+        """
+        sync_state = await self._session.get(CompanySyncState, company.id)
+        if sync_state is None:
+            return None
+
+        payload = await VoucherStore(self._session).find(company.id, key=key, on=on)
+        if payload is None:
+            return None
+        return await self._from_store(sync_state, [payload], company)
+
     async def _from_store(
         self, sync_state: CompanySyncState, payload: Any, company: Company
     ) -> DataResult:
@@ -317,6 +343,25 @@ class ReadService:
         return await self._store(
             company.id, dataset, params_key(params), payload, result
         )
+
+    async def snapshot_payload(
+        self,
+        company: Company,
+        *,
+        dataset: str,
+        params: dict[str, Any] | None = None,
+    ) -> Any | None:
+        """The stored payload for a dataset, without touching Tally.
+
+        The incremental master path needs the *whole* collection in hand before
+        it can merge a partial re-read into it. Reading it through ``fetch``
+        would risk a live call; this is deliberately a database read or nothing.
+        Returns ``None`` when the dataset has never been snapshotted, which is
+        the signal that a full read is still owed.
+        """
+        params = {"company": company.tally_name, **(params or {})}
+        snapshot = await self._load_snapshot(company.id, dataset, params_key(params))
+        return None if snapshot is None else snapshot.payload
 
     # -- snapshot storage -------------------------------------------------
 

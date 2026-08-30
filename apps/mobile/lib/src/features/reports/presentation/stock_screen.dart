@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:go_router/go_router.dart';
 
+import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
@@ -299,7 +301,15 @@ class _StockCard extends StatelessWidget {
             : null;
 
     return Card(
-      child: Padding(
+      clipBehavior: Clip.antiAlias,
+      // The quantity on this card is the answer to "how much have I got"; the
+      // movement behind it is the answer to "how did that happen", which is the
+      // question a surprising quantity always produces next.
+      child: InkWell(
+        onTap: () => context.push(
+          '${Routes.stockMovement}?item=${Uri.encodeQueryComponent(item.name)}',
+        ),
+        child: Padding(
         padding: const EdgeInsets.fromLTRB(14, 12, 14, 12),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -358,6 +368,7 @@ class _StockCard extends StatelessWidget {
               ),
             ],
           ],
+        ),
         ),
       ),
     );
