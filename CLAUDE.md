@@ -161,6 +161,25 @@ that exists to keep exports small was doing nothing at all.
 Use `yyyymmdd` date literals — the month-name form depends on Tally's interface
 language, and `dd-mm-yyyy` is indistinguishable from `mm-dd-yyyy` to a reader.
 
+### A master's AlterID does not move when a voucher moves its balance
+
+**`AlterID` on a ledger or stock item tracks edits to the *master record* —
+renamed, regrouped, opening balance changed. It does not move when a voucher
+changes that master's closing balance.** The company-wide `AltMstId` watermark
+does not move either.
+
+Verified live 2026-08-29 on "D.D Enterprises" with `tally-connector
+alterid-probe`: one receipt voucher took `AltVchId` 261 → 262 and moved three
+ledger balances (Cash `0.00 Dr` → `50,000.00 Cr`, Profit & Loss, Transportation
+Charges). Every one of those three kept its original `AlterID`, and `AltMstId`
+stood at 994 before and after.
+
+The consequence is the whole shape of incremental master sync. `$AlterID >
+cursor` on `Ledger` or `StockItem` is correct for **which masters exist** and
+useless for **what they are worth** — a delta-only master read serves a stale
+balance with no error to point at. Balances have to be re-read for the masters
+the changed *vouchers* name, which the voucher delta already returns.
+
 ### Balances are always current
 
 Closing balance and stock value ignore any date range. **The dashboard's period

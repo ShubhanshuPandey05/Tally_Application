@@ -40,6 +40,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, timedelta
 from typing import Any
@@ -48,6 +49,7 @@ from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from tally_core.domain.masters import CompanyMarkers
 from tally_core.protocol import JobResult
+from tally_core.tally.queries.masters import MAX_NAME_FILTER
 
 from ..config import Settings
 from ..core.errors import AppError, ConflictError, NotFound
@@ -73,7 +75,70 @@ MARKERS = "company.markers"
 #: are cheap individually and pointless collectively: a shop adds a ledger every
 #: few weeks, and re-reading all of them every quarter hour is most of what a
 #: connector spends its day doing.
-MASTER_DATASETS = ("ledgers.list", "voucher_types.list", "stock_items.list")
+LEDGERS = "ledgers.list"
+STOCK_ITEMS = "stock_items.list"
+MASTER_DATASETS = (LEDGERS, "voucher_types.list", STOCK_ITEMS)
+
+#: Masters that can be read incrementally. Voucher types are deliberately not
+#: here: a company has a couple of dozen, they change about never, and a full
+#: read of them costs less than the branch that would avoid it.
+INCREMENTAL_MASTERS = frozenset({LEDGERS, STOCK_ITEMS})
+
+
+def _touched_masters(vouchers: list[Any]) -> tuple[list[str], list[str]]:
+    """The ledgers and stock items named by a batch of changed vouchers.
+
+    These are exactly the masters whose closing balance can have moved, which is
+    what makes a targeted balance re-read possible at all. Reads defensively:
+    the payload has crossed a wire from a connector that may be older than this
+    backend, and a malformed line must cost one master's freshness rather than
+    the whole delta.
+    """
+    ledgers: set[str] = set()
+    items: set[str] = set()
+    for voucher in vouchers:
+        if not isinstance(voucher, dict):
+            continue
+        for entry in voucher.get("ledger_entries") or ():
+            if isinstance(entry, dict) and entry.get("ledger_name"):
+                ledgers.add(entry["ledger_name"])
+        for entry in voucher.get("inventory_entries") or ():
+            if isinstance(entry, dict) and entry.get("item_name"):
+                items.add(entry["item_name"])
+    return sorted(ledgers), sorted(items)
+
+
+def _merge_by_name(existing: list[Any], incoming: list[Any]) -> list[Any]:
+    """Overlay freshly read master rows onto the stored collection.
+
+    Order is preserved and rows nobody asked about are left untouched, so the
+    result is the full collection with only the changed rows replaced. Rows that
+    are genuinely new -- a ledger created since the last full read -- are
+    appended rather than dropped.
+
+    Name is the key because it is what Tally guarantees unique within a master
+    type, and it is the only field every one of these collections carries.
+    """
+    replacements = {
+        row["name"]: row
+        for row in incoming
+        if isinstance(row, dict) and row.get("name")
+    }
+    if not replacements:
+        return existing
+
+    merged = []
+    seen = set()
+    for row in existing:
+        name = row.get("name") if isinstance(row, dict) else None
+        if name in replacements:
+            merged.append(replacements[name])
+            seen.add(name)
+        else:
+            merged.append(row)
+
+    merged.extend(row for name, row in replacements.items() if name not in seen)
+    return merged
 
 
 # --------------------------------------------------------------------------
@@ -127,12 +192,18 @@ def plan_backfill(
     chunk_months: int,
     max_history_years: int,
     inventory_days: int,
+    chunk_days: int | None = None,
 ) -> list[Window]:
     """Cut a company's history into readable slices, newest first.
 
     The floor is whichever is *later* of the books' start and the history
     ceiling: a shop that opened last year gets one slice, not four years of
     empty exports, and a shop with a decade of books is not asked for all of it.
+
+    ``chunk_days`` overrides ``chunk_months`` and is what a re-plan uses once a
+    slice has revealed how many vouchers a day this shop actually writes. Whole
+    months are the right default when nothing is known yet; they are the wrong
+    unit once something is.
     """
     floor = today.replace(year=today.year - max_history_years)
     if books_from is not None:
@@ -147,12 +218,21 @@ def plan_backfill(
     end = today
 
     while end >= floor:
-        start = max(floor, _shift_months(end, -chunk_months) + timedelta(days=1))
+        if chunk_days is not None:
+            start = max(floor, end - timedelta(days=chunk_days - 1))
+        else:
+            start = max(floor, _shift_months(end, -chunk_months) + timedelta(days=1))
         # Absorb a short tail into this slice rather than leaving it as its own.
         # Whole-month arithmetic against a fixed floor otherwise ends a plan on
         # a one-day window: a whole extra export, a whole extra retry budget,
         # and a progress bar with a chunk that finishes instantly at the end.
-        if 0 < (start - floor).days <= _TAIL_ABSORB_DAYS:
+        # Half a slice, for a day-based plan. A quarter left two-day stubs at
+        # the end of the books: a whole extra export and a whole extra retry
+        # budget to read almost nothing. The cost of absorbing is a final slice
+        # up to 1.5x the target, which is well inside what the count ceiling
+        # was chosen to tolerate.
+        absorb = _TAIL_ABSORB_DAYS if chunk_days is None else max(1, chunk_days // 2)
+        if 0 < (start - floor).days <= absorb:
             start = floor
         windows.append(
             Window(
@@ -354,6 +434,11 @@ class DeltaOutcome:
     vouchers_changed: int = 0
     vouchers_removed: int = 0
     masters_refreshed: bool = False
+    #: How many master collections had balances re-read for the ledgers and
+    #: stock items the changed vouchers named. Distinct from
+    #: ``masters_refreshed``, which counts *record* edits -- the two are
+    #: different events and conflating them hides which one is misbehaving.
+    balances_refreshed: int = 0
     reconciled: bool = False
     unchanged: bool = False
     error: str | None = None
@@ -399,6 +484,51 @@ class SyncCoordinator:
         return task is not None and not task.done()
 
     # -- starting work ---------------------------------------------------
+
+    async def refresh(self, company_id: str) -> bool:
+        """What pull-to-refresh should do, for a company that has history.
+
+        Before this, a hard refresh went straight at Tally for every dataset in
+        full -- the single most expensive thing the app could ask for, triggered
+        by the button users press when something looks wrong. Now it runs the
+        same incremental delta the background sweep does: markers, then only
+        what changed, then the balances those changes touched.
+
+        Returns whether the caller may read from the snapshot. ``False`` means
+        this company has no history yet and the ordinary live read is still the
+        only way to answer it.
+
+        Throttled on the same floor as a snapshot refresh, so four staff opening
+        the app at once cost one delta rather than four -- and a delta already in
+        flight is joined rather than duplicated.
+        """
+        async with self._session_factory() as session:
+            state = await session.get(CompanySyncState, company_id)
+            if state is None or not state.has_history:
+                return False
+            last = state.last_delta_at
+
+        if self.is_running(company_id):
+            # A backfill or delta is already working this company. Its result
+            # will be published; racing a second one at the same Tally is the
+            # exact pile-up the pipeline exists to prevent.
+            return True
+
+        if last is not None:
+            age = (utc_now() - as_utc(last)).total_seconds()
+            if age < self._settings.min_refresh_interval_seconds:
+                logger.debug(
+                    "refresh of company %s throttled (%.0fs since the last delta)",
+                    company_id,
+                    age,
+                )
+                return True
+
+        try:
+            await self.delta(company_id)
+        except Exception:  # noqa: BLE001 - a refresh must never 500
+            logger.exception("on-demand delta failed for company %s", company_id)
+        return True
 
     async def start_backfill(self, company_id: str, *, today: date | None = None) -> str:
         """Plan a backfill and put it on this instance's work list.
@@ -644,6 +774,11 @@ class SyncCoordinator:
             run.heartbeat_at = utc_now()
 
             await self._extend_coverage(session, run, company.id)
+            # Before the commit, so the narrowed plan and the slice that
+            # justified it land in one transaction. A crash between them would
+            # leave a run whose remaining slices were sized by a measurement
+            # nothing records.
+            await self._narrow_remaining(session, run, chunk, len(payload))
             await session.commit()
 
             logger.info(
@@ -655,6 +790,98 @@ class SyncCoordinator:
                 ingest.updated,
                 ingest.deleted,
             )
+
+    async def _narrow_remaining(
+        self,
+        session: AsyncSession,
+        run: SyncRun,
+        chunk: SyncChunk,
+        vouchers: int,
+    ) -> None:
+        """Re-cut the slices still to be read, using what this one measured.
+
+        Calendar spans are a guess about a shop's size. This is the correction:
+        a slice that came back over ``sync_chunk_max_vouchers`` proves the guess
+        was wrong for *this* shop, and every slice still pending is re-cut to
+        the span that density implies.
+
+        Only ever narrows. Widening on a quiet slice would let one empty stretch
+        of the books talk the planner into a huge window over a busy one, and
+        the whole point is to bound the largest export rather than optimise the
+        smallest.
+        """
+        limit = self._settings.sync_chunk_max_vouchers
+        if limit <= 0 or vouchers <= limit:
+            return
+
+        span_days = max((chunk.to_date - chunk.from_date).days + 1, 1)
+        per_day = vouchers / span_days
+        target = max(
+            self._settings.sync_chunk_min_days, int(limit / per_day) if per_day else span_days
+        )
+        if target >= span_days:
+            # Already at or below what the measurement implies -- narrowing to a
+            # wider slice would be worse than leaving it alone.
+            return
+
+        pending = (
+            await session.execute(
+                select(SyncChunk)
+                .where(SyncChunk.run_id == run.id, SyncChunk.state == SyncState.PENDING)
+                .order_by(SyncChunk.seq)
+            )
+        ).scalars().all()
+        if not pending:
+            return
+
+        floor = min(c.from_date for c in pending)
+        end = max(c.to_date for c in pending)
+        windows = plan_backfill(
+            books_from=floor,
+            today=end,
+            chunk_months=self._settings.sync_chunk_months,
+            max_history_years=self._settings.sync_max_history_years,
+            inventory_days=self._settings.sync_inventory_days,
+            chunk_days=target,
+        )
+        if len(windows) <= len(pending):
+            # No finer than what is already queued; leave the plan alone rather
+            # than churn the progress bar for nothing.
+            return
+
+        for old_chunk in pending:
+            await session.delete(old_chunk)
+        await session.flush()
+
+        seq = chunk.seq
+        for window in windows:
+            seq += 1
+            session.add(
+                SyncChunk(
+                    run_id=run.id,
+                    seq=seq,
+                    from_date=window.from_date,
+                    to_date=window.to_date,
+                    label=window.label,
+                )
+            )
+        # Honest rather than flattering: the bar grows because there is genuinely
+        # more work than was planned, and a total that stayed put would make the
+        # remaining slices look like they were finishing early.
+        run.total_chunks = run.completed_chunks + len(windows)
+        await session.flush()
+
+        logger.info(
+            "sync %s: %s returned %d voucher(s) over %d day(s); narrowing the "
+            "remaining %d slice(s) to %d day(s) -> %d slice(s)",
+            run.id,
+            chunk.label,
+            vouchers,
+            span_days,
+            len(pending),
+            target,
+            len(windows),
+        )
 
     async def _fail_chunk(
         self, session: AsyncSession, run: SyncRun, chunk: SyncChunk, result: JobResult
@@ -831,9 +1058,17 @@ class SyncCoordinator:
             )
 
             if vouchers_moved:
-                changed = await self._sync_vouchers(session, company, state, markers, today)
+                changed, ledgers, items = await self._sync_vouchers(
+                    session, company, state, markers, today
+                )
                 outcome.vouchers_changed = changed.inserted + changed.updated
                 outcome.vouchers_removed = changed.deleted
+                # Balances first, while we still know which masters moved. A
+                # voucher changes a ledger's closing balance without touching
+                # that ledger's AlterID, so nothing below would catch it.
+                outcome.balances_refreshed = await self._refresh_touched_masters(
+                    session, company, ledgers, items
+                )
             else:
                 outcome.unchanged = True
 
@@ -843,7 +1078,9 @@ class SyncCoordinator:
                 outcome.reconciled = True
 
             if self._masters_moved(state, markers):
-                outcome.masters_refreshed = await self._refresh_masters(session, company)
+                outcome.masters_refreshed = await self._refresh_masters(
+                    session, company, state
+                )
                 if outcome.masters_refreshed:
                     state.master_alter_id = markers.master_alter_id
 
@@ -880,8 +1117,15 @@ class SyncCoordinator:
         state: CompanySyncState,
         markers: CompanyMarkers,
         today: date,
-    ) -> Any:
-        """Fetch and merge whatever changed since the last sync."""
+    ) -> tuple[Any, list[str], list[str]]:
+        """Fetch and merge whatever changed since the last sync.
+
+        Returns the ingest result plus the ledgers and stock items the changed
+        vouchers named. Those names are the only way to know whose *balance*
+        moved: Tally does not bump a master's AlterID when a voucher hits it, so
+        without them the caller would have to re-read every ledger in the
+        company to find the six that changed.
+        """
         store = VoucherStore(session)
         assert state.backfilled_from is not None and state.backfilled_to is not None
 
@@ -921,9 +1165,11 @@ class SyncCoordinator:
         if not result.ok:
             from .voucher_store import IngestResult
 
-            return IngestResult()
+            return IngestResult(), [], []
 
-        ingest = await store.ingest(company.id, result.data() or [], window=window)
+        payload = result.data() or []
+        ingest = await store.ingest(company.id, payload, window=window)
+        ledgers, items = _touched_masters(payload)
 
         # Advance to the marker rather than to the highest AlterID returned. A
         # voucher created between reading the marker and reading the vouchers
@@ -936,7 +1182,7 @@ class SyncCoordinator:
             state.voucher_alter_id = ingest.max_alter_id
 
         state.backfilled_to = max(state.backfilled_to, today)
-        return ingest
+        return ingest, ledgers, items
 
     def _reconcile_due(self, state: CompanySyncState, markers: CompanyMarkers) -> bool:
         """Whether the recent window is owed a full, deletion-catching re-read."""
@@ -963,7 +1209,13 @@ class SyncCoordinator:
                 "company": company.tally_name,
                 "from_date": start.isoformat(),
                 "to_date": today.isoformat(),
-                "include_inventory": True,
+                # Identity only. This read answers one question -- which
+                # vouchers still exist -- and carrying the lines to answer it
+                # cost 13x the bytes (measured live 2026-08-29). The delta has
+                # already brought every *edit* in this window up to date; the
+                # only thing left to find is what vanished.
+                "identity_only": True,
+                "include_inventory": False,
             },
             timeout_seconds=self._settings.heavy_job_timeout_seconds,
             coalesce=False,
@@ -972,9 +1224,11 @@ class SyncCoordinator:
             return 0
 
         store = VoucherStore(session)
-        ingest = await store.ingest(company.id, result.data() or [], window=(start, today))
+        # Never `ingest`: this payload has no lines, and ingesting it would
+        # overwrite every stored voucher in the window with a lineless copy.
+        deleted = await store.reconcile(company.id, result.data() or [], window=(start, today))
         state.last_reconcile_at = utc_now()
-        return ingest.deleted
+        return deleted
 
     def _masters_moved(self, state: CompanySyncState, markers: CompanyMarkers) -> bool:
         if markers.master_alter_id is None:
@@ -982,19 +1236,125 @@ class SyncCoordinator:
             return False
         return markers.master_alter_id != state.master_alter_id
 
-    async def _refresh_masters(self, session: AsyncSession, company: Company) -> bool:
-        """Re-read the master datasets, because something in them changed."""
+    async def _refresh_masters(
+        self, session: AsyncSession, company: Company, state: CompanySyncState
+    ) -> bool:
+        """Pick up masters that were *edited* -- created, renamed, regrouped.
+
+        Only half of keeping masters current, and the cheaper half. A master's
+        ``AlterID`` moves when its record is altered and stands still when a
+        voucher moves its balance (verified live -- see CLAUDE.md), so this pass
+        can never refresh a figure. :meth:`_refresh_touched_masters` does that.
+        """
         from .reads import FetchMode
 
         reads = ReadService(session, self._hub, self._settings)
         refreshed = False
         for dataset in MASTER_DATASETS:
+            cursor = state.master_alter_id if dataset in INCREMENTAL_MASTERS else None
+            if cursor is not None:
+                merged = await self._merge_masters(
+                    session, company, dataset, {"alter_id_min": cursor}
+                )
+                if merged is not None:
+                    refreshed = True
+                    continue
+                # No snapshot to merge into yet -- fall through to a full read,
+                # which is what establishes one.
             try:
                 await reads.fetch(company, dataset=dataset, mode=FetchMode.LIVE, heavy=True)
                 refreshed = True
             except AppError as exc:
                 logger.info("master refresh of %s skipped: %s", dataset, exc.message)
         return refreshed
+
+    async def _refresh_touched_masters(
+        self,
+        session: AsyncSession,
+        company: Company,
+        ledgers: Sequence[str],
+        items: Sequence[str],
+    ) -> int:
+        """Re-read the balances of the masters the changed vouchers named.
+
+        This is the half of incremental master sync that no change id can do.
+        A voucher moves a ledger's closing balance without touching that
+        ledger's ``AlterID``, so the only sound way to refresh a balance without
+        re-reading every ledger in the company is to name the ones the delta
+        just told us about.
+
+        Above :data:`MAX_NAME_FILTER` names the filter stops paying for itself --
+        Tally walks the whole collection to evaluate it either way -- so a busy
+        day falls back to the ordinary full read rather than building an
+        enormous OR chain.
+        """
+        refreshed = 0
+        for dataset, names in ((LEDGERS, ledgers), (STOCK_ITEMS, items)):
+            unique = sorted({n for n in names if n})
+            if not unique:
+                continue
+            if len(unique) > MAX_NAME_FILTER:
+                logger.info(
+                    "%d %s touched for company %s; re-reading all of them instead",
+                    len(unique),
+                    dataset,
+                    company.id,
+                )
+                await self._merge_masters(session, company, dataset, {})
+                refreshed += 1
+                continue
+            merged = await self._merge_masters(
+                session, company, dataset, {"names": unique}
+            )
+            if merged:
+                refreshed += merged
+        return refreshed
+
+    async def _merge_masters(
+        self,
+        session: AsyncSession,
+        company: Company,
+        dataset: str,
+        params: dict[str, Any],
+    ) -> int | None:
+        """Read part of a master collection and merge it into the full snapshot.
+
+        The merge is the whole point. Writing a partial read straight to the
+        snapshot would replace a company's three thousand ledgers with the six
+        that moved, and every screen reads the snapshot -- so the dashboard
+        would lose the other 2,994 with no error anywhere.
+
+        ``None`` means there is no snapshot to merge into yet, which the caller
+        answers with a full read. ``0`` means the read succeeded and changed
+        nothing.
+        """
+        reads = ReadService(session, self._hub, self._settings)
+        existing = await reads.snapshot_payload(company, dataset=dataset)
+        if not isinstance(existing, list):
+            return None
+
+        result = await self._hub.run(
+            connector_id=company.connector_id,
+            query=dataset,
+            params={"company": company.tally_name, **params},
+            timeout_seconds=self._settings.heavy_job_timeout_seconds,
+            # Never coalesced onto somebody's live full read: the params differ,
+            # and joining them would merge the wrong rows.
+            coalesce=False,
+        )
+        if not result.ok:
+            logger.info(
+                "incremental %s read failed for company %s: %s",
+                dataset,
+                company.id,
+                result.error.code if result.error else "unknown",
+            )
+            return 0
+
+        incoming = result.data() or []
+        merged = _merge_by_name(existing, incoming)
+        await reads.put_snapshot(company, dataset=dataset, payload=merged)
+        return len(incoming)
 
     # -- publishing ------------------------------------------------------
 

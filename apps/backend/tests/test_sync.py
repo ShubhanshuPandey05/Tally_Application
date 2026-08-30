@@ -13,6 +13,7 @@ from datetime import date, timedelta
 
 import pytest
 from sqlalchemy import select
+from tally_core.tally import get_query
 
 from tally_backend.db.models import (
     CompanySyncState,
@@ -22,7 +23,13 @@ from tally_backend.db.models import (
     VoucherRecord,
     utc_now,
 )
-from tally_backend.services.sync import SyncCoordinator, SyncService, plan_backfill
+from tally_backend.services.sync import (
+    SyncCoordinator,
+    SyncService,
+    _merge_by_name,
+    _touched_masters,
+    plan_backfill,
+)
 from tally_backend.services.voucher_store import VoucherStore, record_key
 
 TODAY = date(2026, 8, 5)
@@ -889,3 +896,411 @@ async def test_an_abandoned_run_does_not_lock_a_company_out(
 
         service = SyncService(session, settings)
         assert await service.active_run(linked_company["company_id"]) is None
+
+
+# --------------------------------------------------------------------------
+# Incremental masters
+#
+# A master's AlterID does not move when a voucher moves its balance (verified
+# live 2026-08-29, see CLAUDE.md). So balances are refreshed by naming the
+# ledgers and stock items the changed vouchers touched, and the result is
+# merged into the stored collection rather than replacing it.
+# --------------------------------------------------------------------------
+
+
+def ledger_row(name: str, amount: str) -> dict:
+    return {
+        "name": name,
+        "closing_balance": {"amount": amount, "side": "debit", "currency": "INR"},
+    }
+
+
+def test_a_partial_read_does_not_replace_the_whole_collection() -> None:
+    """The failure this merge exists to prevent.
+
+    Writing a targeted read straight to the snapshot would swap a company's
+    ledgers for the handful that moved, and every screen reads the snapshot --
+    so the dashboard would lose the rest with no error anywhere.
+    """
+    stored = [ledger_row(n, "10.00") for n in ("Cash", "Sales", "Bank", "Capital")]
+
+    merged = _merge_by_name(stored, [ledger_row("Cash", "50000.00")])
+
+    assert [row["name"] for row in merged] == ["Cash", "Sales", "Bank", "Capital"]
+    assert merged[0]["closing_balance"]["amount"] == "50000.00"
+    assert merged[1]["closing_balance"]["amount"] == "10.00", "untouched row kept"
+
+
+def test_a_ledger_created_since_the_last_full_read_is_appended() -> None:
+    """A new party ledger arrives through the structural delta, and dropping it
+    would leave it invisible until the next full read."""
+    stored = [ledger_row("Cash", "10.00")]
+
+    merged = _merge_by_name(stored, [ledger_row("New Party", "0.00")])
+
+    assert [row["name"] for row in merged] == ["Cash", "New Party"]
+
+
+def test_an_empty_read_leaves_the_collection_untouched() -> None:
+    """Nothing changed is the common case on a quiet company, and it must not
+    be able to blank a snapshot."""
+    stored = [ledger_row("Cash", "10.00")]
+
+    assert _merge_by_name(stored, []) == stored
+
+
+def test_touched_masters_names_both_sides_of_a_voucher() -> None:
+    payload = [voucher(guid="v1", day=TODAY)]
+    payload[0]["inventory_entries"] = [{"item_name": "Widget", "quantity": 2.0}]
+
+    ledgers, items = _touched_masters(payload)
+
+    assert ledgers == ["Party", "Sales"]
+    assert items == ["Widget"]
+
+
+def test_touched_masters_survives_a_malformed_line() -> None:
+    """The payload crossed a wire from a connector that may predate this
+    backend. One bad line costs one master's freshness, not the whole delta."""
+    payload = [
+        {"ledger_entries": [{"ledger_name": "Cash"}, {}, "junk"], "inventory_entries": None},
+        "not a voucher",
+    ]
+
+    ledgers, items = _touched_masters(payload)
+
+    assert ledgers == ["Cash"]
+    assert items == []
+
+
+async def test_a_delta_re_reads_only_the_ledgers_the_vouchers_named(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """The balance half of incremental sync, end to end."""
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+
+    # A stored collection for the merge to land in.
+    async with app.state.session_factory() as session:
+        from tally_backend.db.models import Company
+        from tally_backend.services.reads import ReadService
+
+        company = await session.get(Company, company_id)
+        reads = ReadService(session, app.state.hub, coordinator._settings)
+        await reads.put_snapshot(
+            company,
+            dataset="ledgers.list",
+            payload=[ledger_row(n, "10.00") for n in ("Party", "Sales", "Untouched")],
+        )
+        await session.commit()
+
+    fake_connector.set("company.markers", markers(voucher_alter_id=980))
+    fake_connector.set("vouchers.list", [voucher(guid="fresh", day=TODAY, alter_id=975)])
+    fake_connector.set("ledgers.list", [ledger_row("Party", "99999.00")])
+
+    await coordinator.delta(company_id, today=TODAY)
+
+    asked = [p for q, p in fake_connector.calls if q == "ledgers.list"]
+    assert asked, "the touched ledgers were never re-read"
+    assert asked[0]["names"] == ["Party", "Sales"], "only the named ledgers"
+
+    async with app.state.session_factory() as session:
+        from tally_backend.db.models import Company
+        from tally_backend.services.reads import ReadService
+
+        company = await session.get(Company, company_id)
+        reads = ReadService(session, app.state.hub, coordinator._settings)
+        rows = await reads.snapshot_payload(company, dataset="ledgers.list")
+
+    by_name = {row["name"]: row for row in rows}
+    assert set(by_name) == {"Party", "Sales", "Untouched"}, "nothing was lost"
+    assert by_name["Party"]["closing_balance"]["amount"] == "99999.00", "refreshed"
+    assert by_name["Untouched"]["closing_balance"]["amount"] == "10.00", "left alone"
+
+
+# --------------------------------------------------------------------------
+# Sizing slices by voucher count
+#
+# A calendar span is a guess about how big a shop is. Fifty vouchers a month
+# and five thousand a month produce very different exports out of the same
+# six-month window, and it is the count that decides whether TallyPrime
+# survives building the collection. There is no cheap way to ask Tally the
+# count up front (measured live: even a date-only read costs ~1.2 KB per
+# voucher), so each slice measures the shop and re-cuts the ones still to read.
+# --------------------------------------------------------------------------
+
+
+def test_a_day_span_cuts_finer_than_a_month_span() -> None:
+    months = plan(date(2024, 8, 5), months=6)
+    days = plan_backfill(
+        books_from=date(2024, 8, 5),
+        today=TODAY,
+        chunk_months=6,
+        max_history_years=4,
+        inventory_days=400,
+        chunk_days=14,
+    )
+
+    assert len(days) > len(months)
+    # 1.5x the target at most: the oldest slice absorbs a short tail rather than
+    # leaving a stub export behind.
+    assert max((w.to_date - w.from_date).days for w in days) <= 21
+
+
+def test_day_spans_still_have_no_gaps_and_no_overlaps() -> None:
+    """The property the whole backfill rests on: every day read exactly once."""
+    windows = plan_backfill(
+        books_from=date(2025, 1, 1),
+        today=TODAY,
+        chunk_months=6,
+        max_history_years=4,
+        inventory_days=400,
+        chunk_days=10,
+    )
+
+    ordered = sorted(windows, key=lambda w: w.from_date)
+    assert ordered[0].from_date == date(2025, 1, 1)
+    assert ordered[-1].to_date == TODAY
+    for earlier, later in zip(ordered, ordered[1:], strict=False):
+        assert later.from_date == earlier.to_date + timedelta(days=1)
+
+
+async def test_an_oversized_slice_narrows_the_ones_still_to_read(
+    app, coordinator, linked_company, fake_connector, settings
+) -> None:
+    """The limit the user actually feels: no single export beyond a size."""
+    settings.sync_chunk_max_vouchers = 5
+    settings.sync_chunk_min_days = 7
+    fake_connector.set("company.markers", markers())
+
+    def flood(params):
+        # Every slice looks busy, so the first one measured must shrink the rest.
+        start = date.fromisoformat(params["from_date"])
+        return [voucher(guid=f"v{i}-{start}", day=start, alter_id=i) for i in range(40)]
+
+    fake_connector.set("vouchers.list", flood)
+
+    await run_backfill(coordinator, linked_company["company_id"])
+
+    spans = [
+        (date.fromisoformat(p["to_date"]) - date.fromisoformat(p["from_date"])).days
+        for q, p in fake_connector.calls
+        if q == "vouchers.list"
+    ]
+    assert spans[0] > 30, "the first slice is still the planner's month-based guess"
+    assert spans[-1] <= 30, "later slices were re-cut from what was measured"
+    # No stub exports: a tail shorter than half a slice is absorbed into the
+    # one before it rather than becoming a round trip of its own.
+    assert min(spans) >= 3, "a two-day stub slice was left behind"
+
+
+async def test_a_slice_inside_the_limit_leaves_the_plan_alone(
+    app, coordinator, linked_company, fake_connector, settings
+) -> None:
+    """Narrowing is a correction, not a default. A shop that fits must not be
+    re-cut into hundreds of round trips."""
+    settings.sync_chunk_max_vouchers = 5000
+    fake_connector.set("company.markers", markers())
+    vouchers_by_window(fake_connector)
+
+    await run_backfill(coordinator, linked_company["company_id"])
+
+    windows = [p for q, p in fake_connector.calls if q == "vouchers.list"]
+    assert len(windows) == 2, "the original month-based plan, untouched"
+
+
+# --------------------------------------------------------------------------
+# Reconciling deletions
+#
+# An AlterID delta reports what changed and never what was deleted, so a recent
+# window is periodically re-read in full. That read only has to answer "which
+# vouchers still exist?", and carrying the ledger and inventory lines to answer
+# it cost 13x the bytes (measured live 2026-08-29: 979,731 -> 74,357 for the
+# same 60 vouchers). So it is an identity-only read -- which makes it lethal to
+# feed to ingest.
+# --------------------------------------------------------------------------
+
+
+def identity(guid: str, day: date) -> dict:
+    """What an identity-only read returns: no ledger or inventory lines."""
+    return {
+        "guid": guid,
+        "voucher_number": guid,
+        "voucher_type": "Sales",
+        "kind": "sales",
+        "date": day.isoformat(),
+        "is_cancelled": False,
+    }
+
+
+async def test_reconcile_removes_what_tally_no_longer_has(app, linked_company) -> None:
+    company_id = linked_company["company_id"]
+    async with app.state.session_factory() as session:
+        store = VoucherStore(session)
+        await store.ingest(
+            company_id,
+            [voucher(guid="kept", day=TODAY), voucher(guid="gone", day=TODAY)],
+        )
+        await session.commit()
+
+        removed = await store.reconcile(
+            company_id, [identity("kept", TODAY)], window=(TODAY, TODAY)
+        )
+        await session.commit()
+
+        assert removed == 1
+        rows = await store.read(company_id, from_date=TODAY, to_date=TODAY)
+        assert [r["guid"] for r in rows] == ["kept"]
+
+
+async def test_reconcile_does_not_strip_the_lines_off_surviving_vouchers(
+    app, linked_company
+) -> None:
+    """The trap this method exists to avoid.
+
+    The reconcile read carries no ledger or inventory lines. Putting that
+    payload through ``ingest`` would faithfully overwrite every stored voucher
+    in the window with a lineless copy -- silently emptying every report that
+    reads them, with the store still looking fully populated.
+    """
+    company_id = linked_company["company_id"]
+    full = voucher(guid="kept", day=TODAY)
+    full["inventory_entries"] = [{"item_name": "Widget", "quantity": 3.0}]
+
+    async with app.state.session_factory() as session:
+        store = VoucherStore(session)
+        await store.ingest(company_id, [full])
+        await session.commit()
+
+        await store.reconcile(
+            company_id, [identity("kept", TODAY)], window=(TODAY, TODAY)
+        )
+        await session.commit()
+
+        stored = (await store.read(company_id, from_date=TODAY, to_date=TODAY))[0]
+        assert len(stored["ledger_entries"]) == 2, "ledger lines survived"
+        assert stored["inventory_entries"][0]["item_name"] == "Widget"
+
+
+async def test_reconcile_of_an_empty_window_removes_everything_in_it(
+    app, linked_company
+) -> None:
+    """A window Tally returns nothing for really is empty -- the operator
+    deleted the lot. Treating it as "no answer" would keep phantom vouchers
+    on the dashboard forever."""
+    company_id = linked_company["company_id"]
+    async with app.state.session_factory() as session:
+        store = VoucherStore(session)
+        await store.ingest(company_id, [voucher(guid="gone", day=TODAY)])
+        await session.commit()
+
+        removed = await store.reconcile(company_id, [], window=(TODAY, TODAY))
+        await session.commit()
+
+        assert removed == 1
+
+
+def test_an_identity_only_read_asks_for_no_lines() -> None:
+    """Where the 13x saving comes from: not the number of lines, but whether
+    Tally is asked to materialise the sub-object graph at all."""
+    query = get_query("vouchers.list")
+    params = {"company": "Acme", "from_date": "2026-01-01", "to_date": "2026-01-31"}
+    lean = query.build(query.validate_params({**params, "identity_only": True}))
+    fat = query.build(query.validate_params({**params, "include_inventory": True}))
+
+    assert "AllLedgerEntries" not in lean
+    assert "AllInventoryEntries" not in lean
+    assert "AllLedgerEntries" in fat
+    assert len(lean) < len(fat)
+
+
+async def test_the_reconcile_pass_asks_for_identities_only(
+    app, coordinator, linked_company, fake_connector, settings
+) -> None:
+    """End to end: the periodic deletion sweep must not pull the lines."""
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    settings.sync_reconcile_interval_seconds = 0  # due immediately
+    fake_connector.set("company.markers", markers(voucher_alter_id=500))
+    fake_connector.set("vouchers.list", [])
+
+    outcome = await coordinator.delta(company_id, today=TODAY)
+
+    assert outcome.reconciled is True
+    reads = [p for q, p in fake_connector.calls if q == "vouchers.list"]
+    assert reads, "the reconcile never ran"
+    assert reads[-1]["identity_only"] is True
+    assert reads[-1]["include_inventory"] is False
+
+
+# --------------------------------------------------------------------------
+# Pull-to-refresh
+#
+# The button people press when a figure looks wrong used to be the most
+# expensive request the app could make: every dataset, in full, straight at a
+# shop's Tally. For a company with history it now runs the same incremental
+# delta the background sweep does.
+# --------------------------------------------------------------------------
+
+
+async def test_a_hard_refresh_runs_a_delta_instead_of_re_reading_everything(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.set("company.markers", markers(voucher_alter_id=500))
+    before = fake_connector.call_count("vouchers.list")
+
+    assert await coordinator.refresh(company_id) is True
+
+    assert fake_connector.call_count("company.markers") > 0, "the delta never ran"
+    assert fake_connector.call_count("vouchers.list") == before, (
+        "nothing changed, so no voucher export should have been made"
+    )
+
+
+async def test_a_hard_refresh_asks_only_for_what_changed(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.set("company.markers", markers(voucher_alter_id=980))
+    fake_connector.set("vouchers.list", [voucher(guid="fresh", day=TODAY, alter_id=975)])
+    seen = len(fake_connector.calls)
+
+    await coordinator.refresh(company_id)
+
+    sent = next(p for q, p in fake_connector.calls[seen:] if q == "vouchers.list")
+    assert sent["alter_id_min"] == 500, "the cursor, not the whole window"
+
+
+async def test_four_staff_refreshing_at_once_cost_one_delta(
+    app, coordinator, linked_company, fake_connector, settings
+) -> None:
+    """The floor that stops pull-to-refresh being a denial of service against
+    the shop's own Tally."""
+    settings.min_refresh_interval_seconds = 3600
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.set("company.markers", markers(voucher_alter_id=980))
+    fake_connector.set("vouchers.list", [voucher(guid="fresh", day=TODAY, alter_id=975)])
+    before = fake_connector.call_count("company.markers")
+
+    for _ in range(4):
+        await coordinator.refresh(company_id)
+
+    assert fake_connector.call_count("company.markers") == before + 1
+
+
+async def test_a_company_with_no_history_still_falls_back_to_a_live_read(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """First launch after linking: there is nothing to be incremental about,
+    and refusing to read would leave the dashboard empty."""
+    assert await coordinator.refresh(linked_company["company_id"]) is False
+
+
+async def test_a_refresh_never_fails_the_request(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """A refresh that cannot reach Tally must degrade to "read the snapshot",
+    not to a 500 over a button press."""
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.fail_with = "tally_unreachable"
+
+    assert await coordinator.refresh(company_id) is True

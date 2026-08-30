@@ -8,7 +8,10 @@ across TallyPrime releases.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from xml.etree import ElementTree as ET
+
+from pydantic import model_validator
 
 from ...domain.masters import (
     Company,
@@ -264,8 +267,52 @@ class GroupListQuery(TallyQuery[GroupListParams, list[LedgerGroup]]):
 # --------------------------------------------------------------------------
 
 
+#: Ceiling on how many names one targeted re-read may ask for. Above this the
+#: OR chain stops being worth building: Tally walks the whole collection to
+#: evaluate it either way, so past a few hundred names the filter costs more to
+#: parse than the rows it saves. Callers check this and fall back to a full read.
+MAX_NAME_FILTER = 200
+
+
+def _name_filter(names: Sequence[str]) -> str:
+    """Restrict a master collection to an explicit set of names.
+
+    This is what makes an incremental master read possible at all. A master's
+    ``AlterID`` does not move when a voucher moves its balance (CLAUDE.md, and
+    ``tally-connector alterid-probe``), so the only sound way to refresh
+    balances without re-reading every ledger is to name the ones the changed
+    vouchers touched.
+
+    Verified live 2026-08-29: ``$Name = "Cash" OR $Name = "CGST"`` returns
+    exactly those two members, and the comparison is **case-insensitive** --
+    ``"cash"`` matched ``Cash``. That matters because these names round-trip
+    through JSON and a stored voucher line before coming back here, and a
+    case-sensitive match would silently refresh nothing.
+    """
+    # Quotes stripped rather than escaped: TDL has no escape for a double quote
+    # inside a quoted literal, and a ledger named with one is rarer than a
+    # broken envelope. Matches the group filter's handling.
+    return " OR ".join(f'$Name = "{name.replace(chr(34), "")}"' for name in names)
+
+
 class LedgerListParams(QueryParams):
     group: str | None = None
+    #: Only masters altered since this change id. Catches ledgers created,
+    #: renamed or regrouped -- **not** ledgers whose balance moved, which does
+    #: not touch AlterID at all. Pair it with :attr:`names`.
+    alter_id_min: int | None = None
+    #: Only these ledgers, by name. The balance half of an incremental refresh:
+    #: the changed vouchers name the ledgers whose closing balance can have
+    #: moved, and this reads back just those.
+    names: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _check_name_count(self) -> LedgerListParams:
+        if self.names is not None and len(self.names) > MAX_NAME_FILTER:
+            raise ValueError(
+                f"names is capped at {MAX_NAME_FILTER}; ask for every ledger instead"
+            )
+        return self
 
 
 @register
@@ -283,6 +330,10 @@ class LedgerListQuery(TallyQuery[LedgerListParams, list[Ledger]]):
 
     def build(self, params: LedgerListParams) -> str:
         filters = {}
+        if params.alter_id_min is not None:
+            filters["TFAlterIdFilter"] = f"$AlterID > {int(params.alter_id_min)}"
+        if params.names:
+            filters["TFNameFilter"] = _name_filter(params.names)
         if params.group:
             # $$IsSubGroupOf walks the whole group subtree, so asking for
             # "Bank Accounts" also returns ledgers under "Bank OD A/c".
@@ -300,6 +351,10 @@ class LedgerListQuery(TallyQuery[LedgerListParams, list[Ledger]]):
                     native_methods=[
                         "Name",
                         "Parent",
+                        # Cheap scalar, and the cursor an incremental master
+                        # read filters on. Requested unconditionally so the
+                        # value is there before anything depends on it.
+                        "AlterID",
                         "OpeningBalance",
                         "ClosingBalance",
                         "IsBillWiseOn",
@@ -350,6 +405,7 @@ class LedgerListQuery(TallyQuery[LedgerListParams, list[Ledger]]):
                     name=name,
                     parent_group=find_text(el, "PARENT"),
                     guid=find_text(el, "GUID"),
+                    alter_id=parse_int(find_text(el, "ALTERID")),
                     opening_balance=Money.from_tally(find_text(el, "OPENINGBALANCE")),
                     closing_balance=Money.from_tally(find_text(el, "CLOSINGBALANCE")),
                     is_bill_wise=parse_bool(find_text(el, "ISBILLWISEON")),
@@ -431,7 +487,19 @@ class VoucherTypeListQuery(TallyQuery[VoucherTypeListParams, list[VoucherType]])
 
 
 class StockItemListParams(QueryParams):
-    pass
+    #: See :attr:`LedgerListParams.alter_id_min`.
+    alter_id_min: int | None = None
+    #: See :attr:`LedgerListParams.names`. Fed from the inventory lines of the
+    #: vouchers a delta returned.
+    names: list[str] | None = None
+
+    @model_validator(mode="after")
+    def _check_name_count(self) -> StockItemListParams:
+        if self.names is not None and len(self.names) > MAX_NAME_FILTER:
+            raise ValueError(
+                f"names is capped at {MAX_NAME_FILTER}; ask for every item instead"
+            )
+        return self
 
 
 @register
@@ -443,6 +511,12 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
     heavy = True
 
     def build(self, params: StockItemListParams) -> str:
+        filters = {}
+        if params.alter_id_min is not None:
+            filters["TFAlterIdFilter"] = f"$AlterID > {int(params.alter_id_min)}"
+        if params.names:
+            filters["TFNameFilter"] = _name_filter(params.names)
+
         return build_export_envelope(
             request_type="Collection",
             request_id="TFStockItems",
@@ -454,6 +528,7 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                     native_methods=[
                         "Name",
                         "Parent",
+                        "AlterID",
                         "Category",
                         "BaseUnits",
                         "OpeningBalance",
@@ -466,6 +541,7 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                     # Tax attributes live on child GST detail objects rather
                     # than on the item, so NATIVEMETHOD does not reach them.
                     fetch=["HSNCode", "GSTRate", "GSTDetails"],
+                    filters=filters,
                 )
             ],
         )
@@ -487,6 +563,7 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                     parent_group=find_text(el, "PARENT"),
                     category=find_text(el, "CATEGORY"),
                     guid=find_text(el, "GUID"),
+                    alter_id=parse_int(find_text(el, "ALTERID")),
                     base_unit=find_text(el, "BASEUNITS"),
                     opening_quantity=parse_float(find_text(el, "OPENINGBALANCE")),
                     opening_value=Money.from_tally(find_text(el, "OPENINGVALUE")),

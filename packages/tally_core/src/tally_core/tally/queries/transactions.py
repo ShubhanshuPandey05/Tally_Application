@@ -153,6 +153,17 @@ class VoucherListParams(DateRangeParams):
     #: edits". ``None`` means the whole window, which is what a first backfill
     #: and any Tally that does not report change ids both need.
     alter_id_min: int | None = None
+    #: Return each voucher's identity and nothing else -- no ledger lines, no
+    #: inventory lines. Only the deletion reconcile wants this: it compares the
+    #: set of vouchers Tally still has against the set we stored, and the lines
+    #: are irrelevant to that question.
+    #:
+    #: Measured live 2026-08-29 (D.D Enterprises, 17 months, 60 vouchers with
+    #: 217 ledger and 218 inventory lines between them): 979,731 bytes with the
+    #: lines, 74,357 without -- **13.2x**. Note where that saving is not:
+    #: dropping only the inventory lines saved 1.5%. The cost is asking Tally to
+    #: materialise the sub-object graph at all, not the number of lines in it.
+    identity_only: bool = False
 
 
 @register
@@ -190,10 +201,11 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
             # `company.markers` rather than from any individual voucher -- so
             # naming them here buys nothing and puts two more field lookups
             # into TDL that runs on a customer's machine.
-            *_leaf_fetch(_LEDGER_WRAPPERS, _LEDGER_ENTRY_FIELDS),
         ]
-        if params.include_inventory:
-            fetch += _leaf_fetch(_INVENTORY_WRAPPERS, _INVENTORY_ENTRY_FIELDS)
+        if not params.identity_only:
+            fetch += _leaf_fetch(_LEDGER_WRAPPERS, _LEDGER_ENTRY_FIELDS)
+            if params.include_inventory:
+                fetch += _leaf_fetch(_INVENTORY_WRAPPERS, _INVENTORY_ENTRY_FIELDS)
 
         # Always present. Tally will happily return the whole open year without
         # it -- see _date_window_filter.

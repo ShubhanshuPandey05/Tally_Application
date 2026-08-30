@@ -29,6 +29,7 @@ from tally_core.tally.errors import TallyError
 
 from . import __version__, remote_logs
 from . import install as autostart
+from .alterid import baseline_path, run_probe
 from .config import ConnectorSettings, load_settings, save_pairing, save_settings
 from .livecheck import livecheck, print_manifest
 from .loaded import GuardedClient
@@ -172,6 +173,33 @@ async def verify(settings: ConnectorSettings, company: str | None) -> int:
     else:
         print(f"FAIL - {failures} check(s) failed")
     return 1 if failures else 0
+
+
+async def alterid_probe(settings: ConnectorSettings, company: str | None) -> int:
+    """Settle whether a master's AlterID moves when a voucher moves its balance.
+
+    Run either side of one real voucher. The whole incremental-master design
+    depends on the answer, and it differs between TallyPrime builds -- see
+    :mod:`tally_connector.alterid`.
+    """
+    print(f"TallyFlow Connector {__version__} - master AlterID probe")
+    print(f"Tally endpoint : {settings.tally_config().url}")
+    print()
+
+    # Always the connector's own data directory, never the working directory:
+    # the two runs are minutes apart and often in different shells, and a
+    # baseline that lands wherever the operator happened to be standing is a
+    # baseline the second run does not find.
+    path = baseline_path(autostart.data_dir())
+    client = TallyClient(settings.tally_config())
+    try:
+        return await run_probe(client, company, path)
+    except TallyError as exc:
+        print(f"[FAIL] {exc.user_message}")
+        print(f"       Detail: {exc}")
+        return 1
+    finally:
+        await client.aclose()
 
 
 async def update(settings: ConnectorSettings, *, apply: bool) -> int:
@@ -479,6 +507,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     live.add_argument("--company", help="company to test (default: first one open)")
 
+    probe = sub.add_parser(
+        "alterid-probe",
+        help="check whether master AlterIDs move when a voucher changes a balance",
+    )
+    probe.add_argument("--company", help="company to probe (default: first one open)")
+
     update_cmd = sub.add_parser("update", help="check for a newer connector build")
     update_cmd.add_argument(
         "--apply", action="store_true", help="download and install it now"
@@ -571,6 +605,8 @@ def run(argv: list[str] | None = None, *, fallback_log_dir: Path | None = None) 
     try:
         if args.command == "livecheck":
             return asyncio.run(verify(settings, args.company))
+        if args.command == "alterid-probe":
+            return asyncio.run(alterid_probe(settings, args.company))
         if args.command == "update":
             return asyncio.run(update(settings, apply=args.apply))
         handler = serve if args.command == "run" else diagnose

@@ -89,6 +89,11 @@ class Ledger(BaseModel):
     name: str
     parent_group: str | None = None
     guid: str | None = None
+    #: Tally's change counter for this master record. It moves when the
+    #: *master* is edited -- renamed, regrouped, its opening balance changed --
+    #: which is not the same event as a voucher moving its closing balance. See
+    #: :mod:`tally_connector.alterid` for the probe that settles which.
+    alter_id: int | None = None
     opening_balance: Money = Field(default_factory=Money.zero)
     closing_balance: Money = Field(default_factory=Money.zero)
     is_bill_wise: bool = False
@@ -117,6 +122,8 @@ class StockItem(BaseModel):
     parent_group: str | None = None
     category: str | None = None
     guid: str | None = None
+    #: See :attr:`Ledger.alter_id` -- same counter, same caveat.
+    alter_id: int | None = None
     base_unit: str | None = None
     closing_quantity: float = 0.0
     closing_value: Money = Field(default_factory=Money.zero)

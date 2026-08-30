@@ -81,7 +81,7 @@ class Settings(BaseSettings):
     snapshot_stale_after_seconds: int = 15 * 60
     #: Floor between forced refreshes of one company, so pull-to-refresh mashing
     #: cannot be used to hammer a shop's Tally.
-    min_refresh_interval_seconds: int = 30
+    min_refresh_interval_seconds: int = 60
     refresh_worker_enabled: bool = True
     refresh_worker_interval_seconds: float = 60.0
     #: Companies refreshed per sweep. Caps the burst a single instance can put on
@@ -107,6 +107,24 @@ class Settings(BaseSettings):
     #: earlier. Nobody opens a phone to read a six-year-old day book, and every
     #: extra year is another multi-minute export against a live shop.
     sync_max_history_years: int = 4
+    #: The ceiling on one slice, in vouchers. Calendar spans are a poor proxy
+    #: for size -- a shop doing fifty vouchers a month and one doing five
+    #: thousand get wildly different exports out of the same six-month window,
+    #: and it is the *count* that decides whether TallyPrime survives building
+    #: the collection.
+    #:
+    #: There is no cheap way to ask Tally how many vouchers a window holds --
+    #: measured live 2026-08-29, even a date-only read costs ~1.2 KB per
+    #: voucher, so a count probe over four years is itself a multi-megabyte
+    #: export. So this is enforced by observation instead: a slice that comes
+    #: back over the limit narrows every slice still to be read. 5000 matches
+    #: the batch size the closest open-source equivalent settled on after
+    #: hitting the same Tally memory limit.
+    sync_chunk_max_vouchers: int = 5000
+    #: Floor on an adaptive slice. Below about a week the per-export overhead
+    #: dominates and a busy shop ends up with hundreds of round trips, each of
+    #: which blocks its till for a moment.
+    sync_chunk_min_days: int = 7
     #: Breather between slices. TallyPrime is single-threaded and shares a CPU
     #: with whoever is billing at the counter; back-to-back exports are felt.
     sync_chunk_pause_seconds: float = 3.0

@@ -6,6 +6,7 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError
 
 from tally_core.domain.masters import VoucherTypeKind
 from tally_core.domain.money import Side
@@ -23,6 +24,20 @@ def run(name: str, xml: str, **params):
 # --------------------------------------------------------------------------
 # Registry
 # --------------------------------------------------------------------------
+
+
+def unescape(envelope: str) -> str:
+    """Filter expressions ride in the envelope XML-escaped.
+
+    Asserting on the raw string would be asserting on the escaping rather than
+    on the TDL, and the TDL is what Tally evaluates.
+    """
+    return (
+        envelope.replace("&quot;", '"')
+        .replace("&gt;", ">")
+        .replace("&lt;", "<")
+        .replace("&amp;", "&")
+    )
 
 
 def test_registry_exposes_expected_queries():
@@ -158,6 +173,67 @@ def test_ledger_group_filter_uses_subgroup_walk():
     assert "Bank Accounts" in xml
 
 
+def test_ledger_alter_id_filter_is_the_structural_delta():
+    """Catches ledgers created, renamed or regrouped since the cursor."""
+    query = get_query("ledgers.list")
+    xml = unescape(query.build(query.validate_params({"company": "Acme", "alter_id_min": 700})))
+    assert "$AlterID > 700" in xml
+
+
+def test_ledger_name_filter_names_each_ledger_explicitly():
+    """The balance half of an incremental refresh.
+
+    A master's AlterID does not move when a voucher moves its balance (verified
+    live, see CLAUDE.md), so the only sound refresh is to name the ledgers the
+    changed vouchers touched.
+    """
+    query = get_query("ledgers.list")
+    xml = unescape(
+        query.build(query.validate_params({"company": "Acme", "names": ["Cash", "CGST"]}))
+    )
+    assert '$Name = "Cash" OR $Name = "CGST"' in xml
+
+
+def test_name_filter_strips_quotes_rather_than_breaking_the_envelope():
+    """TDL has no escape for a double quote inside a quoted literal, so a
+    ledger named with one must not be able to produce unparseable XML."""
+    query = get_query("ledgers.list")
+    built = query.build(query.validate_params({"company": "Acme", "names": ['A"B']}))
+    assert '$Name = "AB"' in unescape(built)
+    parse_xml(built.encode())  # would raise if the envelope were malformed
+
+
+def test_alter_id_and_name_filters_combine():
+    """Both can be live at once -- a sync that has masters to catch up on and
+    balances to refresh should not need two round trips."""
+    query = get_query("ledgers.list")
+    xml = unescape(
+        query.build(
+            query.validate_params(
+                {"company": "Acme", "alter_id_min": 12, "names": ["Cash"]}
+            )
+        )
+    )
+    assert "$AlterID > 12" in xml
+    assert '$Name = "Cash"' in xml
+
+
+def test_too_many_names_is_refused_rather_than_silently_dropped():
+    """Ignoring an oversized filter would return every ledger while the caller
+    believed it had asked for six -- expensive, and wrong in a way nothing
+    downstream could detect."""
+    query = get_query("ledgers.list")
+    with pytest.raises(ValidationError):
+        query.validate_params({"company": "Acme", "names": [f"L{i}" for i in range(201)]})
+
+
+def test_ledger_alter_id_is_parsed(fixture_xml):
+    """Present on the wire even when this company's Tally reports none, so the
+    cursor logic must cope with None rather than defaulting to zero."""
+    ledgers = run("ledgers.list", fixture_xml("ledgers_list"))
+    assert all(lg.alter_id is None or isinstance(lg.alter_id, int) for lg in ledgers)
+
+
 # --------------------------------------------------------------------------
 # Stock
 # --------------------------------------------------------------------------
@@ -175,6 +251,21 @@ def test_stock_items_map(fixture_xml):
 
     assert items["Ceiling Fan 1200mm"].is_below_reorder is True
     assert items["Copper Wire 1.5sqmm"].is_negative_stock is True
+
+
+def test_stock_item_filters_mirror_the_ledger_ones():
+    """Inventory value moves on a voucher exactly as a ledger balance does, so
+    stock needs the same two filters or the stock tiles go stale."""
+    query = get_query("stock_items.list")
+    xml = unescape(
+        query.build(
+            query.validate_params(
+                {"company": "Acme", "alter_id_min": 800, "names": ["Widget"]}
+            )
+        )
+    )
+    assert "$AlterID > 800" in xml
+    assert '$Name = "Widget"' in xml
 
 
 def test_reorder_absent_is_not_below_reorder(fixture_xml):
