@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-23T09:01:00+00:00",
+  "generated_at": "2026-08-30T17:25:36+00:00",
   "connector": {
     "version": "0.2.3",
     "file": "TallyFlowConnector-Setup-0.2.3.exe",
@@ -12,14 +12,14 @@
     "notes": "Reads add-on TDL companies; repairs the self-update handover."
   },
   "android": {
-    "version": "0.2.0",
-    "file": "TallyFlow-0.2.0.apk",
-    "url": "/downloads/TallyFlow-0.2.0.apk",
-    "sha256": "36000463e112ace64dab639a42fed67bf6a8d94f2ad500ee44e8f8d22daef7db",
-    "size_bytes": 24528605,
+    "version": "0.3.0",
+    "file": "TallyFlow-0.3.0.apk",
+    "url": "/downloads/TallyFlow-0.3.0.apk",
+    "sha256": "f60f59e3525a83b5bf98820383fd45102fa004809f563efa62125140028cc2c8",
+    "size_bytes": 24823657,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Period picker on the dashboard and reports.",
-    "build_number": 2
+    "notes": "Data-focused dashboard, and deep reports: open any voucher in full, a statement for any ledger, sales and purchase registers, and the movement behind any stock item.",
+    "build_number": 3
   }
 }

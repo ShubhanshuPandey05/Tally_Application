@@ -37,6 +37,6 @@
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Period picker on the dashboard and reports."
+    "notes": "Data-focused dashboard, and deep reports: open any voucher in full, a statement for any ledger, sales and purchase registers, and the movement behind any stock item."
   }
 }
