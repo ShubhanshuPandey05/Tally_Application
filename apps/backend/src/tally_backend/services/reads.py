@@ -67,6 +67,58 @@ def params_key(params: dict[str, Any]) -> str:
     return hashlib.sha256(blob.encode()).hexdigest()[:32]
 
 
+def stored_params(params: dict[str, Any]) -> dict[str, Any]:
+    """Params reduced to the JSON the key was hashed from.
+
+    Goes through the same ``default=str`` as :func:`params_key` on purpose. A
+    ``date`` and its ISO string hash alike but do not compare alike, and a
+    stand-in rule that silently rejects every snapshot is a rule nobody notices
+    is broken.
+    """
+    return json.loads(json.dumps(params, sort_keys=True, default=str))
+
+
+#: Params naming where a window *starts*. A stand-in may end earlier than the
+#: read asked for -- that is ordinary staleness and the banner says so -- but it
+#: may never start later. A shorter span answered as a longer one is a wrong
+#: figure rather than an old one, and nothing on screen would say so.
+_WINDOW_START = frozenset({"from_date"})
+
+#: Params that only move the anchor a result is computed against: the end of the
+#: dashboard's voucher window, and the day outstanding bills are aged as of. A
+#: day's difference here is exactly the "old numbers" the freshness banner
+#: already reports.
+_ANCHOR = frozenset({"to_date", "as_of"})
+
+
+def may_stand_in(requested: dict[str, Any], held: dict[str, Any] | None) -> bool:
+    """Whether a snapshot taken with ``held`` may answer a read for ``requested``.
+
+    Everything that changes *what* the dataset contains -- the company, whether
+    inventory lines were included -- must match exactly. Only the dates are
+    allowed to differ, and only in the direction that cannot overstate the
+    answer.
+    """
+    if not held or set(requested) != set(held):
+        return False
+    for name, wanted in requested.items():
+        if name in _ANCHOR:
+            continue
+        if name in _WINDOW_START:
+            if str(held[name]) > str(wanted):
+                return False
+            continue
+        if held[name] != wanted:
+            return False
+    return True
+
+
+#: How far back :meth:`ReadService._stand_in` will look for a snapshot to serve
+#: in place of one that was never taken. Rows are scanned newest-first, so this
+#: is a bound on work, not on age.
+_STAND_IN_CANDIDATES = 8
+
+
 @dataclass
 class DataResult:
     """A dataset plus everything the UI needs to describe its freshness."""
@@ -160,7 +212,7 @@ class ReadService:
             )
 
         return await self._refresh(
-            company, dataset=dataset, params=params, key=key, fallback=snapshot, heavy=heavy
+            company, dataset=dataset, params=params, fallback=snapshot, heavy=heavy
         )
 
     async def _refresh(
@@ -169,7 +221,6 @@ class ReadService:
         *,
         dataset: str,
         params: dict[str, Any],
-        key: str,
         fallback: Snapshot | None,
         heavy: bool,
     ) -> DataResult:
@@ -188,7 +239,7 @@ class ReadService:
 
         if result.ok:
             payload = result.data()
-            snapshot = await self._store(company.id, dataset, key, payload, result)
+            snapshot = await self._store(company.id, dataset, params, payload, result)
             return DataResult(
                 payload=payload,
                 refreshed_at=snapshot.refreshed_at,
@@ -200,6 +251,15 @@ class ReadService:
 
         error = result.error
         message = error.user_message if error else "Could not read from Tally."
+
+        # Nothing under this exact key does not mean nothing at all. A dashboard
+        # read carries today's date in its params, so the key moves at every
+        # date rollover -- and a shop whose PC is switched off overnight wakes
+        # up to sales and receivables reporting "your Tally PC is offline" while
+        # cash and stock, whose params hold no date, still show yesterday's
+        # figures. Six cards, one story, two of them telling it differently.
+        if fallback is None:
+            fallback = await self._stand_in(company.id, dataset, params)
 
         if fallback is not None:
             # Old-but-real numbers beat an error screen, as long as the response
@@ -340,9 +400,7 @@ class ReadService:
         """
         params = {"company": company.tally_name, **(params or {})}
         result = JobResult.success("local", None, duration_ms=duration_ms)
-        return await self._store(
-            company.id, dataset, params_key(params), payload, result
-        )
+        return await self._store(company.id, dataset, params, payload, result)
 
     async def snapshot_payload(
         self,
@@ -373,9 +431,53 @@ class ReadService:
         )
         return (await self._session.execute(stmt)).scalar_one_or_none()
 
+    async def _stand_in(
+        self, company_id: str, dataset: str, params: dict[str, Any]
+    ) -> Snapshot | None:
+        """The newest snapshot of this dataset that may answer for ``params``.
+
+        Consulted only when the read has already failed and there is nothing
+        under the exact key -- never on the happy path, where an exact match is
+        the only acceptable answer. What comes back is served the same way any
+        stale snapshot is: flagged stale, stamped with its real age, and
+        captioned with the error that stopped the refresh.
+
+        Ordered newest-first and filtered in Python rather than in SQL. The rule
+        in :func:`may_stand_in` compares dates for *coverage*, not equality,
+        which is not something a params hash can be asked about.
+        """
+        wanted = stored_params(params)
+        stmt = (
+            select(Snapshot)
+            .where(Snapshot.company_id == company_id, Snapshot.dataset == dataset)
+            .order_by(Snapshot.refreshed_at.desc())
+            # A dated dataset leaves one row per day behind it. The bound keeps
+            # this to a handful of rows on a company that has been running for
+            # years; anything older than the last few reads is not worth showing
+            # as "the last figures we read" anyway.
+            .limit(_STAND_IN_CANDIDATES)
+        )
+        for candidate in (await self._session.execute(stmt)).scalars():
+            if may_stand_in(wanted, candidate.params):
+                logger.info(
+                    "no snapshot of %s for company %s under the requested params; "
+                    "standing in one %.0fs old",
+                    dataset,
+                    company_id,
+                    candidate.age_seconds,
+                )
+                return candidate
+        return None
+
     async def _store(
-        self, company_id: str, dataset: str, key: str, payload: Any, result: JobResult
+        self,
+        company_id: str,
+        dataset: str,
+        params: dict[str, Any],
+        payload: Any,
+        result: JobResult,
     ) -> Snapshot:
+        key = params_key(params)
         snapshot = await self._load_snapshot(company_id, dataset, key)
         row_count = len(payload) if isinstance(payload, list) else 1
 
@@ -383,6 +485,7 @@ class ReadService:
             snapshot = Snapshot(company_id=company_id, dataset=dataset, params_key=key)
             self._session.add(snapshot)
 
+        snapshot.params = stored_params(params)
         snapshot.payload = payload
         snapshot.refreshed_at = utc_now()
         snapshot.is_stale = False

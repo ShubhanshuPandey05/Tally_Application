@@ -282,7 +282,12 @@ async def outstanding_by_group(
     """
     resolved = await _resolved(sync, company, mode)
     today = as_of or date.today()
-    resolved = group or an.DEFAULT_PARTY_GROUP[kind]
+    # Named apart from `resolved`, which is the fetch mode. Assigning the group
+    # over it sent a ledger-group name where a FetchMode belongs: it matched no
+    # branch in ReadService.fetch, so this report skipped the snapshot entirely
+    # and re-exported bills from the shop's Tally on every open -- and had
+    # nothing to show at all when that PC was off.
+    party_group = group or an.DEFAULT_PARTY_GROUP[kind]
 
     bills_result = await reads.fetch(
         company,
@@ -300,7 +305,7 @@ async def outstanding_by_group(
     data = an.group_outstanding(
         an.parse_bills(bills_result.payload),
         an.parse_ledgers(ledgers_result.payload),
-        group=resolved,
+        group=party_group,
         kind=kind,
         as_of=today,
     )
@@ -312,7 +317,7 @@ async def outstanding_by_group(
         org_id=principal.org_id,
         user_id=principal.user.id,
         company_id=company.id,
-        detail={"kind": str(kind), "group": resolved},
+        detail={"kind": str(kind), "group": party_group},
         request=request,
     )
 

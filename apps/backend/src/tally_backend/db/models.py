@@ -502,6 +502,19 @@ class Snapshot(Base):
     #: Params the payload was fetched with, so a request with different params
     #: (a different date range) is not served the wrong snapshot.
     params_key: Mapped[str] = mapped_column(String(64), default="")
+    #: The params themselves, beside the hash of them. The hash answers "is this
+    #: the same request?" and nothing else, which is not enough when the answer
+    #: is no: a dashboard read carries today's date in its params, so at every
+    #: date rollover the key moves and a connector that is switched off leaves
+    #: sales and receivables with no snapshot to fall back on while cash and
+    #: stock -- whose params hold no date -- keep theirs. Reported as "your
+    #: Tally PC is offline" on two cards out of six. Keeping the params lets
+    #: :meth:`services.reads.ReadService._stand_in` decide whether a snapshot
+    #: taken for a neighbouring window may stand in.
+    #:
+    #: Null on rows written before this column existed; refilled by the next
+    #: successful refresh, and treated as "unknown, not eligible" until then.
+    params: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     #: Set when a refresh fails, so the UI can say "showing data from 9:15am"
     #: rather than pretending it is current.

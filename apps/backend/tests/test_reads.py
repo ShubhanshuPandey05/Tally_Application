@@ -9,7 +9,7 @@ would pass every body assertion here while melting a customer's PC.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, timedelta
 
 from httpx import AsyncClient
 
@@ -97,6 +97,60 @@ async def test_a_throttled_refresh_still_reports_the_connector_honestly(
     assert fake_connector.call_count("stock_items.list") == calls_before
     # ...and the response says so rather than assuming the best.
     assert response.json()["meta"]["connector_online"] is False
+
+
+async def test_a_date_rollover_does_not_lose_the_last_figures(
+    client: AsyncClient, linked_company, fake_connector, loaded
+) -> None:
+    """Midnight must not turn half the dashboard into an offline error.
+
+    The dashboard's voucher and bill reads carry the current date in their
+    params, so their snapshot key moves at every rollover. Cash and stock carry
+    no date and keep theirs. A shop whose PC is switched off overnight therefore
+    opened the app to cash and stock showing yesterday's figures beside sales and
+    receivables saying "your Tally PC is offline" -- one outage told two
+    different ways on one screen.
+    """
+    headers = linked_company["headers"]
+    url = f"/v1/companies/{linked_company['company_id']}/dashboard"
+
+    assert (await client.get(url, headers=headers)).status_code == 200
+
+    fake_connector.online = False
+    tomorrow = (date.today() + timedelta(days=1)).isoformat()
+    body = (await client.get(f"{url}?as_of={tomorrow}", headers=headers)).json()
+
+    for name in ("sales", "receivables", "payables", "cash_and_bank", "inventory"):
+        section = body["sections"][name]
+        assert section["ok"] is True, f"{name} lost its figures at the rollover"
+        assert section["meta"]["connector_online"] is False
+    assert body["freshness"]["is_stale"] is True
+
+
+async def test_a_wider_window_is_never_answered_with_a_narrower_snapshot(
+    client: AsyncClient, linked_company, fake_connector, loaded
+) -> None:
+    """The stand-in may serve older numbers, never fewer of them.
+
+    A month's vouchers presented as a year's would be wrong rather than stale,
+    and nothing on the screen distinguishes the two -- the banner only ever
+    promises that the figures are old.
+    """
+    headers = linked_company["headers"]
+    url = f"/v1/companies/{linked_company['company_id']}/dashboard"
+
+    assert (await client.get(url, headers=headers)).status_code == 200
+
+    fake_connector.online = False
+    today = date.today()
+    year_ago = (today - timedelta(days=365)).isoformat()
+    body = (
+        await client.get(
+            f"{url}?from_date={year_ago}&to_date={today.isoformat()}", headers=headers
+        )
+    ).json()
+
+    assert body["sections"]["sales"]["ok"] is False
 
 
 async def test_no_snapshot_and_no_connector_is_an_honest_error(
