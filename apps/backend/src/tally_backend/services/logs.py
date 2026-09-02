@@ -39,10 +39,10 @@ from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ..db.models import ConnectorLog, LogLevel, ServerLog, as_utc, utc_now
+from ..db.models import AuditLog, ConnectorLog, JobStat, LogLevel, ServerLog, as_utc, utc_now
 
 logger = logging.getLogger(__name__)
 
@@ -218,6 +218,17 @@ class ServerLogStore:
     def last_seq(self) -> int:
         return self._seq
 
+    def clear(self) -> None:
+        """Forget everything held in memory.
+
+        The sequence counter deliberately keeps counting. A tail that resumed
+        from a number this store had already handed out would silently skip
+        every line up to it, so the numbers stay unique for the life of the
+        process even when what they pointed at is gone.
+        """
+        self._ring.clear()
+        self._pending.clear()
+
     @contextlib.contextmanager
     def subscribe(self, max_backlog: int = 500) -> Iterator[asyncio.Queue[LogRecordView]]:
         """A queue fed every captured record until the caller lets go.
@@ -288,8 +299,10 @@ class LogWriter:
     session_factory: Callable[[], Any]
     store: ServerLogStore
     interval_seconds: float = 5.0
-    retention_days: int = 30
-    connector_retention_days: int = 14
+    retention_days: int = 2
+    connector_retention_days: int = 2
+    audit_retention_days: int = 2
+    job_stat_retention_days: int = 2
     prune_interval_seconds: float = 3600.0
     _task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _stopping: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
@@ -348,25 +361,34 @@ class LogWriter:
             await session.commit()
 
     async def _prune(self) -> None:
-        """Age out both log tables.
+        """Age out every table that grows with traffic rather than with customers.
 
         Time-based rather than count-based: "keep the last million rows" is a
-        limit nobody can reason about, while "two weeks" is something a support
+        limit nobody can reason about, while "two days" is something a support
         person can be told. Run from the same task as the writer so a deploy
         cannot leave pruning running nowhere.
+
+        Four tables, not two. The audit trail and the job statistics are written
+        once per request and once per dispatched job respectively, which on a
+        fleet of connectors polling all day is more rows than either log -- and
+        neither had anything ageing it out at all before this.
+
+        A retention of zero or less means "keep nothing older than now", which
+        is a legitimate setting for a box that is short of disk; it is not read
+        as "keep forever", because a retention knob whose zero means infinity is
+        the setting somebody reaches for at 2am and gets backwards.
         """
+        now = utc_now()
         async with self.session_factory() as session:
-            await session.execute(
-                delete(ServerLog).where(
-                    ServerLog.created_at < utc_now() - timedelta(days=self.retention_days)
+            for model, days in (
+                (ServerLog, self.retention_days),
+                (ConnectorLog, self.connector_retention_days),
+                (AuditLog, self.audit_retention_days),
+                (JobStat, self.job_stat_retention_days),
+            ):
+                await session.execute(
+                    delete(model).where(model.created_at < now - timedelta(days=max(days, 0)))
                 )
-            )
-            await session.execute(
-                delete(ConnectorLog).where(
-                    ConnectorLog.created_at
-                    < utc_now() - timedelta(days=self.connector_retention_days)
-                )
-            )
             await session.commit()
 
 
@@ -422,3 +444,38 @@ async def stored_server_logs(
         )
         for row in rows
     ]
+
+
+async def purge_server_logs(session: AsyncSession, *, before: datetime | None = None) -> int:
+    """Delete persisted backend log lines, optionally only those before a moment.
+
+    ``before`` of ``None`` means everything. Separate from the writer's own
+    pruning because the two answer different needs: pruning is the standing
+    policy nobody thinks about, and this is somebody looking at a full disk who
+    wants the space back now.
+    """
+    query = delete(ServerLog)
+    if before is not None:
+        query = query.where(ServerLog.created_at < before)
+    result = await session.execute(query)
+    await session.commit()
+    return int(result.rowcount or 0)
+
+
+async def table_counts(session: AsyncSession) -> dict[str, int]:
+    """How many rows each diagnostic table is holding.
+
+    Shown in the portal so "are these logs eating the disk?" is a question with
+    an answer on screen rather than one that needs a psql session. Counted
+    rather than estimated: these tables are pruned to days, so the count is
+    small enough that an exact one costs nothing, and an estimate that says
+    "about 8,000" invites a second opinion.
+    """
+    counts: dict[str, int] = {}
+    for name, model in (
+        ("server_logs", ServerLog),
+        ("connector_logs", ConnectorLog),
+        ("audit_logs", AuditLog),
+    ):
+        counts[name] = int((await session.execute(select(func.count(model.id)))).scalar() or 0)
+    return counts

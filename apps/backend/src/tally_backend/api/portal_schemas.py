@@ -260,6 +260,40 @@ class ConnectorSummary(BaseModel):
     #: to know how -- a different problem from "it has been quiet".
     last_log_at: UtcDatetime | None = None
     error_count: int = 0
+    #: Stored lines held for this machine right now. The figure somebody needs
+    #: before deciding whether clearing this one connector is worth doing.
+    log_count: int = 0
+
+
+class PurgeResult(BaseModel):
+    """What a delete actually removed.
+
+    The count is returned rather than a bare 204 because "clear this
+    connector's logs" and "clear nothing, you were looking at a filtered view"
+    are indistinguishable on screen otherwise, and the second is the one that
+    sends somebody back to check whether the button works.
+    """
+
+    deleted: int = 0
+    #: What was cleared, echoed back so a toast can say it without the caller
+    #: reconstructing the sentence from the parameters it sent.
+    scope: str = ""
+
+
+class LogUsage(BaseModel):
+    """How much the diagnostic tables are holding, and for how long.
+
+    Retention is reported alongside the counts because a count on its own
+    invites the wrong reaction. Eighty thousand connector lines is alarming
+    until you know it is two days of the whole fleet and ages out by itself.
+    """
+
+    server_logs: int = 0
+    connector_logs: int = 0
+    audit_logs: int = 0
+    server_retention_days: int = 0
+    connector_retention_days: int = 0
+    audit_retention_days: int = 0
 
 
 class AuditEntry(BaseModel):

@@ -31,7 +31,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any
 
-from sqlalchemy import func, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 from tally_core.protocol import MAX_LOG_ENTRIES_PER_BATCH, MAX_LOG_MESSAGE_CHARS
 
@@ -255,27 +255,41 @@ async def connector_logs(
     return list((await session.execute(query)).scalars().all())
 
 
+@dataclass(slots=True)
+class LogActivity:
+    """What one connector's log looks like from the outside, without reading it."""
+
+    last_log_at: datetime | None = None
+    error_count: int = 0
+    #: Every stored line for this machine, so somebody deciding whether to clear
+    #: it can see which of a customer's PCs is the one filling the table.
+    line_count: int = 0
+
+
 async def log_activity(
     session: AsyncSession, connector_ids: list[str]
-) -> dict[str, tuple[datetime | None, int]]:
-    """``connector_id -> (newest line, error count)``, in one query per figure.
+) -> dict[str, LogActivity]:
+    """``connector_id -> activity``, in one grouped query per figure.
 
     Shown beside each connector in the picker so the choice is informed: a PC
-    that has logged nothing for a week and one that logged forty errors this
-    morning look identical otherwise.
+    that has logged nothing for a week, one that logged forty errors this
+    morning, and one holding two hundred thousand lines look identical
+    otherwise -- and the third is the one somebody came here to clear.
     """
     if not connector_ids:
         return {}
 
-    newest = dict(
-        (
-            await session.execute(
-                select(ConnectorLog.connector_id, func.max(ConnectorLog.created_at))
-                .where(ConnectorLog.connector_id.in_(connector_ids))
-                .group_by(ConnectorLog.connector_id)
+    rows = (
+        await session.execute(
+            select(
+                ConnectorLog.connector_id,
+                func.max(ConnectorLog.created_at),
+                func.count(ConnectorLog.id),
             )
-        ).all()
-    )
+            .where(ConnectorLog.connector_id.in_(connector_ids))
+            .group_by(ConnectorLog.connector_id)
+        )
+    ).all()
     errors = dict(
         (
             await session.execute(
@@ -288,10 +302,49 @@ async def log_activity(
             )
         ).all()
     )
-    return {
-        connector_id: (
-            as_utc(newest[connector_id]) if newest.get(connector_id) else None,
-            errors.get(connector_id, 0),
+    activity = {
+        connector_id: LogActivity(
+            last_log_at=as_utc(newest) if newest else None,
+            error_count=errors.get(connector_id, 0),
+            line_count=int(total or 0),
         )
-        for connector_id in connector_ids
+        for connector_id, newest, total in rows
     }
+    # A connector that has never logged still needs a row, or the caller has to
+    # know to substitute a default -- which is exactly the kind of knowledge
+    # that gets forgotten at the second call site.
+    for connector_id in connector_ids:
+        activity.setdefault(connector_id, LogActivity())
+    return activity
+
+
+async def purge_connector_logs(
+    session: AsyncSession,
+    *,
+    org_ids: list[str] | None,
+    connector_id: str = "",
+    before: datetime | None = None,
+) -> int:
+    """Delete stored connector lines, scoped exactly the way reading them is.
+
+    ``org_ids`` follows :func:`connector_logs`: ``None`` means unrestricted and
+    is reachable only for a portal owner, an empty list deletes nothing. The
+    scope is applied in the ``DELETE`` rather than checked beforehand, because a
+    scope enforced by a preceding lookup is a scope that a later refactor can
+    reorder away -- and the failure mode here is one partner clearing another's
+    evidence.
+    """
+    if org_ids is not None and not org_ids:
+        return 0
+
+    query = delete(ConnectorLog)
+    if org_ids is not None:
+        query = query.where(ConnectorLog.org_id.in_(org_ids))
+    if connector_id:
+        query = query.where(ConnectorLog.connector_id == connector_id)
+    if before is not None:
+        query = query.where(ConnectorLog.created_at < before)
+
+    result = await session.execute(query)
+    await session.commit()
+    return int(result.rowcount or 0)

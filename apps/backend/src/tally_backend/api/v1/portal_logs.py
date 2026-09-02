@@ -32,7 +32,7 @@ import asyncio
 import contextlib
 import json
 from collections.abc import AsyncIterator
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Annotated
 
 from fastapi import APIRouter, Query, Request
@@ -48,11 +48,31 @@ from ...db.models import (
     PlatformUser,
     User,
     as_utc,
+    utc_now,
 )
-from ...services.connector_logs import connector_logs, log_activity
-from ...services.logs import stored_server_logs
-from ..deps import HubDep, PlatformPrincipal, PlatformPrincipalDep, SessionDep
-from ..portal_schemas import AuditEntry, ConnectorSummary, LogLine, LogPage
+from ...services import audit
+from ...services.connector_logs import (
+    LogActivity,
+    connector_logs,
+    log_activity,
+    purge_connector_logs,
+)
+from ...services.logs import purge_server_logs, stored_server_logs, table_counts
+from ..deps import (
+    HubDep,
+    PlatformPrincipal,
+    PlatformPrincipalDep,
+    SessionDep,
+    SettingsDep,
+)
+from ..portal_schemas import (
+    AuditEntry,
+    ConnectorSummary,
+    LogLine,
+    LogPage,
+    LogUsage,
+    PurgeResult,
+)
 from .portal import _account_or_404, _scoped
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -191,6 +211,42 @@ async def _guarded(stream: AsyncIterator[bytes]) -> AsyncIterator[bytes]:
             yield chunk
 
 
+@router.delete("/logs/backend", response_model=PurgeResult)
+async def clear_backend_logs(
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    request: Request,
+    older_than_days: Annotated[int | None, Query(ge=0, le=3650)] = None,
+) -> PurgeResult:
+    """Throw away kept backend logs, and the live ring with them.
+
+    Owner-only, like everything else on this surface. ``older_than_days`` of
+    ``None`` means all of it; a number keeps that many days, which is the
+    version somebody wants when one bad afternoon has filled the table and the
+    rest is still worth having.
+
+    The in-memory ring is cleared only on a full purge. Clearing it for a dated
+    one would be a lie -- the ring cannot drop half of itself by age without
+    being rebuilt, and a button that quietly removes more than it says is worse
+    than one that removes less.
+    """
+    principal.require(PlatformRole.OWNER)
+    cutoff = _cutoff(older_than_days)
+    deleted = await purge_server_logs(session, before=cutoff)
+    if cutoff is None:
+        request.app.state.log_store.clear()
+
+    await audit.record(
+        session,
+        action="portal.logs.clear_backend",
+        user_id=principal.user.id,
+        detail={"deleted": deleted, "older_than_days": older_than_days},
+        request=request,
+    )
+    await session.commit()
+    return PurgeResult(deleted=deleted, scope=_scope_label("Server logs", None, cutoff))
+
+
 # --------------------------------------------------------------------------
 # Connector logs
 # --------------------------------------------------------------------------
@@ -286,6 +342,61 @@ async def connector_log_page(
     )
 
 
+@router.delete("/logs/connector", response_model=PurgeResult)
+async def clear_connector_logs(
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    request: Request,
+    org_id: Annotated[str, Query(max_length=32)] = "",
+    connector_id: Annotated[str, Query(max_length=32)] = "",
+    older_than_days: Annotated[int | None, Query(ge=0, le=3650)] = None,
+) -> PurgeResult:
+    """Throw away what one Tally PC -- or one account, or the fleet -- has logged.
+
+    The narrow case is the one this exists for: a single connector on a chatty
+    build filling the table for everybody. Naming ``connector_id`` clears that
+    machine and nothing else.
+
+    Scope is resolved through the same helper the read uses, so a partner
+    clearing an account that is not theirs gets a 404 and no deletion. Clearing
+    the *whole* fleet -- no account, no machine -- additionally requires an
+    owner: a partner has no business deciding that nobody's connector logs
+    matter any more, and an unfiltered delete is far too easy to arrive at by
+    forgetting to choose an account.
+    """
+    if not org_id.strip() and not connector_id.strip():
+        principal.require(PlatformRole.OWNER)
+
+    org_ids = await _visible_org_ids(session, principal, org_id)
+    cutoff = _cutoff(older_than_days)
+    deleted = await purge_connector_logs(
+        session,
+        org_ids=org_ids,
+        connector_id=connector_id.strip(),
+        before=cutoff,
+    )
+
+    await audit.record(
+        session,
+        action="portal.logs.clear_connector",
+        org_id=org_id.strip() or None,
+        user_id=principal.user.id,
+        detail={
+            "deleted": deleted,
+            "connector_id": connector_id.strip() or None,
+            "older_than_days": older_than_days,
+        },
+        request=request,
+    )
+    await session.commit()
+    return PurgeResult(
+        deleted=deleted,
+        scope=_scope_label(
+            "Connector logs", connector_id.strip() or org_id.strip() or None, cutoff
+        ),
+    )
+
+
 # --------------------------------------------------------------------------
 # Activity
 # --------------------------------------------------------------------------
@@ -340,9 +451,102 @@ async def audit_trail(
     ]
 
 
+@router.delete("/audit", response_model=PurgeResult)
+async def clear_audit_trail(
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    request: Request,
+    org_id: Annotated[str, Query(max_length=32)] = "",
+    older_than_days: Annotated[int | None, Query(ge=0, le=3650)] = None,
+) -> PurgeResult:
+    """Throw away recorded activity.
+
+    Owner-only in every form, including the account-scoped one, and that is
+    deliberately stricter than the connector log. A connector log is
+    diagnostics; the audit trail is the record of who looked at whose books, and
+    the ability to erase it is not something a partner should hold over the
+    accounts they manage.
+
+    The deletion is itself recorded, which is the only honest way to do this:
+    the row saying the trail was cleared is written after the delete, so it
+    survives it and the gap has a name on it.
+    """
+    principal.require(PlatformRole.OWNER)
+    org_ids = [org_id.strip()] if org_id.strip() else None
+    cutoff = _cutoff(older_than_days)
+    deleted = await audit.purge(session, org_ids=org_ids, before=cutoff)
+
+    await audit.record(
+        session,
+        action="portal.audit.clear",
+        org_id=org_id.strip() or None,
+        user_id=principal.user.id,
+        detail={"deleted": deleted, "older_than_days": older_than_days},
+        request=request,
+    )
+    await session.commit()
+    return PurgeResult(
+        deleted=deleted, scope=_scope_label("Activity", org_id.strip() or None, cutoff)
+    )
+
+
+# --------------------------------------------------------------------------
+# Usage
+# --------------------------------------------------------------------------
+
+
+@router.get("/logs/usage", response_model=LogUsage)
+async def log_usage(
+    principal: PlatformPrincipalDep, session: SessionDep, settings: SettingsDep
+) -> LogUsage:
+    """How many rows the diagnostic tables hold, and how long they are kept.
+
+    Owner-only, because a row count across the platform is a rough measure of
+    how much platform there is, and that is not a partner's figure. It exists so
+    "are the logs going to fill the disk?" is a question with an answer on
+    screen rather than one that needs a database session.
+    """
+    principal.require(PlatformRole.OWNER)
+    counts = await table_counts(session)
+    return LogUsage(
+        server_logs=counts["server_logs"],
+        connector_logs=counts["connector_logs"],
+        audit_logs=counts["audit_logs"],
+        server_retention_days=settings.log_retention_days,
+        connector_retention_days=settings.connector_log_retention_days,
+        audit_retention_days=settings.audit_retention_days,
+    )
+
+
 # --------------------------------------------------------------------------
 # Internals
 # --------------------------------------------------------------------------
+
+
+def _cutoff(older_than_days: int | None) -> datetime | None:
+    """Turn "keep this many days" into the moment to delete before.
+
+    ``None`` stays ``None`` and means everything. Zero is a real answer meaning
+    "everything up to now" and is not folded into ``None``, because a parameter
+    where 0 and "unset" mean the same thing is one nobody can read at the call
+    site.
+    """
+    if older_than_days is None:
+        return None
+    return utc_now() - timedelta(days=older_than_days)
+
+
+def _scope_label(subject: str, target: str | None, cutoff: datetime | None) -> str:
+    """A sentence for the toast, built here rather than in the browser.
+
+    The portal would otherwise reassemble it from the arguments it just sent,
+    which is how a message ends up describing what was asked for rather than
+    what happened.
+    """
+    where = f" for {target}" if target else " everywhere"
+    when = "" if cutoff is None else " older than the chosen window"
+    return f"{subject}{where}{when}"
+
 
 
 async def _visible_org_ids(
@@ -397,9 +601,9 @@ def _connector_summary(
     row: Connector,
     org: Organisation,
     online: bool,
-    activity: dict[str, tuple[datetime | None, int]],
+    activity: dict[str, LogActivity],
 ) -> ConnectorSummary:
-    last_log_at, errors = activity.get(row.id, (None, 0))
+    seen = activity.get(row.id) or LogActivity()
     return ConnectorSummary(
         id=row.id,
         org_id=org.id,
@@ -416,6 +620,7 @@ def _connector_summary(
         # sends support to the wrong end of the problem.
         tally_online=online and bool(row.last_tally_online),
         last_seen_at=as_utc(row.last_seen_at) if row.last_seen_at else None,
-        last_log_at=last_log_at,
-        error_count=errors,
+        last_log_at=seen.last_log_at,
+        error_count=seen.error_count,
+        log_count=seen.line_count,
     )

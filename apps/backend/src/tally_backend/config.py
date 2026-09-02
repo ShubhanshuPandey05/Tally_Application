@@ -201,12 +201,24 @@ class Settings(BaseSettings):
     #: redeploy. Lowering this to INFO writes a database row per request, on the
     #: same database that serves customers' reports -- do not, except briefly.
     log_persist_level: str = "WARNING"
-    #: How long persisted backend logs are kept.
-    log_retention_days: int = 30
-    #: How long logs pushed by customers' connectors are kept. Shorter than the
-    #: backend's: it is one table for the whole fleet, and a support question
-    #: older than a fortnight is answered by the customer, not by a log.
-    connector_log_retention_days: int = 14
+    #: How long persisted backend logs are kept. Two days, because these tables
+    #: grow with traffic rather than with customers: a diagnostic side-channel
+    #: that outgrows the books it sits beside has stopped being diagnostic. A
+    #: support question older than that is answered by the customer, not by a
+    #: log, and the portal can clear any of them on demand besides.
+    log_retention_days: int = 2
+    #: How long logs pushed by customers' connectors are kept. One table for the
+    #: whole fleet, every connector, every second it is running -- the fastest
+    #: growing of the three by a wide margin.
+    connector_log_retention_days: int = 2
+    #: How long the audit trail is kept. This one is a row per *request*, and in
+    #: a read-only product every screen a customer opens is a request, so it
+    #: grows faster than either log on a busy account.
+    audit_retention_days: int = 2
+    #: How long per-job connector statistics are kept. Nothing reads this table
+    #: yet -- it is written for a health view that does not exist -- so it is
+    #: pruned on the same window rather than left to grow unattended.
+    job_stat_retention_days: int = 2
     #: Whether connectors' pushed logs are accepted at all. Off makes the
     #: backend ignore the frames; connectors keep sending them and nothing
     #: breaks, which is what makes this safe to flip during an incident.

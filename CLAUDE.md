@@ -434,9 +434,19 @@ Three properties matter more than the feature:
 Connector lines carry two timestamps. `created_at` is our receipt time and the
 only safe sort key; `logged_at` is the shop PC's own clock, kept because "their
 machine thinks it is six hours ago" is a real finding and invisible if quietly
-overwritten. Both tables are pruned on a time window by `LogWriter`, and neither
-has a foreign key — the lines explaining why a connector was removed must not go
-with it.
+overwritten. Neither table has a foreign key — the lines explaining why a
+connector was removed must not go with it.
+
+**Diagnostics are kept for two days.** `LogWriter` prunes four tables on a time
+window, not two: the kept server log, the fleet's connector logs, the audit
+trail and `job_stats`. All four grow with *traffic* rather than with customers —
+the audit trail fastest of all, since it is a row per request and in a read-only
+product every screen a customer opens is a request — and a diagnostic
+side-channel that outgrows the books it sits beside has stopped being
+diagnostic. Retention is not the only lever: the portal can clear any of them on
+demand, per connector, per account or entirely. Clearing the audit trail is
+owner-only and is itself audited, so the gap it leaves has a name and a time on
+it.
 
 ---
 

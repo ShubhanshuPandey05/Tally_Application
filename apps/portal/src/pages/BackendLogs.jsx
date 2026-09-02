@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { api, query, stream } from '../api.js';
+import ClearLogs from '../components/ClearLogs.jsx';
 import LogView from '../components/LogView.jsx';
 import { Loading, Segmented, useDebounced, useToast } from '../components/ui.jsx';
 import { fmtCount } from '../format.js';
@@ -167,6 +168,21 @@ export default function BackendLogs() {
           <button type="button" className="btn btn-sm" onClick={load}>
             Refresh
           </button>
+          <ClearLogs
+            label="Clear"
+            title="Clear server logs"
+            subject="Kept warnings and errors from every backend instance."
+            note={
+              'Clearing everything also empties this process\u2019s live ring, so the Live '
+              + 'view starts again from the next line logged.'
+            }
+            onClear={(days) =>
+              api(`/logs/backend${query({ older_than_days: days === null ? '' : days })}`, {
+                method: 'DELETE',
+              })
+            }
+            onDone={load}
+          />
         </div>
 
         {loading && !lines.length ? (

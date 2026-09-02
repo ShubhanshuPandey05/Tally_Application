@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, query } from '../api.js';
+import ClearLogs from '../components/ClearLogs.jsx';
 import { Empty, Loading, Pill, useDebounced, useLoad } from '../components/ui.jsx';
 import { fmtAgo, fmtDateTime } from '../format.js';
 
@@ -12,7 +13,7 @@ import { fmtAgo, fmtDateTime } from '../format.js';
  * the read. This screen is the other half of the support view: the connector
  * log says what a customer's machine did, and this says what was asked of it.
  */
-export default function Activity() {
+export default function Activity({ me }) {
   const [params, setParams] = useSearchParams();
   const orgId = params.get('org') || '';
   const [action, setAction] = useState('');
@@ -68,6 +69,35 @@ export default function Activity() {
           value={action}
           onChange={(event) => setAction(event.target.value)}
         />
+
+        {/* Owner-only, and the server says so too. Erasing the record of who
+            looked at whose books is not something a partner should be able to
+            do to the accounts they manage. */}
+        {me?.role === 'owner' ? (
+          <>
+            <span className="grow" />
+            <ClearLogs
+              label="Clear activity"
+              title="Clear the activity trail"
+              subject={
+                orgId
+                  ? 'Recorded actions for this account.'
+                  : 'Recorded actions for every account.'
+              }
+              note={
+                'The clearing itself is recorded, so the gap it leaves has a name and a '
+                + 'time on it.'
+              }
+              onClear={(days) =>
+                api(
+                  `/audit${query({ org_id: orgId, older_than_days: days === null ? '' : days })}`,
+                  { method: 'DELETE' },
+                )
+              }
+              onDone={entries.reload}
+            />
+          </>
+        ) : null}
       </div>
 
       <section className="card">

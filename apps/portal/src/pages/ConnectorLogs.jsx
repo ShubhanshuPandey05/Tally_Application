@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api, query } from '../api.js';
+import ClearLogs from '../components/ClearLogs.jsx';
 import LogView from '../components/LogView.jsx';
 import { Empty, Loading, Pill, useDebounced, useLoad, useToast } from '../components/ui.jsx';
 import { fmtAgo, fmtCount } from '../format.js';
@@ -23,7 +24,7 @@ const REFRESH_SECONDS = 15;
  * quiet whenever routing moves. Fifteen seconds against an indexed query is the
  * honest version.
  */
-export default function ConnectorLogs() {
+export default function ConnectorLogs({ me }) {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
   const orgId = params.get('org') || '';
@@ -90,6 +91,16 @@ export default function ConnectorLogs() {
   );
 
   const chosen = accounts.data?.find((account) => account.id === orgId);
+
+  // Clearing every connector's log on the platform is an owner's decision, and
+  // the server enforces that. Disabling the button rather than letting it fail
+  // means a partner is never offered a control that answers 403.
+  const mayClear = Boolean(orgId || connectorId || me?.role === 'owner');
+  const clearing = connectorId
+    ? byId[connectorId]?.label || 'this Tally PC'
+    : chosen
+      ? chosen.name
+      : 'every account';
 
   return (
     <>
@@ -204,6 +215,9 @@ export default function ConnectorLogs() {
                 {connector.last_log_at
                   ? `last logged ${fmtAgo(connector.last_log_at)}`
                   : 'has never sent a log'}
+                {connector.log_count
+                  ? ` · ${fmtCount(connector.log_count)} lines stored`
+                  : ''}
               </span>
             </button>
           ))}
@@ -241,6 +255,32 @@ export default function ConnectorLogs() {
           >
             Copy
           </button>
+          <ClearLogs
+            label="Clear"
+            title="Clear connector logs"
+            subject={`Stored lines for ${clearing}.`}
+            note={
+              connectorId
+                ? 'Only this machine is affected. Its connector keeps its own log file on '
+                  + 'the shop PC either way, and will push new lines as soon as it has any.'
+                : 'Every Tally PC on this selection is affected.'
+            }
+            disabled={!mayClear}
+            onClear={(days) =>
+              api(
+                `/logs/connector${query({
+                  org_id: orgId,
+                  connector_id: connectorId,
+                  older_than_days: days === null ? '' : days,
+                })}`,
+                { method: 'DELETE' },
+              )
+            }
+            onDone={() => {
+              setTick((value) => value + 1);
+              connectors.reload();
+            }}
+          />
         </div>
 
         {logs.loading && !logs.data ? (

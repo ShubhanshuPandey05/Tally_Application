@@ -1,5 +1,6 @@
-import { Pill } from '../components/ui.jsx';
-import { fmtDateTime, initials } from '../format.js';
+import { api } from '../api.js';
+import { Pill, useLoad } from '../components/ui.jsx';
+import { fmtCount, fmtDateTime, initials } from '../format.js';
 import ChangePassword from './ChangePassword.jsx';
 import './accounts.css';
 
@@ -41,6 +42,8 @@ export default function Settings({ me, onUpdated }) {
         </div>
       </div>
 
+      {me.role === 'owner' ? <Diagnostics /> : null}
+
       <div className="stack" style={{ gap: 10 }}>
         <h2>Change password</h2>
         <ChangePassword onDone={onUpdated} />
@@ -52,5 +55,48 @@ export default function Settings({ me, onUpdated }) {
         reaches anybody&rsquo;s books.
       </p>
     </>
+  );
+}
+
+/**
+ * What the diagnostic tables are holding, and for how long.
+ *
+ * Here rather than on the log screens because it is not a support question. It
+ * is the answer to "are these logs going to fill the disk?", which is asked
+ * once, by the person who runs the box — and the retention figure beside each
+ * count is what makes the count readable. Eighty thousand connector lines
+ * sounds alarming until it is two days of the whole fleet, ageing out by
+ * itself.
+ */
+function Diagnostics() {
+  const usage = useLoad((signal) => api('/logs/usage', { signal }), []);
+  if (usage.loading || usage.error || !usage.data) return null;
+
+  const rows = [
+    ['Server logs', usage.data.server_logs, usage.data.server_retention_days],
+    ['Connector logs', usage.data.connector_logs, usage.data.connector_retention_days],
+    ['Activity', usage.data.audit_logs, usage.data.audit_retention_days],
+  ];
+
+  return (
+    <div className="stack" style={{ gap: 10 }}>
+      <h2>Diagnostics storage</h2>
+      <div className="drawer-grid">
+        {rows.map(([label, count, days]) => (
+          <div className="fact" key={label}>
+            <span className="fact-label">{label}</span>
+            <span className="fact-value">{fmtCount(count)} rows</span>
+            <span className="dim">
+              kept {days === 1 ? '1 day' : `${days} days`}, then deleted
+            </span>
+          </div>
+        ))}
+      </div>
+      <p className="hint" style={{ maxWidth: 620 }}>
+        These tables grow with traffic rather than with customers, so they age out on
+        their own. Clearing one by hand — from the log screens — is for the day a single
+        machine fills it faster than that.
+      </p>
+    </div>
   );
 }

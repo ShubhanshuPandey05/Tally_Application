@@ -101,8 +101,8 @@ export default function App() {
             path="/logs/backend"
             element={me.role === 'owner' ? <BackendLogs /> : <Navigate to="/" replace />}
           />
-          <Route path="/logs/connector" element={<ConnectorLogs />} />
-          <Route path="/activity" element={<Activity />} />
+          <Route path="/logs/connector" element={<ConnectorLogs me={me} />} />
+          <Route path="/activity" element={<Activity me={me} />} />
           <Route path="/settings" element={<Settings me={me} onUpdated={setMe} />} />
           {/* A stale bookmark should land somewhere useful, not on a blank
               page that looks like the portal is broken. */}

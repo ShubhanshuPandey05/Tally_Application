@@ -18,9 +18,11 @@ from tally_core.protocol import LogBatch, LogEntry
 
 from tally_backend.core.security import hash_password
 from tally_backend.db.models import (
+    AuditLog,
     Connector,
     ConnectorLog,
     ConnectorStatus,
+    JobStat,
     Organisation,
     PlatformRole,
     PlatformUser,
@@ -30,6 +32,7 @@ from tally_backend.db.models import (
 from tally_backend.services.connector_logs import ConnectorLogIngest
 from tally_backend.services.logs import (
     LogRecordView,
+    LogWriter,
     ServerLogStore,
     install_capture,
     level_at_least,
@@ -483,6 +486,254 @@ async def test_audit_trail_names_the_actor_across_both_identity_tables(
     assert response.status_code == 200
     actors = [entry["actor"] for entry in response.json() if entry["actor"]]
     assert "Platform Owner" in actors
+
+
+# --------------------------------------------------------------------------
+# Retention and clearing
+# --------------------------------------------------------------------------
+
+
+async def test_pruning_reaches_every_table_that_grows_with_traffic(app):
+    """Audit rows and job stats age out too, not just the two log tables.
+
+    Before this they had nothing ageing them out at all, and the audit trail is
+    the fastest growing of the four -- a row per request, and in a read-only
+    product every screen a customer opens is a request.
+    """
+    from sqlalchemy import func, select
+
+    old = utc_now() - timedelta(days=5)
+    async with app.state.session_factory() as session:
+        org = Organisation(name="Busy Ltd")
+        session.add(org)
+        await session.flush()
+        session.add_all(
+            [
+                ServerLog(level="ERROR", message="old", created_at=old),
+                ServerLog(level="ERROR", message="new"),
+                ConnectorLog(
+                    org_id=org.id, connector_id="c", level="INFO",
+                    message="old", created_at=old, logged_at=old,
+                ),
+                ConnectorLog(
+                    org_id=org.id, connector_id="c", level="INFO",
+                    message="new", logged_at=utc_now(),
+                ),
+                AuditLog(action="data.read", org_id=org.id, created_at=old),
+                AuditLog(action="data.read", org_id=org.id),
+                JobStat(connector_id="c", query="daybook", created_at=old),
+                JobStat(connector_id="c", query="daybook"),
+            ]
+        )
+        await session.commit()
+
+    writer = LogWriter(app.state.session_factory, app.state.log_store)
+    await writer._prune()
+
+    async with app.state.session_factory() as session:
+        for model in (ServerLog, ConnectorLog, AuditLog, JobStat):
+            total = (await session.execute(select(func.count(model.id)))).scalar()
+            assert total == 1, model.__name__
+
+
+async def test_clearing_one_connector_leaves_the_others_alone(
+    client: AsyncClient, app, platform_owner
+):
+    """The narrow case the button exists for: one chatty machine, cleared."""
+    from sqlalchemy import select
+
+    async with app.state.session_factory() as session:
+        org = Organisation(name="Two PCs Ltd")
+        session.add(org)
+        await session.flush()
+        session.add_all(
+            [
+                ConnectorLog(
+                    org_id=org.id, connector_id="noisy", level="INFO",
+                    message=f"line-{index}", logged_at=utc_now(),
+                )
+                for index in range(3)
+            ]
+            + [
+                ConnectorLog(
+                    org_id=org.id, connector_id="quiet", level="INFO",
+                    message="kept", logged_at=utc_now(),
+                )
+            ]
+        )
+        await session.commit()
+        org_id = org.id
+
+    response = await client.delete(
+        f"/v1/portal/logs/connector?org_id={org_id}&connector_id=noisy",
+        headers=platform_owner["headers"],
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["deleted"] == 3
+
+    async with app.state.session_factory() as session:
+        rows = (await session.execute(select(ConnectorLog))).scalars().all()
+        assert [row.connector_id for row in rows] == ["quiet"]
+
+
+async def test_a_partner_cannot_clear_another_accounts_connector_logs(
+    client: AsyncClient, app, two_accounts
+):
+    """404 and no deletion -- the same answer reading it gives."""
+    from sqlalchemy import func, select
+
+    response = await client.delete(
+        f"/v1/portal/logs/connector?org_id={two_accounts['theirs']}",
+        headers=two_accounts["partner"]["headers"],
+    )
+    assert response.status_code == 404
+
+    async with app.state.session_factory() as session:
+        total = (await session.execute(select(func.count(ConnectorLog.id)))).scalar()
+        assert total == 2
+
+
+async def test_a_partner_cannot_clear_the_whole_fleet(client: AsyncClient, two_accounts):
+    """An unfiltered delete is far too easy to reach by forgetting a filter."""
+    response = await client.delete(
+        "/v1/portal/logs/connector", headers=two_accounts["partner"]["headers"]
+    )
+    assert response.status_code == 403
+
+
+async def test_clearing_older_than_a_day_keeps_today(
+    client: AsyncClient, app, platform_owner
+):
+    from sqlalchemy import select
+
+    async with app.state.session_factory() as session:
+        org = Organisation(name="Dated Ltd")
+        session.add(org)
+        await session.flush()
+        stale = utc_now() - timedelta(days=3)
+        session.add_all(
+            [
+                ConnectorLog(
+                    org_id=org.id, connector_id="c", level="INFO",
+                    message="stale", created_at=stale, logged_at=stale,
+                ),
+                ConnectorLog(
+                    org_id=org.id, connector_id="c", level="INFO",
+                    message="fresh", logged_at=utc_now(),
+                ),
+            ]
+        )
+        await session.commit()
+        org_id = org.id
+
+    response = await client.delete(
+        f"/v1/portal/logs/connector?org_id={org_id}&older_than_days=1",
+        headers=platform_owner["headers"],
+    )
+    assert response.json()["deleted"] == 1
+
+    async with app.state.session_factory() as session:
+        rows = (await session.execute(select(ConnectorLog))).scalars().all()
+        assert [row.message for row in rows] == ["fresh"]
+
+
+async def test_clearing_server_logs_empties_the_ring_too(
+    client: AsyncClient, app, platform_owner
+):
+    """A full purge that left the live view populated would look like a no-op."""
+    store = app.state.log_store
+    store.capture(make_view(level="ERROR", message="boom"))
+    async with app.state.session_factory() as session:
+        session.add(ServerLog(level="ERROR", message="boom"))
+        await session.commit()
+
+    response = await client.delete(
+        "/v1/portal/logs/backend", headers=platform_owner["headers"]
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted"] >= 1
+    assert store.recent() == []
+
+    # The counter keeps going. A tail resuming from a sequence number this
+    # process already handed out must not silently skip everything up to it.
+    assert store.last_seq >= 1
+
+
+async def test_backend_log_clearing_is_owner_only(client: AsyncClient, two_accounts):
+    response = await client.delete(
+        "/v1/portal/logs/backend", headers=two_accounts["partner"]["headers"]
+    )
+    assert response.status_code == 403
+
+
+async def test_clearing_activity_is_owner_only_even_for_their_own_account(
+    client: AsyncClient, two_accounts
+):
+    """Stricter than the connector log, deliberately.
+
+    A connector log is diagnostics; the audit trail is the record of who looked
+    at whose books, and erasing it is not a power a partner should hold over the
+    accounts they manage.
+    """
+    response = await client.delete(
+        f"/v1/portal/audit?org_id={two_accounts['mine']}",
+        headers=two_accounts["partner"]["headers"],
+    )
+    assert response.status_code == 403
+
+
+async def test_clearing_activity_records_that_it_happened(
+    client: AsyncClient, app, platform_owner
+):
+    from sqlalchemy import select
+
+    from tally_backend.services.audit import record
+
+    async with app.state.session_factory() as session:
+        org = Organisation(name="Cleared Ltd")
+        session.add(org)
+        await session.flush()
+        await record(session, action="data.read", org_id=org.id)
+        await session.commit()
+        org_id = org.id
+
+    response = await client.delete(
+        f"/v1/portal/audit?org_id={org_id}", headers=platform_owner["headers"]
+    )
+    assert response.status_code == 200
+    assert response.json()["deleted"] == 1
+
+    async with app.state.session_factory() as session:
+        actions = (
+            (await session.execute(select(AuditLog.action).where(AuditLog.org_id == org_id)))
+            .scalars()
+            .all()
+        )
+    # The row naming the gap is written after the delete, so it survives it.
+    assert actions == ["portal.audit.clear"]
+
+
+async def test_usage_reports_counts_beside_the_retention_that_explains_them(
+    client: AsyncClient, app, platform_owner
+):
+    async with app.state.session_factory() as session:
+        session.add(ServerLog(level="ERROR", message="one"))
+        await session.commit()
+
+    response = await client.get("/v1/portal/logs/usage", headers=platform_owner["headers"])
+    assert response.status_code == 200
+    body = response.json()
+    assert body["server_logs"] >= 1
+    assert body["server_retention_days"] > 0
+    assert body["connector_retention_days"] > 0
+    assert body["audit_retention_days"] > 0
+
+
+async def test_usage_is_owner_only(client: AsyncClient, two_accounts):
+    response = await client.get(
+        "/v1/portal/logs/usage", headers=two_accounts["partner"]["headers"]
+    )
+    assert response.status_code == 403
 
 
 # --------------------------------------------------------------------------
