@@ -15,6 +15,7 @@ from typing import Any
 
 import pytest
 import pytest_asyncio
+from backend_support import LifespanRunner
 from httpx import ASGITransport, AsyncClient
 from tally_core.protocol import JobResult
 from tally_core.tally.errors import TallyUnreachableError
@@ -158,26 +159,6 @@ async def app(settings: Settings, fake_connector: FakeConnector):
         application.state.hub.run = fake_connector.run  # type: ignore[method-assign]
         application.state.hub.is_online = fake_connector.is_online  # type: ignore[method-assign]
         yield application
-
-
-class LifespanRunner:
-    """Runs the app's lifespan without spinning up a server."""
-
-    def __init__(self, app) -> None:  # noqa: ANN001
-        self._app = app
-        self._cm = None
-
-    async def __aenter__(self):
-        from contextlib import AsyncExitStack
-
-        self._stack = AsyncExitStack()
-        router = self._app.router
-        self._cm = router.lifespan_context(self._app)
-        await self._stack.enter_async_context(self._cm)
-        return self._app
-
-    async def __aexit__(self, *exc_info) -> None:
-        await self._stack.aclose()
 
 
 @pytest_asyncio.fixture

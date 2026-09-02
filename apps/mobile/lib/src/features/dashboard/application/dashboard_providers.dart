@@ -1,7 +1,9 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../core/model/financial_year.dart';
 import '../../../core/providers.dart';
 import '../../../core/widgets/period_picker.dart';
+import '../../companies/application/financial_year_providers.dart';
 import '../../reports/domain/reports.dart';
 import '../data/dashboard_repository.dart';
 import '../domain/dashboard.dart';
@@ -28,22 +30,36 @@ final NotifierProviderFamily<DashboardPeriodController, PeriodSelection?, String
 class DashboardPeriodController extends FamilyNotifier<PeriodSelection?, String> {
   @override
   // ignore: avoid_renaming_method_parameters
-  PeriodSelection? build(String companyId) => null;
+  PeriodSelection? build(String companyId) {
+    // Watched, not read: picking a different financial year has to move the
+    // window with it. A closed year has no "today" to fall back on, so it
+    // opens on the whole year -- whereas the year we are in keeps the ordinary
+    // today view, which is the request the background refresher warms.
+    final FinancialYear year = ref.watch(activeFinancialYearProvider);
+    return year.isCurrent ? null : PeriodSelection(year.toDate, year.label);
+  }
 
   /// A single day that is today is stored as null rather than as a one-day
   /// period. It keeps the request identical to the one the background
   /// refresher warms, and makes "are we looking at something other than today?"
   /// a single null check everywhere downstream.
   void select(PeriodSelection? selection) {
+    final FinancialYear year = ref.read(activeFinancialYearProvider);
     if (selection == null) {
-      state = null;
+      state = year.isCurrent ? null : PeriodSelection(year.toDate, year.label);
       return;
     }
-    final DateRange range = selection.range;
-    state = range.isSingleDay && range.endsToday ? null : selection;
+    // Confined here as well as in the picker, because a preset computed a
+    // moment ago can straddle 31 March by the time it is applied, and a
+    // dashboard quietly reporting on two financial years at once is a wrong
+    // figure rather than an untidy one.
+    final DateRange range = year.confine(selection.range);
+    state = year.isCurrent && range.isSingleDay && range.endsToday
+        ? null
+        : PeriodSelection(range, selection.label);
   }
 
-  void backToToday() => state = null;
+  void backToToday() => select(null);
 }
 
 /// The home screen's data, one provider per company.

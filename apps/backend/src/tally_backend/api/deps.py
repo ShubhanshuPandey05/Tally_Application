@@ -41,7 +41,12 @@ from ..db.models import (
 from ..hub import ConnectorHub
 from ..services.auth import AuthService
 from ..services.dashboard import DashboardService
-from ..services.entitlements import Entitlement, require_changes, require_data
+from ..services.entitlements import (
+    Entitlement,
+    require_changes,
+    require_data,
+    require_mutable,
+)
 from ..services.public_stats import PublicStatsService
 from ..services.reads import ReadService
 from ..services.sync import SyncCoordinator
@@ -120,6 +125,14 @@ class Principal:
         completely different words.
         """
         require_changes(self.org)
+
+    def require_mutable(self) -> None:
+        """The gate on removing or rewriting what the account already holds.
+
+        See :func:`services.entitlements.require_mutable` for why this is not
+        the same rule as :meth:`require_changes`.
+        """
+        require_mutable(self.org)
 
 
 async def get_principal(

@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Asks Tally for less: the daily deletion check reads voucher identities instead of full vouchers, and a balance refresh reads only the ledgers that actually moved."
+    "notes": "Stops a read being sent to TallyPrime when the connector could not first confirm the company is open -- the case that crashed Tally with c0000005 when it was reopened with no company loaded."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Data-focused dashboard, and deep reports: open any voucher in full, a statement for any ledger, sales and purchase registers, and the movement behind any stock item."
+    "notes": "Pick a financial year at the top of the home screen and every report reads inside it. Remove a company you no longer follow. A demo account you can explore without TallyPrime."
   }
 }

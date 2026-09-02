@@ -8,10 +8,11 @@ from fastapi import APIRouter, Header, Request, status
 from sqlalchemy import select
 from sqlalchemy.orm import selectinload
 
+from ...core.errors import NotFound
 from ...db.models import Membership
 from ...services.audit import record
 from ...services.entitlements import count_companies, count_users
-from ..deps import AuthServiceDep, PrincipalDep, SessionDep
+from ..deps import AuthServiceDep, PrincipalDep, SessionDep, SettingsDep
 from ..schemas import (
     LoginRequest,
     RefreshRequest,
@@ -68,6 +69,50 @@ async def login(
     await record(
         session,
         action="auth.login",
+        org_id=membership.org_id,
+        user_id=user.id,
+        request=request,
+    )
+    return TokenResponse(**tokens.__dict__)
+
+
+@router.post("/demo", response_model=TokenResponse)
+async def demo_login(
+    request: Request,
+    auth: AuthServiceDep,
+    session: SessionDep,
+    settings: SettingsDep,
+    user_agent: Annotated[str | None, Header()] = None,
+) -> TokenResponse:
+    """Sign in to the shared demo, with no credentials to type.
+
+    The password exists -- it is an ordinary account, which is the whole point
+    of how the demo is built -- but the app must not carry it. A credential
+    compiled into a released binary cannot be rotated without shipping a new
+    one to every phone, and the version that is still installed keeps working
+    with the old value or stops working with the new one. So the server, which
+    already knows the account, hands out the session.
+
+    404 when no demo is configured, which is most deployments. The app hides
+    the button on that answer rather than offering a door into nothing.
+    """
+    if not settings.demo_enabled or not settings.demo_email:
+        raise NotFound("no demo account is configured on this server")
+
+    user = await auth.find_by_email(settings.demo_email)
+    if user is None:
+        # Configured but not seeded: the startup hook has not run, or ran
+        # before this setting was turned on. Refusing beats signing somebody in
+        # to a half-built set of books.
+        raise NotFound("the demo account has not been provisioned yet")
+
+    membership = await auth.primary_membership(user)
+    tokens = await auth.issue_tokens(
+        user, membership, device_name="Demo", user_agent=user_agent
+    )
+    await record(
+        session,
+        action="auth.demo",
         org_id=membership.org_id,
         user_id=user.id,
         request=request,

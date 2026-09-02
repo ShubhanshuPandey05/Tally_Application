@@ -15,18 +15,18 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.2.4',
-    file: 'TallyFlowConnector-Setup-0.2.4.exe',
-    url: '/downloads/TallyFlowConnector-Setup-0.2.4.exe',
-    size_bytes: 38140466,
-    sha256: '05c612de140d3dfd2981ed76b4bd50a16d263fa87f52b9e3379fae171837b801',
+    version: '0.2.5',
+    file: 'TallyFlowConnector-Setup-0.2.5.exe',
+    url: '/downloads/TallyFlowConnector-Setup-0.2.5.exe',
+    size_bytes: 38142292,
+    sha256: 'a0701e8eb36769d6836f3fdab728b37e95c88be4dc8b6d506b77d7ba21b803e8',
   },
   android: {
-    version: '0.3.0',
-    file: 'TallyFlow-0.3.0.apk',
-    url: '/downloads/TallyFlow-0.3.0.apk',
-    size_bytes: 24823657,
-    sha256: 'f60f59e3525a83b5bf98820383fd45102fa004809f563efa62125140028cc2c8',
+    version: '0.4.0',
+    file: 'TallyFlow-0.4.0.apk',
+    url: '/downloads/TallyFlow-0.4.0.apk',
+    size_bytes: 24869810,
+    sha256: '0a32c993ca64514659baa8991e24421c037f1589863d60173f0e08ebc88a90ec',
   },
 };
 

@@ -41,6 +41,7 @@ from ..db.models import (
 )
 from ..hub import ConnectorHub
 from .dashboard import voucher_params
+from .demo import ensure_demo_account
 from .reads import FetchMode, ReadService
 from .sync import SyncCoordinator
 
@@ -104,6 +105,10 @@ class SnapshotRefresher:
 
         while not self._stopping.is_set():
             try:
+                # The demo's books have to keep ending today or "today's sales"
+                # reads zero forever and the dashboard becomes a museum piece.
+                # Cheap on every tick but the first one after midnight.
+                await ensure_demo_account(self._session_factory, self._settings, self._hub)
                 refreshed = await self.sweep()
                 if refreshed:
                     logger.info("refreshed %d company dataset(s)", refreshed)
@@ -237,6 +242,10 @@ class SnapshotRefresher:
                         .where(
                             Company.is_active.is_(True),
                             Organisation.status == OrgStatus.ACTIVE,
+                            # The demo has no PC to read from. Sweeping it would
+                            # spend the batch budget timing out against a
+                            # connector that has never once dialled in.
+                            Organisation.is_demo.is_(False),
                             # Expiry is computed, never swept, so it has to be
                             # spelled out here too rather than read off a column.
                             or_(

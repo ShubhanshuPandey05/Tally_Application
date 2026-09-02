@@ -48,6 +48,7 @@ class OrgSubscription {
     this.companiesUsed = 0,
     this.expiresAt,
     this.message = '',
+    this.isDemo = false,
   });
 
   final SubscriptionStatus status;
@@ -69,6 +70,11 @@ class OrgSubscription {
   /// Written by the backend for a shop owner, and always naming the way out.
   /// Empty when the account is live.
   final String message;
+
+  /// The shared demo: real screens, invented books, and nobody's Tally PC
+  /// behind them. The app says so out loud rather than letting a visitor read
+  /// somebody's imaginary receivables as a product claim.
+  final bool isDemo;
 
   /// True while the account is genuinely waiting on somebody, as opposed to
   /// having been switched off. The two need different words: one is "nearly
@@ -108,5 +114,6 @@ class OrgSubscription {
             ? null
             : DateTime.tryParse(json['expires_at'] as String)?.toLocal(),
         message: json['message'] as String? ?? '',
+        isDemo: json['is_demo'] as bool? ?? false,
       );
 }

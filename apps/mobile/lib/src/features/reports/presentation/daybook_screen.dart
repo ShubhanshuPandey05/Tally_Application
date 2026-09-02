@@ -4,6 +4,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/model/financial_year.dart';
+import '../../../core/widgets/period_scope.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/cards.dart';
 import '../../../core/widgets/states.dart';
@@ -32,26 +34,20 @@ class DaybookScreen extends ConsumerStatefulWidget {
   ConsumerState<DaybookScreen> createState() => _DaybookScreenState();
 }
 
-class _DaybookScreenState extends ConsumerState<DaybookScreen> {
-  DateRange _range = DateRange.today();
-  String _periodLabel = 'Today';
+class _DaybookScreenState extends ConsumerState<DaybookScreen>
+    with YearScopedPeriod {
   String? _kind;
 
-  Future<void> _pickPeriod() async {
-    final PeriodSelection? picked = await showPeriodPicker(
-      context,
-      current: _range,
-      maxDays: _maxDaybookDays,
-    );
-    if (picked == null) return;
-    setState(() {
-      _range = picked.range;
-      _periodLabel = picked.label;
-    });
-  }
+  /// Today, in the year we are in. A closed year has no today, so it opens on
+  /// the whole of it -- the day book of a year that ended is read from the top.
+  @override
+  PeriodSelection initialPeriod(FinancialYear year) => year.isCurrent
+      ? PeriodSelection.today()
+      : PeriodSelection(year.toDate, year.label);
 
   @override
   Widget build(BuildContext context) {
+    watchFinancialYear();
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -65,21 +61,21 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen> {
 
     final DaybookArgs args = (
       companyId: companyId,
-      range: _range,
+      range: range,
       kind: _kind,
     );
     final AsyncValue<Fresh<DaybookReport>> state = ref.watch(daybookProvider(args));
 
     return ReportScaffold<DaybookReport>(
       title: 'Day book',
-      subtitle: _periodLabel,
+      subtitle: periodLabel,
       state: state,
       onRefresh: () => refreshReport<DaybookReport>(
         ref,
         daybookProvider(args),
         (ReportsRepository repository) => repository.daybook(
           companyId,
-          range: _range,
+          range: range,
           kind: _kind,
           mode: FetchMode.live,
         ),
@@ -94,7 +90,7 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen> {
             children: <Widget>[
               Padding(
                 padding: const EdgeInsets.only(right: 8),
-                child: PeriodField(label: _periodLabel, onTap: _pickPeriod),
+                child: PeriodField(label: periodLabel, onTap: () => pickPeriod(maxDays: _maxDaybookDays)),
               ),
               Padding(
                 padding: const EdgeInsets.only(right: 8),

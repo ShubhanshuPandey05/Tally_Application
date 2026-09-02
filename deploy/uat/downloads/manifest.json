@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-08-30T18:10:50+00:00",
+  "generated_at": "2026-09-02T06:47:14+00:00",
   "connector": {
-    "version": "0.2.4",
-    "file": "TallyFlowConnector-Setup-0.2.4.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.4.exe",
-    "sha256": "05c612de140d3dfd2981ed76b4bd50a16d263fa87f52b9e3379fae171837b801",
-    "size_bytes": 38140466,
+    "version": "0.2.5",
+    "file": "TallyFlowConnector-Setup-0.2.5.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.5.exe",
+    "sha256": "a0701e8eb36769d6836f3fdab728b37e95c88be4dc8b6d506b77d7ba21b803e8",
+    "size_bytes": 38142292,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Asks Tally for less: the daily deletion check reads voucher identities instead of full vouchers, and a balance refresh reads only the ledgers that actually moved."
+    "notes": "Stops a read being sent to TallyPrime when the connector could not first confirm the company is open -- the case that crashed Tally with c0000005 when it was reopened with no company loaded."
   },
   "android": {
-    "version": "0.3.0",
-    "file": "TallyFlow-0.3.0.apk",
-    "url": "/downloads/TallyFlow-0.3.0.apk",
-    "sha256": "f60f59e3525a83b5bf98820383fd45102fa004809f563efa62125140028cc2c8",
-    "size_bytes": 24823657,
+    "version": "0.4.0",
+    "file": "TallyFlow-0.4.0.apk",
+    "url": "/downloads/TallyFlow-0.4.0.apk",
+    "sha256": "0a32c993ca64514659baa8991e24421c037f1589863d60173f0e08ebc88a90ec",
+    "size_bytes": 24869810,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Data-focused dashboard, and deep reports: open any voucher in full, a statement for any ledger, sales and purchase registers, and the movement behind any stock item.",
-    "build_number": 3
+    "notes": "Pick a financial year at the top of the home screen and every report reads inside it. Remove a company you no longer follow. A demo account you can explore without TallyPrime.",
+    "build_number": 4
   }
 }

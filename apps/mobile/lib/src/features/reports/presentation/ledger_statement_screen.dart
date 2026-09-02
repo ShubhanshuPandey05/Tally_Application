@@ -7,6 +7,8 @@ import '../../../app/theme.dart';
 import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/model/financial_year.dart';
+import '../../../core/widgets/period_scope.dart';
 import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/cards.dart';
@@ -36,24 +38,22 @@ class LedgerStatementScreen extends ConsumerStatefulWidget {
   ConsumerState<LedgerStatementScreen> createState() => _LedgerStatementScreenState();
 }
 
-class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen> {
+class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
+    with YearScopedPeriod {
   /// A quarter, not a day. A statement opened on one day of movement answers
   /// nothing; the question behind this screen is always "what has been going
   /// through here lately?".
-  DateRange _range = DateRange.lastDays(90);
-  String _periodLabel = 'Last 90 days';
-
-  Future<void> _pickPeriod() async {
-    final PeriodSelection? picked = await showPeriodPicker(context, current: _range);
-    if (picked == null) return;
-    setState(() {
-      _range = picked.range;
-      _periodLabel = picked.label;
-    });
-  }
+  /// The last quarter of the open year, or the whole of a closed one. A
+  /// statement is read to answer "what has moved lately", and in a year that
+  /// ended there is no lately.
+  @override
+  PeriodSelection initialPeriod(FinancialYear year) => year.isCurrent
+      ? PeriodSelection(year.confine(DateRange.lastDays(90)), 'Last 90 days')
+      : PeriodSelection(year.toDate, year.label);
 
   @override
   Widget build(BuildContext context) {
+    watchFinancialYear();
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -66,13 +66,13 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen> {
     }
 
     final LedgerStatementArgs args =
-        (companyId: companyId, ledger: widget.ledger, range: _range);
+        (companyId: companyId, ledger: widget.ledger, range: range);
     final AsyncValue<Fresh<LedgerStatement>> state =
         ref.watch(ledgerStatementProvider(args));
 
     return ReportScaffold<LedgerStatement>(
       title: widget.ledger,
-      subtitle: _periodLabel,
+      subtitle: periodLabel,
       state: state,
       // No live read: this screen is reached by tapping, and a customer walking
       // through five ledgers must not queue five exports against the PC running
@@ -89,7 +89,7 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: PeriodField(label: _periodLabel, onTap: _pickPeriod),
+              child: PeriodField(label: periodLabel, onTap: pickPeriod),
             ),
           ),
         ),
@@ -100,7 +100,7 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen> {
         message: 'No voucher touched ${widget.ledger} in this period. '
             'Try a longer one.',
         action: FilledButton.tonalIcon(
-          onPressed: _pickPeriod,
+          onPressed: pickPeriod,
           icon: const Icon(Icons.date_range),
           label: const Text('Change period'),
         ),
@@ -110,7 +110,7 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen> {
         return <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
-            child: _StatementSummary(statement: statement, periodLabel: _periodLabel),
+            child: _StatementSummary(statement: statement, periodLabel: periodLabel),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),

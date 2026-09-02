@@ -228,6 +228,7 @@ async def revoke_connector(
     leave a compromised machine reading the books until it happens to reconnect.
     """
     principal.require(Role.ADMIN)
+    principal.require_mutable()
 
     connector.status = ConnectorStatus.REVOKED
     connector.revoked_at = utc_now()

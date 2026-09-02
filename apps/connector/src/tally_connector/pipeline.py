@@ -124,6 +124,10 @@ class TallyPipeline:
         self._cooldown_until = 0.0
         self._online: bool | None = None
         self._observed_at: float | None = None
+        #: Every observed transition into "not answering". The company guard
+        #: keys its cache on this, because a Tally that went away and came back
+        #: is a Tally with no company open until somebody loads one.
+        self._outages = 0
 
         # -- counters, for `status` and support calls ----------------------
         self._completed = 0
@@ -264,7 +268,13 @@ class TallyPipeline:
             return False
 
         if self._running is not None or not self._queue.empty():
-            return True
+            # Something is on the wire, so Tally is talking to us -- unless the
+            # last thing we actually observed was a failure. Then the request in
+            # flight is just as likely to be a retry loop against a refused
+            # connection, and calling that "reachable" is how a shop's log came
+            # to read "TallyPrime is now reachable" one second before three
+            # failed connection attempts to the same address.
+            return self._online is not False
 
         if fresh:
             return True
@@ -410,6 +420,8 @@ class TallyPipeline:
     def _observe(self, online: bool) -> None:
         if self._online is not None and self._online != online:
             logger.info("TallyPrime is now %s", "responding" if online else "not responding")
+        if not online and self._online is not False:
+            self._outages += 1
         self._online = online
         self._observed_at = asyncio.get_running_loop().time()
 
@@ -436,6 +448,16 @@ class TallyPipeline:
     def busy(self) -> bool:
         return self._running is not None
 
+    @property
+    def outages(self) -> int:
+        """How many times Tally has been observed to stop answering.
+
+        Read by the company guard, which must not carry a set of open companies
+        across a restart of TallyPrime. Only the *changes* mean anything; the
+        absolute value is a session counter.
+        """
+        return self._outages
+
     def stats(self) -> dict[str, Any]:
         """What a support call needs: is it moving, and is anything piling up?"""
         return {
@@ -457,4 +479,5 @@ class TallyPipeline:
             "peak_queued": self._peak_depth,
             "peak_wait_seconds": round(self._peak_wait, 1),
             "tally_online": self._online,
+            "outages": self._outages,
         }

@@ -5,7 +5,7 @@ publish_to: 'none'
 # Must match the APK the site links to and the update manifest names: the
 # updater compares this against the manifest, so a pubspec that disagrees with
 # the shipped artefact makes every client believe it is permanently out of date.
-version: 0.3.0+3
+version: 0.4.0+4
 
 environment:
   sdk: ^3.5.3

@@ -37,7 +37,15 @@ from tally_core.protocol import JobResult
 
 from ..config import Settings
 from ..core.errors import NoDataYet
-from ..db.models import Company, CompanySyncState, JobStat, Snapshot, as_utc, utc_now
+from ..db.models import (
+    Company,
+    CompanySyncState,
+    JobStat,
+    Organisation,
+    Snapshot,
+    as_utc,
+    utc_now,
+)
 from ..hub import ConnectorHub
 from .voucher_store import VoucherStore
 
@@ -156,6 +164,40 @@ class ReadService:
         #: connector's reachability cannot meaningfully change between them --
         #: but without this it would cost four Redis lookups to say so.
         self._online_cache: dict[str, bool] = {}
+        #: Likewise, per organisation. Whether this is the demo account cannot
+        #: change inside one request.
+        self._demo_cache: dict[str, bool] = {}
+
+    async def _is_demo(self, company: Company) -> bool:
+        """Whether these books are the invented ones.
+
+        The demo has an organisation, a company and a connector row like any
+        other account, and no PC behind any of it. Two things follow, and both
+        are decided here rather than at each call site: a read must never fall
+        through to the hub, and it must never be reported stale. See
+        :mod:`tally_backend.services.demo`.
+        """
+        if company.org_id not in self._demo_cache:
+            org = await self._session.get(Organisation, company.org_id)
+            self._demo_cache[company.org_id] = bool(org is not None and org.is_demo)
+        return self._demo_cache[company.org_id]
+
+    def _demo_result(self, snapshot: Snapshot) -> DataResult:
+        """A stored demo dataset, presented as what it is: current and complete.
+
+        ``is_stale`` and ``connector_online`` describe a customer's Tally PC.
+        This account does not have one, so the honest answer is not "stale" --
+        which would put an outage banner over books that are exactly as
+        intended -- but the app being told ``is_demo`` and saying so itself.
+        """
+        return DataResult(
+            payload=snapshot.payload,
+            refreshed_at=as_utc(snapshot.refreshed_at),
+            from_snapshot=True,
+            is_stale=False,
+            connector_online=True,
+            age_seconds=0.0,
+        )
 
     async def _connector_online(self, connector_id: str) -> bool:
         """Whether the connector is actually reachable right now.
@@ -186,6 +228,16 @@ class ReadService:
         params = {"company": company.tally_name, **(params or {})}
         key = params_key(params)
         snapshot = await self._load_snapshot(company.id, dataset, key)
+
+        if await self._is_demo(company):
+            # `_stand_in` covers the one key that moves on its own: outstanding
+            # bills are aged as of a date, so at midnight the exact key changes
+            # and the previous day's snapshot is the right answer until the
+            # demo's own daily top-up writes the new one.
+            held = snapshot or await self._stand_in(company.id, dataset, params)
+            if held is None:
+                raise NoDataYet(f"the demo has no {dataset} yet")
+            return self._demo_result(held)
 
         if mode is FetchMode.CACHED:
             if snapshot is None:
@@ -368,6 +420,15 @@ class ReadService:
         """
         stamp = sync_state.last_delta_at or sync_state.updated_at
         age = (utc_now() - as_utc(stamp)).total_seconds()
+        if await self._is_demo(company):
+            return DataResult(
+                payload=payload,
+                refreshed_at=as_utc(stamp),
+                from_snapshot=True,
+                is_stale=False,
+                connector_online=True,
+                age_seconds=0.0,
+            )
         return DataResult(
             payload=payload,
             refreshed_at=as_utc(stamp),

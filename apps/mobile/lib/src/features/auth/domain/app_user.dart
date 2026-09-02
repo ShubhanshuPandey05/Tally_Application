@@ -76,6 +76,21 @@ class AppUser {
   bool get canLinkCompanies => role.canLinkCompanies && subscription.allowsChanges;
   bool get canManageTeam => role.canManageTeam && subscription.allowsChanges;
 
+  /// Whether to offer removing something the account already holds -- a
+  /// company, a Tally PC.
+  ///
+  /// Deliberately *not* gated on [OrgSubscription.allowsChanges], which is the
+  /// rule for growing: a customer whose subscription has lapsed is still
+  /// entitled to unlink their own books, and hiding that would be punitive
+  /// rather than commercial. The demo is the one account that may not, because
+  /// everyone who signs in shares it. Mirrors the server's own
+  /// `require_mutable`.
+  bool get canRemoveCompanies => role.isAdmin && !subscription.isDemo;
+
+  /// The shared demo account, which the app labels wherever a figure could be
+  /// mistaken for somebody's real books.
+  bool get isDemo => subscription.isDemo;
+
   /// Show the subscription notice rather than a screen full of disabled
   /// buttons. Only admins see it: telling a cashier the business is behind on
   /// its subscription is neither their problem nor their information.

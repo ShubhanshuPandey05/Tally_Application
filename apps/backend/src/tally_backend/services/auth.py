@@ -63,6 +63,19 @@ class AuthService:
 
     # -- login -----------------------------------------------------------
 
+    async def find_by_email(self, email: str) -> User | None:
+        """An account by address, without proving anything about the caller.
+
+        Only for the demo sign-in, which is authorised by configuration rather
+        than by a password. Deliberately not folded into
+        :meth:`authenticate` -- that method's constant-time behaviour is what
+        stops response latency enumerating who has an account here, and a
+        lookup that skips the password check must not share its name.
+        """
+        return await self._session.scalar(
+            select(User).where(User.email == email.strip().lower(), User.is_active.is_(True))
+        )
+
     async def authenticate(self, *, email: str, password: str) -> User:
         email = email.strip().lower()
         user = await self._session.scalar(select(User).where(User.email == email))

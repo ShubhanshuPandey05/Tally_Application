@@ -4,9 +4,10 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
-import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/model/financial_year.dart';
+import '../../../core/widgets/period_scope.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/cards.dart';
 import '../../../core/widgets/charts.dart';
@@ -37,24 +38,20 @@ class RegisterScreen extends ConsumerStatefulWidget {
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
 }
 
-class _RegisterScreenState extends ConsumerState<RegisterScreen> {
+class _RegisterScreenState extends ConsumerState<RegisterScreen>
+    with YearScopedPeriod {
   late String _kind = widget.kind;
-  DateRange _range = DateRange.thisYear();
-  String _periodLabel = 'This year';
-
   bool get _isSales => _kind == 'sales';
 
-  Future<void> _pickPeriod() async {
-    final PeriodSelection? picked = await showPeriodPicker(context, current: _range);
-    if (picked == null) return;
-    setState(() {
-      _range = picked.range;
-      _periodLabel = picked.label;
-    });
-  }
+  /// The whole year. A register is the one report an owner reads a year of at
+  /// a time -- it is where "how much did we sell this year" is answered.
+  @override
+  PeriodSelection initialPeriod(FinancialYear year) =>
+      PeriodSelection(year.toDate, year.label);
 
   @override
   Widget build(BuildContext context) {
+    watchFinancialYear();
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -66,13 +63,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
       );
     }
 
-    final RegisterArgs args = (companyId: companyId, kind: _kind, range: _range);
+    final RegisterArgs args = (companyId: companyId, kind: _kind, range: range);
     final AsyncValue<Fresh<RegisterReport>> state = ref.watch(registerProvider(args));
     final Color tint = _isSales ? AppTheme.tileBlue : AppTheme.tileViolet;
 
     return ReportScaffold<RegisterReport>(
       title: _isSales ? 'Sales register' : 'Purchase register',
-      subtitle: _periodLabel,
+      subtitle: periodLabel,
       state: state,
       onRefresh: () async {
         ref.invalidate(registerProvider(args));
@@ -99,7 +96,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: PeriodField(label: _periodLabel, onTap: _pickPeriod),
+                  child: PeriodField(label: periodLabel, onTap: pickPeriod),
                 ),
               ),
             ),
@@ -110,9 +107,9 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
         icon: Icons.receipt_long_outlined,
         title: _isSales ? 'No sales in this period' : 'No purchases in this period',
         message: 'Nothing of this kind was recorded in TallyPrime for '
-            '${_periodLabel.toLowerCase()}.',
+            '${periodLabel.toLowerCase()}.',
         action: FilledButton.tonalIcon(
-          onPressed: _pickPeriod,
+          onPressed: pickPeriod,
           icon: const Icon(Icons.date_range),
           label: const Text('Change period'),
         ),
@@ -126,7 +123,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen> {
             child: _MonthlyCard(
               report: report,
               tint: tint,
-              periodLabel: _periodLabel,
+              periodLabel: periodLabel,
             ),
           ),
           if (report.byParty.isNotEmpty)

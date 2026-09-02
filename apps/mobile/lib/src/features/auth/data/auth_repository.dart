@@ -30,6 +30,38 @@ class AuthRepository {
     return me();
   }
 
+  /// Enter the shared demo, with nothing to type.
+  ///
+  /// The demo is an ordinary account with an ordinary password -- that is what
+  /// makes every screen behind it the real product -- but the app deliberately
+  /// does not carry that password. A credential compiled into a released build
+  /// cannot be rotated without shipping a new one to every phone, and the old
+  /// builds keep working with the old value or stop working with the new one.
+  /// So the server, which already knows the account, hands out the session.
+  Future<AppUser> signInAsDemo({String? deviceName}) async {
+    final Map<String, Object?> tokens = await _api.postJson(
+      '/v1/auth/demo',
+      body: <String, Object?>{'device_name': deviceName},
+    );
+    await _persist(tokens);
+    return me();
+  }
+
+  /// Whether this server has a demo to offer at all.
+  ///
+  /// Asked rather than assumed: most deployments have none, and "Explore the
+  /// demo" on one of those is a button that can only disappoint. False on any
+  /// failure, which hides the button -- the wrong direction to fail in would be
+  /// offering a door into nothing.
+  Future<bool> demoAvailable() async {
+    try {
+      final Map<String, Object?> config = await _api.getJson('/v1/public/config');
+      return config['demo_available'] as bool? ?? false;
+    } on ApiException {
+      return false;
+    }
+  }
+
   Future<AppUser> signUp({
     required String email,
     required String password,

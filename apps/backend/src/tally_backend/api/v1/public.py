@@ -19,6 +19,18 @@ logger = logging.getLogger(__name__)
 router = APIRouter(prefix="/public", tags=["public"])
 
 
+@router.get("/config")
+async def public_config(settings: SettingsDep) -> dict:
+    """What an unauthenticated app needs to know before anyone signs in.
+
+    One field today: whether this server has a demo to offer. The app asks
+    rather than assuming, because "Explore the demo" on a deployment with no
+    demo is a button that can only disappoint -- and which deployments have one
+    is a server-side decision that changes without an app release.
+    """
+    return {"demo_available": bool(settings.demo_enabled and settings.demo_email)}
+
+
 @router.get("/stats")
 async def stats(
     session: SessionDep,

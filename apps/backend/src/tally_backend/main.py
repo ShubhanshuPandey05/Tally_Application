@@ -24,6 +24,7 @@ from .core.version_middleware import ADVISORY_HEADERS, ClientVersionMiddleware
 from .db.session import create_all, create_engine, create_session_factory
 from .hub import ConnectorHub
 from .services.connector_logs import ConnectorLogIngest
+from .services.demo import ensure_demo_account
 from .services.logs import LogWriter, ServerLogStore, install_capture
 from .services.portal import bootstrap_owner
 from .services.public_stats import PublicStatsService
@@ -92,6 +93,12 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         hub = ConnectorHub(settings)
         app.state.hub = hub
         await hub.start()
+
+        # After the hub, because the demo's snapshots are written through the
+        # same ReadService a real read uses, and before anything serves: the
+        # first visitor must not arrive at a half-seeded set of books. Silent
+        # and cheap unless a demo is configured.
+        await ensure_demo_account(app.state.session_factory, settings, hub)
 
         # Constructed before the refresher because the refresher hands companies
         # to it: a sweep resumes interrupted backfills and runs deltas.

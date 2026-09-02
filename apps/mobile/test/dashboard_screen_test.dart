@@ -15,6 +15,7 @@ import 'package:tallyflow/src/features/dashboard/application/dashboard_providers
 import 'package:tallyflow/src/features/dashboard/data/dashboard_repository.dart';
 import 'package:tallyflow/src/features/dashboard/domain/dashboard.dart';
 import 'package:tallyflow/src/features/dashboard/presentation/dashboard_screen.dart';
+import 'package:tallyflow/src/core/model/financial_year.dart';
 import 'package:tallyflow/src/core/widgets/period_picker.dart';
 import 'package:tallyflow/src/features/reports/domain/reports.dart';
 import 'package:tallyflow/src/features/subscription/domain/subscription.dart';
@@ -323,15 +324,18 @@ void main() {
     expect(repository.lastPeriod, isNull);
     expect(find.text("Today's sales"), findsOneWidget);
 
+    // Inside the open financial year, which is the only place a window can be
+    // -- the year is chosen above, and every filter is confined to it.
+    final FinancialYear year = FinancialYear.current();
     final DateRange range = DateRange(
-      DateTime(2026, 2, 14),
-      DateTime(2026, 3, 15),
+      year.start,
+      year.start.add(const Duration(days: 29)),
     );
     _selectPeriod(tester, range, label: 'This month');
     await tester.pumpAndSettle();
 
-    expect(repository.lastPeriod?.fromWire, '2026-02-14');
-    expect(repository.lastPeriod?.toWire, '2026-03-15');
+    expect(repository.lastPeriod?.fromWire, range.fromWire);
+    expect(repository.lastPeriod?.toWire, range.toWire);
 
     // "Today's sales" over a figure covering thirty days is the single most
     // misleading label this screen could carry.
@@ -342,6 +346,31 @@ void main() {
     // And the way back is always on screen, not buried in a menu: the period
     // row keeps every window a tap away, "Today" included.
     expect(find.text('Today'), findsOneWidget);
+  });
+
+  testWidgets('a window from a previous year is pulled back into this one',
+      (WidgetTester tester) async {
+    final _FakeDashboardRepository repository =
+        _FakeDashboardRepository.periodAware(
+      Dashboard.fromJson(fixture('dashboard')),
+      Dashboard.fromJson(fixture('dashboard_period')),
+    );
+    await _pump(tester, repository: repository);
+
+    // Two financial years back. Nothing in the UI can produce this -- the
+    // picker is bounded -- but a preset computed a moment before midnight on
+    // 31 March can, and a dashboard silently totalling across two sets of
+    // books is a wrong figure rather than an untidy one.
+    final FinancialYear year = FinancialYear.current();
+    _selectPeriod(
+      tester,
+      DateRange(DateTime(year.startYear - 2, 5, 1), DateTime(year.startYear - 2, 6, 30)),
+      label: 'Long ago',
+    );
+    await tester.pumpAndSettle();
+
+    expect(repository.lastPeriod?.fromWire, year.toDate.fromWire);
+    expect(repository.lastPeriod?.toWire, year.toDate.toWire);
   });
 
   testWidgets('a period view declares which figures could not be scoped to it',

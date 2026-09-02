@@ -297,6 +297,53 @@ Every read carries its own freshness metadata; the app wraps reads in `Fresh<T>`
 and shows last-known figures with a banner rather than an error page when the
 connector is unreachable.
 
+### The year is chosen once, at the top
+
+Every figure in this product belongs to an **Indian financial year, 1 April to
+31 March**, and not to a calendar year. That choice is made once — a muted line
+under the company name on the home screen, listing the years the company's own
+books cover (`BOOKSFROM`, read from Tally and carried on `CompanyResponse`) and
+defaulting to the year we are in.
+
+Every date filter underneath it is **confined to that year**. A window that
+would reach across 31 March is clamped, not honoured: a total spanning two sets
+of books is a wrong number rather than an untidy one, and nothing on screen
+would say so. So the presets differ by year — the open one offers today, this
+week, this month, this quarter and April-to-today; a closed one offers its four
+quarters and the whole year, because "today" means nothing in a year that
+ended. The custom-range calendar is bounded at both ends for the same reason,
+and a closed year is labelled as such wherever it is shown.
+
+The rule lives in `FinancialYear.confine` and is applied twice — in the picker
+and again when a period is applied — because a preset computed a moment before
+midnight on 31 March is not the window it was when it is used.
+
+### The demo account
+
+One organisation flagged `is_demo`: an invented electricals distributor with
+two financial years of books, no connector, and a published one-tap sign-in
+(`POST /v1/auth/demo`, offered only where `/v1/public/config` says so). It
+exists so somebody can see the product before they own TallyPrime.
+
+It is deliberately an **ordinary account**. The rows are real — organisation,
+user, company, snapshots, voucher records — and every screen reads them through
+the same code that reads a customer's books, so the demo cannot drift away from
+the product the way a set of canned responses would. `services/demo_books.py`
+posts double-entry vouchers and *folds* them into ledger balances, stock levels
+and outstanding bills, because those figures appear on different screens
+computed by different code: invent them separately and the demo contradicts
+itself the moment somebody taps through. The generator is seeded per day, so
+the books are a pure function of the window they cover and yesterday never
+restates itself.
+
+Two rules hang off the flag. `Entitlement.allows_changes` is false, so nobody
+who signs in can unlink the company, revoke the connector, invite a colleague
+or change the shared password — enforced at the same choke points as everything
+else, plus `require_mutable` for the *removals* that a lapsed customer is still
+entitled to make on their own account. And `ReadService` never routes a demo
+read to the hub and never reports it stale: there is no PC to be out of date
+with, and the app is told `is_demo` so it says what the data is instead.
+
 ### Signing up provisions nothing
 
 A customer installs the app and the connector, registers, and signs in — to an

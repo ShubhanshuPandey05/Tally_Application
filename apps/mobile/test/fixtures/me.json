@@ -11,6 +11,7 @@
     "allows_data": true,
     "companies_used": 1,
     "expires_at": null,
+    "is_demo": false,
     "is_expired": false,
     "max_companies": 50,
     "max_users": 50,

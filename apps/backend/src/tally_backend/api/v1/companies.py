@@ -12,7 +12,7 @@ from fastapi import APIRouter, Request, status
 from sqlalchemy import select
 
 from ...core.errors import ConflictError, NotFound
-from ...db.models import Company, Role
+from ...db.models import Company, CompanySyncState, Role
 from ...services.audit import record
 from ...services.entitlements import check_company_limit, require_data
 from ..deps import (
@@ -193,12 +193,28 @@ async def list_companies(principal: PrincipalDep, session: SessionDep) -> list[C
         query = query.where(Company.id.in_(visible))
 
     rows = (await session.execute(query)).scalars().all()
-    return [CompanyResponse.build(row) for row in rows]
+    if not rows:
+        return []
+
+    # One query for every company's books-from date rather than one each. The
+    # app needs it to offer financial years, and a switcher that costs N+1
+    # round trips is one that gets cached badly later.
+    books_from = dict(
+        (
+            await session.execute(
+                select(CompanySyncState.company_id, CompanySyncState.books_from).where(
+                    CompanySyncState.company_id.in_([row.id for row in rows])
+                )
+            )
+        ).all()
+    )
+    return [CompanyResponse.build(row, books_from.get(row.id)) for row in rows]
 
 
 @router.get("/companies/{company_id}", response_model=CompanyResponse)
-async def get_company_detail(company: CompanyDep) -> CompanyResponse:
-    return CompanyResponse.build(company)
+async def get_company_detail(company: CompanyDep, session: SessionDep) -> CompanyResponse:
+    state = await session.get(CompanySyncState, company.id)
+    return CompanyResponse.build(company, state.books_from if state else None)
 
 
 @router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)
@@ -206,6 +222,10 @@ async def unlink_company(
     company: CompanyDep, principal: PrincipalDep, session: SessionDep, request: Request
 ) -> None:
     principal.require(Role.ADMIN)
+    # Not `require_changes`: a customer whose subscription lapsed is still
+    # entitled to remove their own books. The demo is not, because everybody
+    # who signs in shares it.
+    principal.require_mutable()
     # Soft delete. Hard-deleting would cascade the audit trail away with it, and
     # "who had access to these books last quarter" must remain answerable.
     company.is_active = False

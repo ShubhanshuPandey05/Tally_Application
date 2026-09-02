@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../model/date_range.dart';
+import '../model/financial_year.dart';
 
 /// A named way of computing a [DateRange], relative to "now" at the moment it
 /// is chosen -- "This month" picked on the 3rd and picked again on the 28th
@@ -13,26 +14,69 @@ class PeriodPreset {
   final DateRange Function() range;
 }
 
-/// The standard set offered everywhere a report accepts a date range. Ordered
-/// shortest-to-longest, the way an owner thinks about "how far back."
-const List<PeriodPreset> periodPresets = <PeriodPreset>[
-  PeriodPreset('Today', DateRange.today),
-  PeriodPreset('Yesterday', DateRange.yesterday),
-  PeriodPreset('This week', DateRange.thisWeek),
-  PeriodPreset('Last 7 days', _last7),
-  PeriodPreset('This month', DateRange.thisMonth),
-  PeriodPreset('Last month', DateRange.lastMonth),
-  PeriodPreset('This quarter', DateRange.thisQuarter),
-  PeriodPreset('This year', DateRange.thisYear),
-];
+/// The set offered inside one financial year.
+///
+/// There is no "This year" here, and that is the point. The year is chosen
+/// once, at the top of the home screen, and everything below it is a window
+/// *within* that choice -- so on 2 September the longest option is 1 April to
+/// today, not the last twelve months and not the calendar year. A filter that
+/// silently reached back across 31 March would be mixing two sets of books in
+/// one figure, which in an accounting product is a wrong number rather than an
+/// untidy one.
+///
+/// A closed year gets different options for the same reason: "Today" and "This
+/// month" mean nothing in a year that ended, so it is offered its quarters
+/// instead. Anything else is the custom range, which the picker bounds to the
+/// year as well.
+List<PeriodPreset> periodPresetsFor(FinancialYear year) {
+  if (!year.isCurrent) {
+    return <PeriodPreset>[
+      PeriodPreset('Full year', () => year.toDate),
+      PeriodPreset('Apr – Jun', () => _quarter(year, 4)),
+      PeriodPreset('Jul – Sep', () => _quarter(year, 7)),
+      PeriodPreset('Oct – Dec', () => _quarter(year, 10)),
+      PeriodPreset('Jan – Mar', () => _quarter(year, 1)),
+    ];
+  }
 
-DateRange _last7() => DateRange.lastDays(7);
+  final List<PeriodPreset> presets = <PeriodPreset>[
+    const PeriodPreset('Today', DateRange.today),
+    const PeriodPreset('Yesterday', DateRange.yesterday),
+    const PeriodPreset('This week', DateRange.thisWeek),
+    PeriodPreset('Last 7 days', () => DateRange.lastDays(7)),
+    const PeriodPreset('This month', DateRange.thisMonth),
+    const PeriodPreset('Last month', DateRange.lastMonth),
+    const PeriodPreset('This quarter', DateRange.thisQuarter),
+    PeriodPreset(year.label, () => year.toDate),
+  ];
+
+  // Early in April several of these lie entirely in the year that has just
+  // closed. Dropping them beats offering a button that answers with a window
+  // from the previous set of books.
+  return <PeriodPreset>[
+    for (final PeriodPreset preset in presets)
+      if (year.overlaps(preset.range()))
+        PeriodPreset(preset.label, () => year.confine(preset.range())),
+  ];
+}
+
+/// The quarter of [year] beginning in [month]. January starts the fourth one,
+/// which falls in the following calendar year.
+DateRange _quarter(FinancialYear year, int month) {
+  final int calendarYear = month >= 4 ? year.startYear : year.startYear + 1;
+  final DateTime start = DateTime(calendarYear, month);
+  final DateTime end = DateTime(calendarYear, month + 3, 0);
+  return year.confine(DateRange(start, end));
+}
 
 /// A chosen period plus the label it should be shown under. Kept together so
 /// a custom range picked once does not need its label re-derived from the
 /// dates every time it is displayed.
 class PeriodSelection {
   const PeriodSelection(this.range, this.label);
+
+  /// The ordinary starting point for a screen in the year we are in.
+  PeriodSelection.today() : this(DateRange.today(), 'Today');
 
   final DateRange range;
   final String label;
@@ -70,7 +114,7 @@ class PeriodField extends StatelessWidget {
 Future<PeriodSelection?> showPeriodPicker(
   BuildContext context, {
   required DateRange current,
-  DateTime? firstDate,
+  required FinancialYear year,
   int maxDays = 400,
 }) {
   return showModalBottomSheet<PeriodSelection>(
@@ -79,7 +123,7 @@ Future<PeriodSelection?> showPeriodPicker(
     isScrollControlled: true,
     builder: (BuildContext sheetContext) => _PeriodSheet(
       current: current,
-      firstDate: firstDate ?? DateTime.now().subtract(Duration(days: maxDays * 6)),
+      year: year,
       maxDays: maxDays,
     ),
   );
@@ -88,12 +132,12 @@ Future<PeriodSelection?> showPeriodPicker(
 class _PeriodSheet extends StatelessWidget {
   const _PeriodSheet({
     required this.current,
-    required this.firstDate,
+    required this.year,
     required this.maxDays,
   });
 
   final DateRange current;
-  final DateTime firstDate;
+  final FinancialYear year;
   final int maxDays;
 
   @override
@@ -110,10 +154,19 @@ class _PeriodSheet extends StatelessWidget {
               child: Row(
                 children: <Widget>[
                   Text('Select period', style: theme.textTheme.titleMedium),
+                  const Spacer(),
+                  // Which year these windows sit inside. Without it a sheet
+                  // offering "Jul - Sep" says nothing about which July.
+                  Text(
+                    year.label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: theme.colorScheme.primary,
+                    ),
+                  ),
                 ],
               ),
             ),
-            for (final PeriodPreset preset in periodPresets)
+            for (final PeriodPreset preset in periodPresetsFor(year))
               ListTile(
                 title: Text(preset.label),
                 trailing: _isActive(preset.range()) ? Icon(Icons.check, color: theme.colorScheme.primary) : null,
@@ -126,13 +179,19 @@ class _PeriodSheet extends StatelessWidget {
               onTap: () async {
                 final DateTimeRange? picked = await showDateRangePicker(
                   context: context,
-                  firstDate: firstDate,
-                  lastDate: DateTime.now(),
-                  initialDateRange: DateTimeRange(start: current.from, end: current.to),
+                  // Bounded by the chosen year on both sides: the calendar is
+                  // the one place a custom range could otherwise walk out of
+                  // the year the rest of the screen is reporting on.
+                  firstDate: year.start,
+                  lastDate: year.lastDay,
+                  initialDateRange: DateTimeRange(
+                    start: year.confine(current).from,
+                    end: year.confine(current).to,
+                  ),
                 );
                 if (picked == null || !context.mounted) return;
 
-                DateRange range = DateRange(picked.start, picked.end);
+                DateRange range = year.confine(DateRange(picked.start, picked.end));
                 final bool wasClamped = range.dayCount > maxDays;
                 range = range.clampToMaxDays(maxDays);
 

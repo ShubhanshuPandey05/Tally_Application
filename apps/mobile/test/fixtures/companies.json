@@ -1,6 +1,7 @@
 [
   {
     "base_currency": "INR",
+    "books_from": null,
     "connector_id": "<connector_id>",
     "financial_year_from": null,
     "id": "<id>",

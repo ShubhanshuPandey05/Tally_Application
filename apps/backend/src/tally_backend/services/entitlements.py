@@ -50,6 +50,9 @@ class Entitlement:
     max_users: int
     max_companies: int
     expires_at: datetime | None = None
+    #: The shared demo account. Live enough to read, frozen against every
+    #: change -- see :attr:`allows_changes`.
+    is_demo: bool = False
 
     @classmethod
     def of(cls, org: Organisation) -> Entitlement:
@@ -58,6 +61,7 @@ class Entitlement:
             max_users=org.max_users,
             max_companies=org.max_companies,
             expires_at=org.expires_at,
+            is_demo=org.is_demo,
         )
 
     @property
@@ -73,6 +77,13 @@ class Entitlement:
 
     @property
     def allows_changes(self) -> bool:
+        # The demo is refused here rather than at each endpoint, for the reason
+        # this module exists at all: a guard that has to be remembered beside
+        # every mutation is one a later mutation ships without. Anyone can sign
+        # into the demo, so "anyone" would otherwise be able to unlink its
+        # company or revoke its connector for everybody else looking at it.
+        if self.is_demo:
+            return False
         return self.status is OrgStatus.ACTIVE and not self.is_expired
 
     @property
@@ -89,6 +100,11 @@ class Entitlement:
         replace — and there is no self-service path here by design, so the way
         out is always a person.
         """
+        if self.is_demo:
+            return (
+                "This is the TallyFlow demo, so nothing here can be changed. "
+                "Create your own account to connect your TallyPrime."
+            )
         if self.is_expired and self.status is OrgStatus.ACTIVE:
             return (
                 "Your TallyFlow subscription has ended. Contact your TallyFlow "
@@ -121,6 +137,29 @@ def require_changes(org: Organisation) -> None:
         f"org {org.id} is {entitlement.status} (expired={entitlement.is_expired})",
         user_message=entitlement.blocked_reason,
         detail={"org_status": entitlement.status.value, "expired": entitlement.is_expired},
+    )
+
+
+def require_mutable(org: Organisation) -> None:
+    """Gate a change to what an organisation already *holds*.
+
+    Deliberately not :func:`require_changes`. That one gates growth, and growth
+    is a commercial question: a lapsed customer may not add a third company.
+    Taking one away is not the same question -- a customer whose subscription
+    ended is still entitled to unlink their books and unpair their PC, and
+    refusing that would be punitive rather than commercial.
+
+    The demo is the case this exists for. Anyone may sign into it, so nobody
+    may take it apart: one visitor unlinking the company would empty the
+    showroom for everybody else looking at it.
+    """
+    entitlement = Entitlement.of(org)
+    if not entitlement.is_demo:
+        return
+    raise SubscriptionInactive(
+        f"org {org.id} is the shared demo",
+        user_message=entitlement.blocked_reason,
+        detail={"is_demo": True},
     )
 
 

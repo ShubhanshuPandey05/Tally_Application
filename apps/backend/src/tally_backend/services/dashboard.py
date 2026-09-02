@@ -174,6 +174,32 @@ class DashboardService:
                 errors[dataset] = exc.user_message
             return None
 
+    async def _load_vouchers(
+        self,
+        company: Company,
+        *,
+        window: tuple[date, date],
+        mode: FetchMode,
+        errors: dict[str, str],
+    ) -> DataResult | None:
+        """The voucher window, from the history store when it covers it.
+
+        Through :meth:`ReadService.fetch_vouchers` rather than a plain snapshot
+        read, because the window is no longer fixed. A dashboard scoped to a
+        financial year asks for a span no warmed snapshot holds, and a snapshot
+        read would answer that by exporting the whole year from the shop's
+        Tally -- on a machine that is somebody's till, every time the period is
+        changed. The store already has those vouchers; this asks it.
+        """
+        try:
+            return await self._reads.fetch_vouchers(
+                company, from_date=window[0], to_date=window[1], mode=mode
+            )
+        except AppError as exc:
+            logger.info("dashboard section %s unavailable: %s", VOUCHERS, exc.message)
+            errors[VOUCHERS] = exc.user_message
+            return None
+
     async def build(
         self,
         company: Company,
@@ -197,14 +223,9 @@ class DashboardService:
         # and the selected period plus its baseline when there is one. A round
         # trip to a customer's desktop is the expensive part, so the window is
         # widened rather than split into several reads.
-        window_start, _ = voucher_window(today, period)
-        vouchers_result = await self._load(
-            company,
-            VOUCHERS,
-            params=voucher_params(today, period),
-            mode=mode,
-            heavy=True,
-            errors=errors,
+        window_start, window_end = voucher_window(today, period)
+        vouchers_result = await self._load_vouchers(
+            company, window=(window_start, window_end), mode=mode, errors=errors
         )
         ledgers_result = await self._load(company, LEDGERS, mode=mode, errors=errors)
         bills_result = await self._load(

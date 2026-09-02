@@ -165,6 +165,10 @@ async def change_own_password(
     # Skipped only while the account is still on an admin-issued password. In
     # that state the current password proves nothing about who is holding the
     # phone -- someone else chose it -- and demanding it would just be a step.
+    # The demo's password is published and shared. One visitor changing it
+    # would lock out everybody else.
+    principal.require_mutable()
+
     proven = payload.current_password is not None and verify_password(
         payload.current_password or "", user.password_hash
     )
@@ -346,6 +350,7 @@ async def reset_member_password(
 ) -> ResetMemberPasswordResponse:
     """Issue a new temporary password. The answer to "I forgot mine"."""
     principal.require(Role.ADMIN)
+    principal.require_mutable()
     member, _ = await _member_in_org(session, principal.org_id, member_id)
 
     password = generate_temporary_password()
@@ -378,6 +383,7 @@ async def remove_member(
     resolving to a real account.
     """
     principal.require(Role.ADMIN)
+    principal.require_mutable()
     if member_id == principal.user.id:
         raise ConflictError(
             "cannot remove yourself",

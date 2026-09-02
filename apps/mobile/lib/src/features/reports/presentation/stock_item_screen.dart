@@ -8,6 +8,8 @@ import '../../../app/theme.dart';
 import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/model/financial_year.dart';
+import '../../../core/widgets/period_scope.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/cards.dart';
 import '../../../core/widgets/charts.dart';
@@ -32,21 +34,18 @@ class StockItemScreen extends ConsumerStatefulWidget {
   ConsumerState<StockItemScreen> createState() => _StockItemScreenState();
 }
 
-class _StockItemScreenState extends ConsumerState<StockItemScreen> {
-  DateRange _range = DateRange.lastDays(90);
-  String _periodLabel = 'Last 90 days';
-
-  Future<void> _pickPeriod() async {
-    final PeriodSelection? picked = await showPeriodPicker(context, current: _range);
-    if (picked == null) return;
-    setState(() {
-      _range = picked.range;
-      _periodLabel = picked.label;
-    });
-  }
+class _StockItemScreenState extends ConsumerState<StockItemScreen>
+    with YearScopedPeriod {
+  /// The last quarter of movement in the open year; a closed year is read
+  /// whole, because there is no recent activity in a year that ended.
+  @override
+  PeriodSelection initialPeriod(FinancialYear year) => year.isCurrent
+      ? PeriodSelection(year.confine(DateRange.lastDays(90)), 'Last 90 days')
+      : PeriodSelection(year.toDate, year.label);
 
   @override
   Widget build(BuildContext context) {
+    watchFinancialYear();
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
     if (companyId == null) {
       return const Scaffold(
@@ -59,13 +58,13 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen> {
     }
 
     final ItemMovementArgs args =
-        (companyId: companyId, item: widget.item, range: _range);
+        (companyId: companyId, item: widget.item, range: range);
     final AsyncValue<Fresh<ItemMovementReport>> state =
         ref.watch(itemMovementProvider(args));
 
     return ReportScaffold<ItemMovementReport>(
       title: widget.item,
-      subtitle: _periodLabel,
+      subtitle: periodLabel,
       state: state,
       onRefresh: () async {
         ref.invalidate(itemMovementProvider(args));
@@ -79,7 +78,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen> {
             padding: const EdgeInsets.symmetric(horizontal: 12),
             child: Align(
               alignment: Alignment.centerLeft,
-              child: PeriodField(label: _periodLabel, onTap: _pickPeriod),
+              child: PeriodField(label: periodLabel, onTap: pickPeriod),
             ),
           ),
         ),
@@ -91,7 +90,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen> {
         // moved nothing" are different statements about a shop's stock.
         message: 'No voucher moved ${widget.item} in this period. Try a longer one.',
         action: FilledButton.tonalIcon(
-          onPressed: _pickPeriod,
+          onPressed: pickPeriod,
           icon: const Icon(Icons.date_range),
           label: const Text('Change period'),
         ),
@@ -107,7 +106,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen> {
             child: SectionCard(
               title: 'Movement',
               subtitle:
-                  '${countOf(report.voucherCount, 'voucher')} · $_periodLabel',
+                  '${countOf(report.voucherCount, 'voucher')} · $periodLabel',
               icon: Icons.swap_vert,
               tint: AppTheme.tileAmber,
               child: Column(

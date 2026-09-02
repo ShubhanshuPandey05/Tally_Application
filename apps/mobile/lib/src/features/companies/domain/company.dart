@@ -8,6 +8,7 @@ class Company {
     required this.baseCurrency,
     required this.isActive,
     this.financialYearFrom,
+    this.booksFrom,
   });
 
   final String id;
@@ -21,7 +22,15 @@ class Company {
   final String connectorId;
   final String baseCurrency;
   final bool isActive;
+
+  /// Start of the financial year TallyPrime currently has open.
   final DateTime? financialYearFrom;
+
+  /// The earliest date these books hold anything -- Tally's `BOOKSFROM`. The
+  /// financial-year picker is built from it, so an owner is offered the years
+  /// their business has actually traded for rather than an invented range.
+  /// Null until the first sync has asked Tally.
+  final DateTime? booksFrom;
 
   factory Company.fromJson(Map<String, Object?> json) => Company(
         id: json['id'] as String? ?? '',
@@ -31,6 +40,7 @@ class Company {
         baseCurrency: json['base_currency'] as String? ?? 'INR',
         isActive: json['is_active'] as bool? ?? true,
         financialYearFrom: DateTime.tryParse(json['financial_year_from'] as String? ?? ''),
+        booksFrom: DateTime.tryParse(json['books_from'] as String? ?? ''),
       );
 }
 

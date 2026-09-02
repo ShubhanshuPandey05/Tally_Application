@@ -368,6 +368,52 @@ async def test_a_fresh_failure_outranks_a_busy_queue(make_pipeline, ok_handler):
     await queued
 
 
+async def test_a_stale_failure_also_outranks_a_busy_queue(make_pipeline, ok_handler):
+    """Busy proves Tally is answering only if we have not just seen it refuse.
+
+    Without this the heartbeat announced "TallyPrime is now reachable" while the
+    thing keeping the pipeline busy was the retry loop of a refused connection --
+    and the backend, told Tally was back, sent work at it.
+    """
+    pipeline = make_pipeline(ok_handler, liveness_ttl_seconds=0.0)
+
+    async def unreachable():
+        raise TallyUnreachableError("connection refused")
+
+    with pytest.raises(TallyUnreachableError):
+        await pipeline.submit(unreachable, label="doomed", deadline_seconds=10)
+
+    queued = asyncio.create_task(
+        pipeline.submit(sleeper(0.2), label="next", deadline_seconds=10)
+    )
+    await asyncio.sleep(0.01)
+
+    assert await pipeline.is_alive() is False
+    await queued
+
+
+async def test_outages_count_transitions_not_failures(make_pipeline, ok_handler):
+    """What the company guard keys its cache on, so it must move exactly once."""
+    pipeline = make_pipeline(ok_handler, liveness_ttl_seconds=30.0)
+
+    async def unreachable():
+        raise TallyUnreachableError("connection refused")
+
+    assert pipeline.outages == 0
+
+    for _ in range(3):
+        with pytest.raises(TallyUnreachableError):
+            await pipeline.submit(unreachable, label="doomed", deadline_seconds=10)
+
+    assert pipeline.outages == 1, "one outage, however many requests it swallows"
+
+    await pipeline.submit(sleeper(0), label="recovered", deadline_seconds=10)
+    with pytest.raises(TallyUnreachableError):
+        await pipeline.submit(unreachable, label="doomed", deadline_seconds=10)
+
+    assert pipeline.outages == 2
+
+
 # --------------------------------------------------------------------------
 # Resilience
 # --------------------------------------------------------------------------

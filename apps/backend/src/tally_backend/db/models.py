@@ -247,6 +247,19 @@ class Organisation(Base, TimestampMixin):
     #: "spoke to Ravi, three shops, wants two more seats in April" lives.
     notes: Mapped[str | None] = mapped_column(Text, nullable=True)
 
+    #: The shared showroom account: real screens, invented books, no Tally PC
+    #: anywhere behind it. It is a flag on the organisation rather than a
+    #: separate kind of account because every other answer means a second code
+    #: path through auth, entitlements and reads -- and a second code path is
+    #: where a demo eventually gets served somebody's real figures.
+    #:
+    #: It is ``ACTIVE`` so that its books can be read, and
+    #: :class:`~tally_backend.services.entitlements.Entitlement` refuses every
+    #: *change* on the strength of this column: whoever is exploring must not be
+    #: able to unlink the demo company, revoke its connector or invite
+    #: themselves a colleague on an account thousands of other people also open.
+    is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
+
     memberships: Mapped[list[Membership]] = relationship(back_populates="organisation")
     connectors: Mapped[list[Connector]] = relationship(back_populates="organisation")
     companies: Mapped[list[Company]] = relationship(back_populates="organisation")

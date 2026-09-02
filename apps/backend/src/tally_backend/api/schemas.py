@@ -101,6 +101,10 @@ class SubscriptionResponse(BaseModel):
     #: Empty when the account is live. Written for a shop owner, and always
     #: names the way out -- there is no self-service path here by design.
     message: str = ""
+    #: The shared demo. The app reads it to say so out loud on every screen that
+    #: would otherwise offer to change something -- a disabled button with no
+    #: explanation is how a demo gets mistaken for a broken product.
+    is_demo: bool = False
 
     @classmethod
     def build(
@@ -117,6 +121,7 @@ class SubscriptionResponse(BaseModel):
             companies_used=companies_used,
             expires_at=entitlement.expires_at,
             message=entitlement.blocked_reason,
+            is_demo=entitlement.is_demo,
         )
 
 
@@ -285,10 +290,17 @@ class CompanyResponse(BaseModel):
     connector_id: str
     base_currency: str
     is_active: bool
+    #: Start of the financial year TallyPrime currently has open.
     financial_year_from: date | None = None
+    #: Earliest date the books hold anything (Tally's ``BOOKSFROM``). This is
+    #: what the app builds its financial-year list from: an owner picking "which
+    #: year am I looking at?" must be offered the years their own business has
+    #: existed for, not an invented range of them. Null until the first sync has
+    #: asked Tally, and the app falls back to the open year alone.
+    books_from: date | None = None
 
     @classmethod
-    def build(cls, company: Company) -> CompanyResponse:
+    def build(cls, company: Company, books_from: date | None = None) -> CompanyResponse:
         return cls(
             id=company.id,
             name=company.label,
@@ -299,6 +311,7 @@ class CompanyResponse(BaseModel):
             financial_year_from=(
                 company.financial_year_from.date() if company.financial_year_from else None
             ),
+            books_from=books_from,
         )
 
 

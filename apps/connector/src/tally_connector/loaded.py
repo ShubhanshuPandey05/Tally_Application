@@ -92,6 +92,17 @@ class QueryRunner(Protocol):
         deadline_seconds: float,
     ) -> Any: ...
 
+    @property
+    def outages(self) -> int:
+        """How many times Tally has been seen to stop answering, ever.
+
+        The guard keeps nothing across a change in this number. It does not care
+        what the count is, only that it is the same one as when the open set was
+        taken -- Tally going away and coming back is how a company stops being
+        loaded without anybody having closed it.
+        """
+        ...
+
 
 class _DirectRunner:
     """Runs the guard's probe straight at Tally, with no queue in between.
@@ -103,6 +114,12 @@ class _DirectRunner:
 
     def __init__(self, client: TallyClient) -> None:
         self._client = client
+
+    @property
+    def outages(self) -> int:
+        # Nothing on this path watches Tally's health between calls, and a CLI
+        # command is short enough that there is no long-lived cache to protect.
+        return 0
 
     async def execute(
         self,
@@ -176,33 +193,53 @@ class LoadedCompanies:
         #: their own screen.
         self._display: tuple[str, ...] = ()
         self._fetched_at: float | None = None
+        #: The runner's outage count when the set above was taken.
+        self._outages_at_fetch = -1
         #: One refresh at a time. A dashboard fires several reads at once and
         #: they would otherwise each queue their own copy of the same probe in
         #: front of the export they are all waiting for.
         self._lock = asyncio.Lock()
 
     async def ensure(self, company: str) -> None:
-        """Raise :class:`CompanyNotLoadedError` unless ``company`` is open.
+        """Raise unless ``company`` is *known* to be open in TallyPrime.
 
-        Returns without an opinion when the check itself cannot be made. That is
-        deliberate: if Tally is unreachable the real query is about to fail with
-        a *true* description of why, and a guard that guessed "not loaded"
-        instead would send the shop looking for the wrong problem.
+        The rule is positive confirmation: a read reaches Tally only after a
+        ``companies.list`` that actually named its company. When the check
+        cannot be made at all, the error that stopped it is re-raised -- the
+        caller still learns the true reason, but the read is not sent.
+
+        This used to return without an opinion in that case, on the grounds that
+        the real query was about to fail with a better description of the same
+        problem. That reasoning holds only while the failure lasts, and the gap
+        between the check and the read is exactly where an operator starts
+        TallyPrime. From a shop's log on 2026-09-01:
+
+        ============  ==========================================================
+        ``20:35:14``  ``companies.list`` cannot connect (attempt 1 of 3)
+        ``20:35:23``  the guard stands aside, "letting the read through"
+        ``20:35:23``  the pipeline pauses 5s for Tally to settle
+        ``20:35:28``  the read goes out -- into a TallyPrime the owner has just
+                      opened, with **no company loaded**
+        ============  ==========================================================
+
+        That last state is the one that takes Tally down with ``c0000005``. An
+        unreachable Tally and a Tally that has just become reachable are one
+        second apart, so "the read will fail honestly anyway" is not something
+        this layer can promise. Refusing costs a retry; guessing costs the shop
+        its till.
         """
         if not company:
             # Company discovery is the one read that is not scoped to a company.
             return
 
-        known = await self._open_companies()
-        if known is None or company_key(company) in known:
+        if company_key(company) in await self._open_companies():
             return
 
         # A cached set can only be wrong in one direction that matters: the
         # operator opened the company since it was taken. Re-ask before
         # refusing, so opening a company recovers on the next request instead
         # of after the TTL.
-        known = await self._open_companies(force=True)
-        if known is None or company_key(company) in known:
+        if company_key(company) in await self._open_companies(force=True):
             return
 
         open_now = ", ".join(self._display) if self._display else "none"
@@ -213,15 +250,13 @@ class LoadedCompanies:
     async def invalidate(self) -> None:
         """Drop the cached set, so the next check re-reads it."""
         async with self._lock:
-            self._names = None
-            self._display = ()
-            self._fetched_at = None
+            self._forget()
 
-    async def _open_companies(self, *, force: bool = False) -> frozenset[str] | None:
-        """The open set, refreshed if stale. ``None`` means "could not ask"."""
+    async def _open_companies(self, *, force: bool = False) -> frozenset[str]:
+        """The open set, refreshed if stale. Raises if Tally cannot be asked."""
         async with self._lock:
-            if not force and self._fresh():
-                return self._names
+            if not force and (cached := self._cached()) is not None:
+                return cached
 
             try:
                 companies = await self._runner.execute(
@@ -230,20 +265,41 @@ class LoadedCompanies:
                     deadline_seconds=self._deadline,
                 )
             except TallyError as exc:
+                # Forgotten, not merely left unrefreshed. A set we could not
+                # confirm was taken before whatever is now wrong with Tally, and
+                # the next caller has to go and look rather than trust it.
+                self._forget()
                 logger.info(
-                    "could not check which companies are open (%s); "
-                    "letting the read through to report the real error",
+                    "could not check which companies are open (%s); refusing the "
+                    "read rather than sending it to a TallyPrime whose state we "
+                    "cannot see",
                     exc,
                 )
-                return None
+                raise
 
             names = [c.name for c in companies if c.name]
             self._display = tuple(sorted(names))
             self._names = frozenset(company_key(name) for name in names)
             self._fetched_at = asyncio.get_running_loop().time()
+            self._outages_at_fetch = self._runner.outages
             return self._names
 
-    def _fresh(self) -> bool:
+    def _forget(self) -> None:
+        self._names = None
+        self._display = ()
+        self._fetched_at = None
+
+    def _cached(self) -> frozenset[str] | None:
+        """The stored set if it can still be trusted, else ``None``."""
         if self._names is None or self._fetched_at is None:
-            return False
-        return asyncio.get_running_loop().time() - self._fetched_at <= self._ttl
+            return None
+        if self._runner.outages != self._outages_at_fetch:
+            # Tally stopped answering at some point after this set was taken, so
+            # it has been reopened since. That is precisely the moment a company
+            # is *not* loaded, and it is the one transition a cached "yes" must
+            # never survive: on the TTL alone, an answer taken before the outage
+            # can wave a voucher read into a freshly opened, empty TallyPrime.
+            return None
+        if asyncio.get_running_loop().time() - self._fetched_at > self._ttl:
+            return None
+        return self._names

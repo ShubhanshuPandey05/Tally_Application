@@ -231,6 +231,90 @@ async def test_an_unreachable_tally_reports_itself_not_a_closed_company(make_pip
     assert result.error.code == TallyUnreachableError.code
 
 
+async def test_a_check_that_could_not_be_made_does_not_let_the_read_through(make_pipeline):
+    """The 2026-09-01 crash, in one test.
+
+    The guard could not reach Tally, so it stood aside and the read was queued
+    anyway. Nine seconds of retries and a settling pause later, TallyPrime was
+    back -- opened by hand, with no company loaded -- and the read that had been
+    waved through on the strength of an *old* failure killed it with c0000005.
+
+    Nothing may be sent to Tally on the back of a check that did not happen.
+    """
+    attempts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        attempts.append("companies.list" if "TFCompanies" in body else "read")
+        raise httpx.ConnectError("connection refused")
+
+    result = await executor_for(handler, make_pipeline).run(
+        JobRequest(
+            job_id="j1",
+            query="vouchers.list",
+            params={
+                "company": "Bhtia Supermarket",
+                "from_date": "2026-01-01",
+                "to_date": "2026-09-01",
+            },
+        )
+    )
+
+    assert result.ok is False
+    assert result.error.code == TallyUnreachableError.code
+    # Retryable, so the phone falls back to its snapshot and comes back later.
+    assert result.error.retryable is True
+    assert attempts == ["companies.list"], (
+        "the read must not be sent when the guard could not confirm the company"
+    )
+
+
+async def test_a_yes_taken_before_an_outage_cannot_authorise_a_later_read(make_pipeline):
+    """Tally restarting is exactly how a company stops being open.
+
+    The cached answer is only 30 seconds old and the company really was open
+    when it was taken. But TallyPrime has been closed and reopened since, and it
+    comes back with nothing loaded -- so the set has to be re-read rather than
+    trusted, whatever the clock says.
+    """
+    state = {"open": ("Bhtia Supermarket",), "up": True}
+    attempts: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        body = request.content.decode("utf-8")
+        attempts.append("companies.list" if "TFCompanies" in body else "read")
+        if not state["up"]:
+            raise httpx.ConnectError("connection refused")
+        if "TFCompanies" in body:
+            return httpx.Response(200, text=company_list_xml(*state["open"]))
+        return httpx.Response(200, text=LEDGERS_XML)
+
+    # Long enough that the cache can only be dropped by the outage itself.
+    executor = executor_for(handler, make_pipeline, ttl_seconds=3600.0)
+
+    assert (await executor.run(ledger_job("Bhtia Supermarket", "j1"))).ok is True
+
+    # Tally goes away. The failure is observed by the *read*, not by the guard,
+    # which is the case a guard that only forgets its own failures would miss.
+    state["up"] = False
+    await executor.run(ledger_job("Bhtia Supermarket", "j2"))
+    assert executor.pipeline.outages == 1
+
+    # It comes back with no company loaded.
+    state["up"] = True
+    state["open"] = ()
+    attempts.clear()
+
+    result = await executor.run(ledger_job("Bhtia Supermarket", "j3"))
+
+    assert attempts == ["companies.list", "companies.list"], (
+        "the guard re-read the open set, and no read was sent on the old answer"
+    )
+    # The phone is not left with an error screen -- it gets the last figures it
+    # was given, which is what the refusal is for.
+    assert result.from_cache is True
+
+
 async def test_the_guard_does_not_mask_a_real_read_failure(make_pipeline):
     """Guard passes, read fails: the read's error is what surfaces."""
 

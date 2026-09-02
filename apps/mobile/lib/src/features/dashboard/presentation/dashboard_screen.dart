@@ -8,6 +8,7 @@ import '../../../app/theme.dart';
 import '../../../core/layout/adaptive.dart';
 import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
+import '../../../core/model/financial_year.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/cards.dart';
@@ -19,8 +20,10 @@ import '../../../core/widgets/states.dart';
 import '../../auth/application/auth_controller.dart';
 import '../../auth/domain/app_user.dart';
 import '../../companies/application/company_providers.dart';
+import '../../companies/application/financial_year_providers.dart';
 import '../../companies/domain/company.dart';
 import '../../subscription/domain/subscription.dart';
+import '../../subscription/presentation/demo_notice.dart';
 import '../../sync/application/sync_providers.dart';
 import '../../sync/domain/sync_status.dart';
 import '../../sync/presentation/widgets/sync_progress.dart';
@@ -86,9 +89,11 @@ class _Dashboard extends ConsumerWidget {
 
   Future<void> _pickPeriod(BuildContext context, WidgetRef ref) async {
     final PeriodSelection? current = ref.read(dashboardPeriodProvider(company.id));
+    final FinancialYear year = ref.read(activeFinancialYearProvider);
     final PeriodSelection? picked = await showPeriodPicker(
       context,
-      current: current?.range ?? DateRange.today(),
+      current: current?.range ?? year.confine(DateRange.today()),
+      year: year,
       maxDays: _maxDashboardDays,
     );
     if (picked == null) return;
@@ -120,6 +125,7 @@ class _Dashboard extends ConsumerWidget {
         // the dashboard feel like a fixed report.
         bottom: _PeriodBar(
           selection: period,
+          year: ref.watch(activeFinancialYearProvider),
           onSelect: (PeriodSelection? selection) =>
               ref.read(dashboardPeriodProvider(company.id).notifier).select(selection),
           onCustom: () => _pickPeriod(context, ref),
@@ -197,6 +203,10 @@ class _DashboardBody extends ConsumerWidget {
         padding: EdgeInsets.only(bottom: HomeShell.contentInset(context)),
         children: <Widget>[
           FreshnessBanner(freshness: dashboard.freshness, onRefresh: onRefresh),
+          // Silent on a real account. On the demo it is the first thing above
+          // the figures, because that is where somebody decides whether to
+          // believe them.
+          const DemoNotice(),
           // Renders nothing at all unless a sync is actually in flight or has
           // stopped short, so a settled company keeps a clean dashboard.
           SyncProgressStrip(companyId: companyId),
@@ -377,23 +387,38 @@ class _DashboardBody extends ConsumerWidget {
 class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
   const _PeriodBar({
     required this.selection,
+    required this.year,
     required this.onSelect,
     required this.onCustom,
   });
 
   final PeriodSelection? selection;
+
+  /// The year every pill here sits inside. Chosen above, under the company
+  /// name, and it decides both which pills exist and what they mean.
+  final FinancialYear year;
+
   final ValueChanged<PeriodSelection?> onSelect;
   final VoidCallback onCustom;
 
-  /// Presets, shortest first. A subset of [periodPresets]: the sheet behind the
-  /// calendar carries the rest, and eight pills is a row nobody reads.
-  static const List<String> _quick = <String>[
-    'Today',
-    'This week',
-    'This month',
-    'This quarter',
-    'This year',
-  ];
+  /// The pills, shortest first: a subset of the sheet's presets, because eight
+  /// pills is a row nobody reads. In a closed year the shorter windows are
+  /// meaningless -- there is no "today" in a year that ended -- so it shows
+  /// that year's quarters instead.
+  List<PeriodPreset> _pills() {
+    final List<PeriodPreset> presets = periodPresetsFor(year);
+    if (!year.isCurrent) return presets;
+    const Set<String> wanted = <String>{
+      'Today',
+      'This week',
+      'This month',
+      'This quarter',
+    };
+    return <PeriodPreset>[
+      for (final PeriodPreset preset in presets)
+        if (wanted.contains(preset.label) || preset.label == year.label) preset,
+    ];
+  }
 
   @override
   Size get preferredSize => const Size.fromHeight(48);
@@ -401,9 +426,10 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final List<PeriodPreset> pills = _pills();
     // Null is today -- see DashboardPeriodController.select.
     final String active = selection?.label ?? 'Today';
-    final bool isCustom = !_quick.contains(active);
+    final bool isCustom = !pills.any((PeriodPreset p) => p.label == active);
 
     return SizedBox(
       height: 48,
@@ -411,19 +437,17 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
         children: <Widget>[
-          for (final String label in _quick)
+          for (final PeriodPreset preset in pills)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _PeriodPill(
-                label: label == 'Today' ? 'Today' : label.replaceFirst('This ', ''),
-                selected: !isCustom && active == label,
+                label: preset.label.replaceFirst('This ', ''),
+                selected: !isCustom && active == preset.label,
                 onTap: () {
-                  if (label == 'Today') {
+                  if (preset.label == 'Today') {
                     onSelect(null);
                     return;
                   }
-                  final PeriodPreset preset = periodPresets
-                      .firstWhere((PeriodPreset p) => p.label == label);
                   onSelect(PeriodSelection(preset.range(), preset.label));
                 },
               ),

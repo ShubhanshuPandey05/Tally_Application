@@ -28,6 +28,12 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
     super.dispose();
   }
 
+  Future<void> _enterDemo() async {
+    setState(() => _busy = true);
+    await ref.read(authControllerProvider.notifier).signInAsDemo();
+    if (mounted) setState(() => _busy = false);
+  }
+
   Future<void> _submit() async {
     if (!(_form.currentState?.validate() ?? false)) return;
     setState(() => _busy = true);
@@ -42,6 +48,10 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     final String? error = ref.watch(authControllerProvider).error;
+    // Absent until the server answers, and false if it never does -- so the
+    // button appears only where there is actually a demo behind it.
+    final bool demoAvailable =
+        ref.watch(demoAvailableProvider).valueOrNull ?? false;
 
     return Scaffold(
       body: SafeArea(
@@ -119,6 +129,40 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                       onPressed: _busy ? null : () => context.go(Routes.signUp),
                       child: const Text('New to TallyFlow? Create an account'),
                     ),
+                    if (demoAvailable) ...<Widget>[
+                      const SizedBox(height: 20),
+                      Row(
+                        children: <Widget>[
+                          const Expanded(child: Divider()),
+                          Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 12),
+                            child: Text(
+                              'or',
+                              style: theme.textTheme.bodySmall
+                                  ?.copyWith(color: context.mutedColor),
+                            ),
+                          ),
+                          const Expanded(child: Divider()),
+                        ],
+                      ),
+                      const SizedBox(height: 16),
+                      OutlinedButton.icon(
+                        onPressed: _busy ? null : _enterDemo,
+                        icon: const Icon(Icons.play_circle_outline),
+                        label: const Text('Explore the demo'),
+                      ),
+                      const SizedBox(height: 8),
+                      // Said before they tap, not after. Somebody who works
+                      // out for themselves that the figures are invented has
+                      // spent the first minute of the demo doubting it.
+                      Text(
+                        'A sample business with real reports and made-up '
+                        'figures. No Tally or sign-up needed.',
+                        textAlign: TextAlign.center,
+                        style: theme.textTheme.bodySmall
+                            ?.copyWith(color: context.mutedColor),
+                      ),
+                    ],
                   ],
                 ),
               ),
