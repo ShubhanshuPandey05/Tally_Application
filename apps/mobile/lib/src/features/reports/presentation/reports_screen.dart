@@ -52,25 +52,25 @@ class ReportsScreen extends ConsumerWidget {
                       ),
                       _ReportEntry(
                         icon: Icons.groups_outlined,
-                        title: 'Debtors by group',
-                        subtitle: 'Every party under Sundry Debtors, net of advances',
+                        title: 'Sundry Debtors',
+                        subtitle: 'Every party in the group, net of advances',
                         route: '${Routes.groupOutstanding}?kind=receivable',
                       ),
                       _ReportEntry(
                         icon: Icons.local_shipping_outlined,
-                        title: 'Creditors by group',
-                        subtitle: 'Every party under Sundry Creditors, net of advances',
+                        title: 'Sundry Creditors',
+                        subtitle: 'Every party in the group, net of advances',
                         route: '${Routes.groupOutstanding}?kind=payable',
                       ),
                       _ReportEntry(
                         icon: Icons.account_balance_outlined,
-                        title: 'Ledger balances',
+                        title: 'Ledgers',
                         subtitle: 'Closing balances across all accounts',
                         route: Routes.ledgers,
                       ),
                     ],
                   ),
-                  SizedBox(height: 18),
+                  SizedBox(height: 14),
                   _ReportGroup(
                     tint: AppTheme.tileViolet,
                     heading: 'Transactions',
@@ -95,7 +95,7 @@ class ReportsScreen extends ConsumerWidget {
                       ),
                     ],
                   ),
-                  SizedBox(height: 18),
+                  SizedBox(height: 14),
                   _ReportGroup(
                     tint: AppTheme.tileAmber,
                     heading: 'Stock',
@@ -162,7 +162,7 @@ class _ReportGroup extends StatelessWidget {
           child: Column(
             children: <Widget>[
               for (int i = 0; i < entries.length; i++) ...<Widget>[
-                if (i > 0) const Divider(indent: 68, height: 1),
+                if (i > 0) const Divider(indent: 62, height: 1),
                 entries[i].withTint(tint),
               ],
             ],
@@ -203,7 +203,7 @@ class _ReportEntry extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return ListTile(
       onTap: () => context.push(route),
-      leading: IconTile(icon: icon, colour: tint ?? AppTheme.tileBlue, size: 40),
+      leading: IconTile(icon: icon, colour: tint ?? AppTheme.tileBlue, size: 34),
       title: Text(
         title,
         style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),

@@ -82,9 +82,9 @@ MANIFEST = DOWNLOADS / "manifest.json"
 # installer and the mobile app, so moving it means re-issuing both to everybody
 # who already installed them.
 # --------------------------------------------------------------------------
-PROD_SITE_HOST = "tallyflow.theshubhanshu.dev"
-PROD_API_HOST = "api-tallyflow.theshubhanshu.dev"
-PROD_PORTAL_HOST = "pd-tallyflow.theshubhanshu.dev"
+PROD_SITE_HOST = "tallyflow.jsrprimesolution.com"
+PROD_API_HOST = "api-tallyflow.jsrprimesolution.com"
+PROD_PORTAL_HOST = "pd-tallyflow.jsrprimesolution.com"
 PROD_API_URL = f"https://{PROD_API_HOST}"
 
 WINDOWS = os.name == "nt"
@@ -222,7 +222,7 @@ def cmd_app(argv: list[str]) -> int:
     common "why can't it reach my backend" question.
     """
     device = argv[0] if argv else None
-    host = "127.0.0.1" if device in {"chrome", "web-server", "windows"} else "10.0.2.2"
+    host = "127.0.0.1" if device in {"chrome", "web-server", "windows"} else "10.21.25.128"
 
     args = [need_flutter(), "run", f"--dart-define=TALLYFLOW_API_URL=http://{host}:8000"]
     if device:

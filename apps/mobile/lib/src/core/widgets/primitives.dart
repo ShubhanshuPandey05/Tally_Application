@@ -13,7 +13,7 @@ class IconTile extends StatelessWidget {
     super.key,
     required this.icon,
     this.colour = AppTheme.tileBlue,
-    this.size = 38,
+    this.size = 34,
     this.quiet = false,
     this.background,
     this.foreground,
@@ -66,7 +66,7 @@ class HeroCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return Container(
       width: double.infinity,
-      padding: padding ?? const EdgeInsets.fromLTRB(18, 16, 18, 18),
+      padding: padding ?? const EdgeInsets.fromLTRB(16, 13, 16, 14),
       decoration: BoxDecoration(
         color: context.heroSurface,
         borderRadius: BorderRadius.circular(AppTheme.radiusCard),
@@ -100,7 +100,7 @@ class SegmentedPill<T> extends StatelessWidget {
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
     return Container(
-      padding: const EdgeInsets.all(4),
+      padding: const EdgeInsets.all(3),
       decoration: BoxDecoration(
         color: context.surfaceColor,
         borderRadius: BorderRadius.circular(999),
@@ -115,7 +115,7 @@ class SegmentedPill<T> extends StatelessWidget {
                 child: AnimatedContainer(
                   duration: const Duration(milliseconds: 160),
                   curve: Curves.easeOut,
-                  height: 36,
+                  height: 32,
                   alignment: Alignment.center,
                   decoration: BoxDecoration(
                     color: segment.value == value
@@ -177,11 +177,11 @@ class PillAction extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(12, 9, 16, 9),
+          padding: const EdgeInsets.fromLTRB(12, 7, 15, 7),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
-              Icon(icon, size: 17, color: theme.colorScheme.onSurface),
+              Icon(icon, size: 16, color: theme.colorScheme.onSurface),
               const SizedBox(width: 8),
               Text(
                 label,
@@ -211,7 +211,7 @@ class Meter extends StatelessWidget {
       borderRadius: BorderRadius.circular(999),
       child: LinearProgressIndicator(
         value: fraction?.clamp(0.0, 1.0) ?? 0,
-        minHeight: 8,
+        minHeight: 6,
         backgroundColor: context.surfaceColor,
         valueColor: AlwaysStoppedAnimation<Color>(
           colour ?? Theme.of(context).colorScheme.primary,

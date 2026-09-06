@@ -106,10 +106,10 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
 
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[

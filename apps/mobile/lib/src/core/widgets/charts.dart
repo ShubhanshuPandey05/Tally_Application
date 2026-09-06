@@ -28,7 +28,7 @@ class Sparkline extends StatelessWidget {
     super.key,
     required this.values,
     this.colour,
-    this.height = 26,
+    this.height = 22,
     this.filled = true,
   });
 
@@ -162,7 +162,7 @@ class TrendChart extends StatelessWidget {
     required this.dates,
     required this.currency,
     this.shape = TrendShape.line,
-    this.height = 168,
+    this.height = 146,
   });
 
   final List<ChartSeries> series;
@@ -237,7 +237,7 @@ class TrendChart extends StatelessWidget {
     return SizedBox(
       height: height,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(4, 14, 14, 2),
+        padding: const EdgeInsets.fromLTRB(4, 10, 12, 2),
         child: shape == TrendShape.line ? _line(context) : _bars(context),
       ),
     );
@@ -502,7 +502,7 @@ class DonutBreakdown extends StatelessWidget {
     required this.slices,
     required this.centreLabel,
     required this.centreValue,
-    this.diameter = 124,
+    this.diameter = 108,
   });
 
   final List<DonutSlice> slices;
@@ -539,12 +539,12 @@ class DonutBreakdown extends StatelessWidget {
                       PieChartSectionData(
                         value: slice.value,
                         color: slice.colour,
-                        radius: 15,
+                        radius: 13,
                         showTitle: false,
                       ),
                   ],
                   sectionsSpace: 2,
-                  centerSpaceRadius: diameter / 2 - 17,
+                  centerSpaceRadius: diameter / 2 - 15,
                   // Twelve o'clock, so the first wedge starts where the eye
                   // does rather than at three o'clock.
                   startDegreeOffset: -90,
@@ -569,7 +569,7 @@ class DonutBreakdown extends StatelessWidget {
             ],
           ),
         ),
-        const SizedBox(width: 14),
+        const SizedBox(width: 12),
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -577,7 +577,7 @@ class DonutBreakdown extends StatelessWidget {
             children: <Widget>[
               for (final DonutSlice slice in drawable)
                 Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 3),
+                  padding: const EdgeInsets.symmetric(vertical: 2),
                   child: Row(
                     children: <Widget>[
                       Container(
@@ -667,7 +667,7 @@ class ShareRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+        padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[
@@ -696,7 +696,7 @@ class ShareRow extends StatelessWidget {
                 Text(value, style: theme.textTheme.bodyMedium?.merge(AppTheme.amount)),
               ],
             ),
-            const SizedBox(height: 6),
+            const SizedBox(height: 4),
             Row(
               children: <Widget>[
                 const SizedBox(width: 18),
@@ -704,7 +704,7 @@ class ShareRow extends StatelessWidget {
                   child: ClipRRect(
                     borderRadius: BorderRadius.circular(999),
                     child: SizedBox(
-                      height: 6,
+                      height: 5,
                       child: Stack(
                         children: <Widget>[
                           Container(color: context.surfaceColor),
@@ -804,23 +804,29 @@ class StatStrip extends StatelessWidget {
                         style: theme.textTheme.labelSmall
                             ?.copyWith(color: context.mutedColor),
                       ),
-                      const SizedBox(height: 3),
+                      const SizedBox(height: 2),
                       Row(
                         children: <Widget>[
-                          Flexible(
-                            child: FittedBox(
-                              fit: BoxFit.scaleDown,
-                              alignment: Alignment.centerLeft,
-                              child: Text(
-                                stats[i].value,
-                                style: theme.textTheme.titleSmall
-                                    ?.merge(AppTheme.amount)
-                                    .copyWith(color: stats[i].colour),
+                          // A cell may carry only a trailing chip -- the change
+                          // column does exactly that. An empty string measures
+                          // zero wide, and `FittedBox` asserts on a zero-width
+                          // child, which takes down the whole card and every
+                          // sliver after it rather than drawing one blank cell.
+                          if (stats[i].value.isNotEmpty)
+                            Flexible(
+                              child: FittedBox(
+                                fit: BoxFit.scaleDown,
+                                alignment: Alignment.centerLeft,
+                                child: Text(
+                                  stats[i].value,
+                                  style: theme.textTheme.titleSmall
+                                      ?.merge(AppTheme.amount)
+                                      .copyWith(color: stats[i].colour),
+                                ),
                               ),
                             ),
-                          ),
                           if (stats[i].trailing != null) ...<Widget>[
-                            const SizedBox(width: 5),
+                            if (stats[i].value.isNotEmpty) const SizedBox(width: 5),
                             stats[i].trailing!,
                           ],
                         ],

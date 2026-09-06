@@ -115,7 +115,7 @@ class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
 
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: _GroupSummaryCard(report: report),
           ),
           for (final GroupParty party in report.parties)
@@ -152,7 +152,7 @@ class _GroupSummaryCard extends StatelessWidget {
 
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: <Widget>[

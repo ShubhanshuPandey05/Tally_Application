@@ -96,11 +96,11 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             // Above the things it governs, so an owner reads why the buttons
             // below are missing before hunting for them.
             const SubscriptionNotice(),
-            if (user?.shouldExplainSubscription ?? false) const SizedBox(height: 18),
+            if (user?.shouldExplainSubscription ?? false) const SizedBox(height: 14),
             Card(
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -157,11 +157,11 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             const _AppearanceCard(),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             const SubscriptionCard(),
-            if (user?.role.isAdmin ?? false) const SizedBox(height: 18),
+            if (user?.role.isAdmin ?? false) const SizedBox(height: 14),
             Card(
               child: Padding(
                 padding: const EdgeInsets.all(16),
@@ -187,7 +187,7 @@ class SettingsScreen extends ConsumerWidget {
                 ),
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             Card(
               clipBehavior: Clip.antiAlias,
               child: Column(
@@ -217,7 +217,7 @@ class SettingsScreen extends ConsumerWidget {
                 ],
               ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             const _UpdateCard(),
             const SizedBox(height: 24),
             Center(

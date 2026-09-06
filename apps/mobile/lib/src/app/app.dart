@@ -28,10 +28,16 @@ class TallyFlowApp extends ConsumerWidget {
       builder: (BuildContext context, Widget? child) {
         // Financial figures must stay legible at large accessibility text
         // sizes, but an unbounded scale breaks every KPI tile into ellipses.
+        //
+        // The floor is 1.0 rather than 0.9 because the app's own type ramp is
+        // already compressed to fit more rows on a screen. Letting the phone's
+        // "small text" setting take another tenth off that would put captions
+        // under 10pt in front of exactly the readers -- shop owners and their
+        // accountants -- who are least likely to manage it.
         final MediaQueryData media = MediaQuery.of(context);
         return MediaQuery(
           data: media.copyWith(
-            textScaler: media.textScaler.clamp(minScaleFactor: 0.9, maxScaleFactor: 1.35),
+            textScaler: media.textScaler.clamp(minScaleFactor: 1.0, maxScaleFactor: 1.35),
           ),
           // Outside the router, so a build below the supported floor cannot be
           // reached by any route -- including the ones a deep link lands on.

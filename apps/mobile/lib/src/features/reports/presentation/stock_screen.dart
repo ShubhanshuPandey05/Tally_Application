@@ -172,10 +172,10 @@ class _StockScreenState extends ConsumerState<StockScreen> {
 
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: Card(
               child: Padding(
-                padding: const EdgeInsets.all(16),
+                padding: const EdgeInsets.all(14),
                 child: Row(
                   children: <Widget>[
                     Expanded(

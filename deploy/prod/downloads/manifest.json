@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-02T06:47:14+00:00",
+  "generated_at": "2026-09-06T18:12:50+00:00",
   "connector": {
-    "version": "0.2.5",
-    "file": "TallyFlowConnector-Setup-0.2.5.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.5.exe",
-    "sha256": "a0701e8eb36769d6836f3fdab728b37e95c88be4dc8b6d506b77d7ba21b803e8",
-    "size_bytes": 38142292,
+    "version": "0.2.6",
+    "file": "TallyFlowConnector-Setup-0.2.6.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.6.exe",
+    "sha256": "653c23c3324e7561318bc881573e3974a09504100620d9ada2465eaee5984612",
+    "size_bytes": 38141856,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Stops a read being sent to TallyPrime when the connector could not first confirm the company is open -- the case that crashed Tally with c0000005 when it was reopened with no company loaded."
+    "notes": "Built for the new server address, api-tallyflow.jsrprimesolution.com. Nothing about how the connector reads Tally has changed. An installation that is already running keeps the address it was set up with, so this only matters for a fresh install or a machine being pointed at the new host."
   },
   "android": {
-    "version": "0.4.0",
-    "file": "TallyFlow-0.4.0.apk",
-    "url": "/downloads/TallyFlow-0.4.0.apk",
-    "sha256": "0a32c993ca64514659baa8991e24421c037f1589863d60173f0e08ebc88a90ec",
-    "size_bytes": 24869810,
+    "version": "0.5.0",
+    "file": "TallyFlow-0.5.0.apk",
+    "url": "/downloads/TallyFlow-0.5.0.apk",
+    "sha256": "a9af53e55e168b686587bc6d37335ed48d761574526cb2c23062839a6b501ac4",
+    "size_bytes": 24863012,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Pick a financial year at the top of the home screen and every report reads inside it. Remove a company you no longer follow. A demo account you can explore without TallyPrime.",
-    "build_number": 4
+    "notes": "A tighter layout throughout -- more rows on screen without scrolling. Fixes a dashboard that came up blank when the period had something to compare against. Points at the new server address.",
+    "build_number": 5
   }
 }

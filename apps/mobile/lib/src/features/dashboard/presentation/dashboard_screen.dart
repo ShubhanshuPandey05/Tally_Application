@@ -12,7 +12,6 @@ import '../../../core/model/financial_year.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/cards.dart';
-import '../../../core/widgets/charts.dart';
 import '../../../core/widgets/freshness_banner.dart';
 import '../../../core/widgets/period_picker.dart';
 import '../../../core/widgets/primitives.dart';
@@ -217,22 +216,17 @@ class _DashboardBody extends ConsumerWidget {
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
             child: _Headline(dashboard: dashboard, periodLabel: periodLabel),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 9),
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: _MetricGrid(dashboard: dashboard),
           ),
-          const SizedBox(height: 14),
+          const SizedBox(height: 10),
           if (dashboard.sales.hasData)
             _Padded(
               child: TradeSection(
                 title: 'Sales',
                 summary: sales!,
-                // Purchases ride on the sales axis rather than getting a card
-                // of their own: the gap between the two lines is the margin,
-                // and a gap cannot be read across a scroll.
-                compareWith: purchases,
-                compareLabel: 'Purchases',
                 currency: dashboard.currency,
                 periodLabel: periodLabel,
               ),
@@ -256,6 +250,14 @@ class _DashboardBody extends ConsumerWidget {
                 reason: dashboard.receivables.error,
               ),
             ),
+          if (dashboard.payables.hasData && !dashboard.payables.data!.total.isZero)
+            _Padded(
+              child: OutstandingSection(
+                title: 'Payables',
+                summary: dashboard.payables.data!,
+                kindQuery: 'payable',
+              ),
+            ),
           // Cash, bank and stock cannot be rewound -- see [CurrentOnlyNote].
           if (dashboard.funds.hasData)
             _Padded(
@@ -269,14 +271,6 @@ class _DashboardBody extends ConsumerWidget {
               child: InventorySection(
                 summary: dashboard.inventory.data!,
                 alwaysCurrent: _isPeriod,
-              ),
-            ),
-          if (dashboard.payables.hasData && !dashboard.payables.data!.total.isZero)
-            _Padded(
-              child: OutstandingSection(
-                title: 'Payables',
-                summary: dashboard.payables.data!,
-                kindQuery: 'payable',
               ),
             ),
           if (sales != null && sales.topProducts.isNotEmpty)
@@ -302,9 +296,9 @@ class _DashboardBody extends ConsumerWidget {
                 ],
               ),
             ),
-          // Purchases only get a card of their own when there is no sales chart
-          // for them to sit on. Otherwise this would be the same series drawn
-          // twice on one screen.
+          // Purchases have their figure on the dark card at the top, so they
+          // only get a card of their own when there is no sales card carrying
+          // them.
           if (sales == null && purchases != null && !purchases.headline.isZero)
             _Padded(
               child: TradeSection(
@@ -420,8 +414,17 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
     ];
   }
 
+  /// "This month" is three pills' worth of width for one word of meaning, so
+  /// the row drops the "This" -- and puts the capital back, because a pill that
+  /// reads "month" beside one that reads "Today" looks like a mistake.
+  static String _pillLabel(String label) {
+    if (!label.startsWith('This ')) return label;
+    final String rest = label.substring(5);
+    return rest.isEmpty ? label : rest[0].toUpperCase() + rest.substring(1);
+  }
+
   @override
-  Size get preferredSize => const Size.fromHeight(48);
+  Size get preferredSize => const Size.fromHeight(42);
 
   @override
   Widget build(BuildContext context) {
@@ -432,16 +435,16 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
     final bool isCustom = !pills.any((PeriodPreset p) => p.label == active);
 
     return SizedBox(
-      height: 48,
+      height: 42,
       child: ListView(
         scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.fromLTRB(16, 0, 12, 10),
+        padding: const EdgeInsets.fromLTRB(16, 0, 12, 8),
         children: <Widget>[
           for (final PeriodPreset preset in pills)
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _PeriodPill(
-                label: preset.label.replaceFirst('This ', ''),
+                label: _pillLabel(preset.label),
                 selected: !isCustom && active == preset.label,
                 onTap: () {
                   if (preset.label == 'Today') {
@@ -540,7 +543,7 @@ class _Padded extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 9),
         child: child,
       );
 }
@@ -577,7 +580,7 @@ class _Headline extends StatelessWidget {
         isPeriod ? sales.period?.changePct : _versusYesterday(sales);
 
     return HeroCard(
-      padding: const EdgeInsets.fromLTRB(18, 15, 18, 14),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
@@ -585,7 +588,7 @@ class _Headline extends StatelessWidget {
             children: <Widget>[
               const IconTile(
                 icon: Icons.point_of_sale_outlined,
-                size: 30,
+                size: 26,
                 background: Color(0x1FFFFFFF),
                 foreground: Colors.white,
               ),
@@ -601,7 +604,7 @@ class _Headline extends StatelessWidget {
               if (change != null) _DarkChangeChip(changePct: change),
             ],
           ),
-          const SizedBox(height: 10),
+          const SizedBox(height: 7),
           FittedBox(
             fit: BoxFit.scaleDown,
             alignment: Alignment.centerLeft,
@@ -618,20 +621,9 @@ class _Headline extends StatelessWidget {
             isPeriod ? 'compared with the previous period' : 'compared with yesterday',
             style: theme.textTheme.labelSmall?.copyWith(color: _dim),
           ),
-          if (sales.trend.length > 1) ...<Widget>[
-            const SizedBox(height: 10),
-            Sparkline(
-              values: <double>[for (final TrendPoint p in sales.trend) p.value],
-              // White, not the accent: on near-black the brand blue is the one
-              // colour that disappears, and this line has to read at a glance
-              // from across a counter.
-              colour: Colors.white,
-              height: 34,
-            ),
-          ],
-          const SizedBox(height: 12),
+          const SizedBox(height: 9),
           const Divider(height: 1, color: Color(0x1FFFFFFF)),
-          const SizedBox(height: 11),
+          const SizedBox(height: 9),
           // Deliberately none of the figures that are tiles below. Repeating a
           // number a few pixels under itself reads as a bug rather than as
           // emphasis, so the card carries what the grid does not: what the day
@@ -653,7 +645,7 @@ class _Headline extends StatelessWidget {
               // third figure is what it is being compared against. A baseline
               // outside the window that was read is unknown, not zero.
               _DarkStat(
-                label: isPeriod ? 'Previous period' : 'Month to date',
+                label: isPeriod ? 'Previous period' : 'This month',
                 value: isPeriod
                     ? (sales.period?.previousTotal == null
                         ? '--'
@@ -782,7 +774,7 @@ class _MetricGrid extends StatelessWidget {
         ),
       if (receivables != null)
         MetricTile(
-          label: 'You are owed',
+          label: 'Receivables',
           value: MoneyFormat.compact(receivables.total),
           icon: Icons.call_received,
           tone: receivables.overdue.isZero ? MetricTone.neutral : MetricTone.caution,
@@ -795,7 +787,7 @@ class _MetricGrid extends StatelessWidget {
         ),
       if (payables != null)
         MetricTile(
-          label: 'You owe',
+          label: 'Payables',
           value: MoneyFormat.compact(payables.total),
           icon: Icons.call_made,
           tone: payables.overdue.isZero ? MetricTone.neutral : MetricTone.negative,
@@ -835,11 +827,6 @@ class _MetricGrid extends StatelessWidget {
           value: '${activity.voucherCount}',
           icon: Icons.receipt_long_outlined,
           caption: dashboard.period == null ? 'today' : 'in this period',
-          // The trend the count belongs to. Amounts, not counts -- the backend
-          // sends a value series and not a voucher-count series, and inventing
-          // a second axis for a sparkline nobody reads exactly would be worse
-          // than showing the money the vouchers moved.
-          spark: <double>[for (final TrendPoint p in sales.trend) p.value],
           onTap: () => context.push(Routes.daybook),
         ),
     ];
@@ -855,16 +842,30 @@ class _MetricGrid extends StatelessWidget {
         return GridView(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
+          // Not optional, and not cosmetic. A vertical scroll view with a null
+          // padding adopts MediaQuery's *vertical* insets as its own, so this
+          // grid quietly grew a band of empty space the height of the phone's
+          // navigation bar -- below the tiles, in the middle of the page, on a
+          // device and never in a test. The outer list already carries the
+          // inset it needs.
+          padding: EdgeInsets.zero,
+          // Not optional, and not cosmetic. A vertical scroll view with a null
+          // padding adopts MediaQuery's *vertical* insets as its own, so this
+          // grid quietly grew a band of empty space the height of the phone's
+          // navigation bar -- below the tiles, in the middle of the page, on a
+          // device and never in a test. The outer list already carries the
+          // inset it needs.
           gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
             crossAxisCount: columns,
-            crossAxisSpacing: 12,
-            mainAxisSpacing: 12,
+            crossAxisSpacing: 9,
+            mainAxisSpacing: 9,
             // A fixed height rather than an aspect ratio. A tile always holds
             // the same four things -- label, figure, caption, one strip of
             // evidence -- so its height does not depend on its width, and tying
             // the two together parks a band of empty space under every tile as
-            // soon as the pane gets wider.
-            mainAxisExtent: 138,
+            // soon as the pane gets wider. Measured against the tallest of
+            // them: any more is a gap between the grid and the card below it.
+            mainAxisExtent: 116,
           ),
           children: tiles,
         );
@@ -881,27 +882,27 @@ class _DashboardSkeleton extends StatelessWidget {
     return ListView(
       padding: const EdgeInsets.all(16),
       children: const <Widget>[
-        SkeletonBox(height: 168, radius: 20),
-        SizedBox(height: 14),
+        SkeletonBox(height: 146, radius: 16),
+        SizedBox(height: 10),
         Row(
           children: <Widget>[
-            Expanded(child: SkeletonBox(height: 116, radius: 20)),
-            SizedBox(width: 12),
-            Expanded(child: SkeletonBox(height: 116, radius: 20)),
+            Expanded(child: SkeletonBox(height: 118, radius: 16)),
+            SizedBox(width: 9),
+            Expanded(child: SkeletonBox(height: 118, radius: 16)),
+          ],
+        ),
+        SizedBox(height: 9),
+        Row(
+          children: <Widget>[
+            Expanded(child: SkeletonBox(height: 118, radius: 16)),
+            SizedBox(width: 9),
+            Expanded(child: SkeletonBox(height: 118, radius: 16)),
           ],
         ),
         SizedBox(height: 12),
-        Row(
-          children: <Widget>[
-            Expanded(child: SkeletonBox(height: 116, radius: 20)),
-            SizedBox(width: 12),
-            Expanded(child: SkeletonBox(height: 116, radius: 20)),
-          ],
-        ),
-        SizedBox(height: 16),
-        SkeletonBox(height: 300, radius: 20),
-        SizedBox(height: 14),
-        SkeletonBox(height: 260, radius: 20),
+        SkeletonBox(height: 264, radius: 16),
+        SizedBox(height: 10),
+        SkeletonBox(height: 230, radius: 16),
       ],
     );
   }

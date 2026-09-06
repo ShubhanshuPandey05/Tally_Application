@@ -164,6 +164,10 @@ class FinancialYearLine extends ConsumerWidget {
               Flexible(
                 child: ListView(
                   shrinkWrap: true,
+                  // Same reason as the dashboard's metric grid: a null padding
+                  // here would take on the system insets and pad this sheet by
+                  // the height of the navigation bar.
+                  padding: EdgeInsets.zero,
                   children: <Widget>[
                     for (final FinancialYear year in years)
                       ListTile(

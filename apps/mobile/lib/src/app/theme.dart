@@ -81,9 +81,9 @@ class AppTheme {
 
   /// Corner radii. Large on cards, medium on tiles and fields, full on
   /// anything that is pressed.
-  static const double radiusCard = 20;
-  static const double radiusTile = 12;
-  static const double radiusField = 14;
+  static const double radiusCard = 16;
+  static const double radiusTile = 10;
+  static const double radiusField = 12;
 
   static ThemeData light() => forMode(AppThemeMode.light);
   static ThemeData dim() => forMode(AppThemeMode.dim);
@@ -141,6 +141,11 @@ class AppTheme {
       colorScheme: scheme,
       useMaterial3: true,
       scaffoldBackgroundColor: page,
+      // Every Material control one notch tighter. This is the single knob that
+      // reaches the widgets we do not style ourselves -- switches, checkboxes,
+      // the buttons inside a dialog -- so they stay in proportion with a type
+      // ramp that has already been compressed.
+      visualDensity: VisualDensity.compact,
       // No ripple splash. The reference language is flat and quiet; an ink
       // sparkle under a pressed pill reads as a different product.
       splashFactory: InkRipple.splashFactory,
@@ -154,12 +159,13 @@ class AppTheme {
         elevation: 0,
         scrolledUnderElevation: 0,
         centerTitle: false,
-        titleSpacing: 20,
+        titleSpacing: 16,
+        toolbarHeight: 52,
         systemOverlayStyle:
             isLight ? SystemUiOverlayStyle.dark : SystemUiOverlayStyle.light,
-        iconTheme: IconThemeData(color: onPage, size: 22),
+        iconTheme: IconThemeData(color: onPage, size: 20),
         titleTextStyle: TextStyle(
-          fontSize: 20,
+          fontSize: 17,
           fontWeight: FontWeight.w700,
           letterSpacing: -0.4,
           color: onPage,
@@ -189,16 +195,16 @@ class AppTheme {
         side: BorderSide.none,
         shape: const StadiumBorder(),
         labelStyle: TextStyle(
-          fontSize: 12.5,
+          fontSize: 11.5,
           fontWeight: FontWeight.w600,
           color: onPage,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+        padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 2),
       ),
       inputDecorationTheme: InputDecorationTheme(
         filled: true,
         fillColor: surface,
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 18),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 13),
         // The field is the grey shape; a border as well would be saying the
         // same thing twice.
         border: OutlineInputBorder(
@@ -224,11 +230,15 @@ class AppTheme {
         style: FilledButton.styleFrom(
           backgroundColor: isLight ? ink : Colors.white,
           foregroundColor: isLight ? Colors.white : ink,
-          minimumSize: const Size.fromHeight(54),
+          // Still a comfortable tap target -- 46pt clears the 44pt both
+          // platforms ask for. Below that, density starts costing accuracy
+          // rather than space, which is the wrong trade on a phone held by
+          // somebody in their sixties.
+          minimumSize: const Size.fromHeight(46),
           shape: const StadiumBorder(),
           textStyle: const TextStyle(
             fontWeight: FontWeight.w600,
-            fontSize: 16,
+            fontSize: 15,
             letterSpacing: -0.2,
           ),
         ),
@@ -237,10 +247,10 @@ class AppTheme {
         style: OutlinedButton.styleFrom(
           foregroundColor: onPage,
           backgroundColor: surface,
-          minimumSize: const Size.fromHeight(50),
+          minimumSize: const Size.fromHeight(44),
           side: BorderSide.none,
           shape: const StadiumBorder(),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15),
+          textStyle: const TextStyle(fontWeight: FontWeight.w600, fontSize: 14),
         ),
       ),
       textButtonTheme: TextButtonThemeData(
@@ -251,7 +261,9 @@ class AppTheme {
       ),
       dividerTheme: DividerThemeData(color: line, space: 1, thickness: 1),
       listTileTheme: const ListTileThemeData(
-        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+        contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 2),
+        minVerticalPadding: 6,
+        horizontalTitleGap: 12,
       ),
       bottomSheetTheme: BottomSheetThemeData(
         backgroundColor: card,
@@ -274,39 +286,72 @@ class AppTheme {
       ),
       progressIndicatorTheme: ProgressIndicatorThemeData(
         linearTrackColor: surface,
-        linearMinHeight: 8,
+        linearMinHeight: 6,
         color: scheme.primary,
       ),
     );
   }
 
+  /// The type ramp, one step tighter than Material's.
+  ///
+  /// Material 3's default sizes are drawn for an app with a handful of things
+  /// on a screen. This is a set of books: nearly every question in the brief is
+  /// answered by a *row* -- an account and its balance, a party and what they
+  /// owe -- so every point of type size spent is a row that falls below the
+  /// fold, and an owner who has to scroll to see who owes them money is being
+  /// asked to do the thing the product exists to save them.
+  ///
+  /// The compression is not uniform, and that is the point. Headline figures
+  /// lose the most, because a number set at 36pt is large for effect rather
+  /// than for legibility. Body text loses a little. **The caption sizes do not
+  /// move at all** -- 11pt is the floor for everything in this app, because the
+  /// people reading it are shop owners and their accountants, often on a phone
+  /// held at arm's length in bad light. Density is bought from leading,
+  /// padding and the big numbers; never from the smallest text on the screen.
   static TextTheme _textTheme(TextTheme base, Color onPage) => base.copyWith(
         displaySmall: base.displaySmall?.copyWith(
+          fontSize: 30,
           fontWeight: FontWeight.w700,
-          letterSpacing: -1.2,
+          height: 1.1,
+          letterSpacing: -1.0,
           fontFeatures: _tabular,
         ),
         headlineMedium: base.headlineMedium?.copyWith(
+          fontSize: 23,
           fontWeight: FontWeight.w700,
-          letterSpacing: -0.9,
-          fontFeatures: _tabular,
-        ),
-        headlineSmall: base.headlineSmall?.copyWith(
-          fontWeight: FontWeight.w700,
+          height: 1.15,
           letterSpacing: -0.7,
           fontFeatures: _tabular,
         ),
-        titleLarge: base.titleLarge?.copyWith(
+        headlineSmall: base.headlineSmall?.copyWith(
+          fontSize: 20,
           fontWeight: FontWeight.w700,
+          height: 1.15,
+          letterSpacing: -0.5,
+          fontFeatures: _tabular,
+        ),
+        titleLarge: base.titleLarge?.copyWith(
+          fontSize: 18,
+          fontWeight: FontWeight.w700,
+          height: 1.15,
           letterSpacing: -0.4,
         ),
         titleMedium: base.titleMedium?.copyWith(
+          fontSize: 14.5,
           fontWeight: FontWeight.w600,
+          height: 1.2,
           letterSpacing: -0.2,
         ),
-        titleSmall: base.titleSmall?.copyWith(fontWeight: FontWeight.w600),
-        labelLarge: base.labelLarge?.copyWith(fontWeight: FontWeight.w600),
-        bodyMedium: base.bodyMedium?.copyWith(height: 1.4),
+        titleSmall: base.titleSmall?.copyWith(
+          fontSize: 13,
+          fontWeight: FontWeight.w600,
+          height: 1.25,
+        ),
+        bodyLarge: base.bodyLarge?.copyWith(fontSize: 14.5, height: 1.25),
+        bodyMedium: base.bodyMedium?.copyWith(fontSize: 13, height: 1.3),
+        bodySmall: base.bodySmall?.copyWith(fontSize: 11.5, height: 1.3),
+        labelLarge: base.labelLarge?.copyWith(fontSize: 13, fontWeight: FontWeight.w600),
+        labelMedium: base.labelMedium?.copyWith(fontSize: 11.5),
       );
 
   /// Every numeric style opts into tabular figures so amounts in a list align.

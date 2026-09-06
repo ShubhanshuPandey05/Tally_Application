@@ -40,7 +40,7 @@ Pick pilot shops you can phone. Not the busiest one.
 |---|---|
 | Host | Linux VM, 2 vCPU / 4 GB, Docker Engine + Compose v2 |
 | Ports | 80 and 443 open to the internet |
-| DNS | An A record for e.g. `uat-tallyflow.theshubhanshu.dev` pointing at the host |
+| DNS | An A record for e.g. `uat-tallyflow.jsrprimesolution.com` pointing at the host |
 | Repo | A checkout of this repository on the host |
 
 The domain is not optional. Connectors dial `wss://`, phones use HTTPS, and
@@ -113,13 +113,13 @@ docker compose --env-file uat.env logs migrate
 ## 2. Verify before letting anyone in
 
 ```bash
-curl https://uat-tallyflow.theshubhanshu.dev/v1/health
+curl https://uat-tallyflow.jsrprimesolution.com/v1/health
 # {"status":"ok"}
 
-curl https://uat-tallyflow.theshubhanshu.dev/v1/ready
+curl https://uat-tallyflow.jsrprimesolution.com/v1/ready
 # {"status":"ok","database":"ok","instance_id":"...","environment":"prod"}
 
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/docs
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/docs
 # 404   <- anything else means ENVIRONMENT is not "prod"
 ```
 
@@ -134,7 +134,7 @@ WebSocket scope. The whole product runs over that socket, so test the upgrade:
 python3 - <<'PY'
 import asyncio, json, websockets
 async def main():
-    async with websockets.connect("wss://uat-tallyflow.theshubhanshu.dev/v1/connector") as ws:
+    async with websockets.connect("wss://uat-tallyflow.jsrprimesolution.com/v1/connector") as ws:
         await ws.send(json.dumps({"type":"hello","connector_id":"0"*32,
             "signature":"nope","nonce":"x","timestamp":0,"version":"0.1.0"}))
         print(await ws.recv())
@@ -180,7 +180,7 @@ format. A pilot downloading from your own site needs the APK.
 python run.py connector
 # -> apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
 
-python run.py release https://uat-tallyflow.theshubhanshu.dev
+python run.py release https://uat-tallyflow.jsrprimesolution.com
 # -> apps\mobile\build\app\outputs\flutter-apk\app-release.apk
 ```
 
@@ -219,10 +219,10 @@ version strings in `downloads.js`. Dropping a **new installer or APK** into
 ### Verify
 
 ```bash
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/downloads/TallyFlowConnector-Setup-0.1.0.exe
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/downloads/TallyFlow-0.1.0.apk
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.theshubhanshu.dev/downloads/
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/TallyFlowConnector-Setup-0.1.0.exe
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/TallyFlow-0.1.0.apk
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/
 # 200, 200, 200, 404  <- the last one is correct: no directory listing
 ```
 
@@ -258,20 +258,20 @@ deployed host rather than assumed:
 
 **On the shop PC**
 
-3. Download the installer from `https://uat-tallyflow.theshubhanshu.dev` on the shop PC
+3. Download the installer from `https://uat-tallyflow.jsrprimesolution.com` on the shop PC
    (built and published in section 3).
 
 4. Run `TallyFlowConnector-Setup-<version>.exe` and enter the ID, the secret,
    and the server address:
 
    ```
-   wss://uat-tallyflow.theshubhanshu.dev/v1/connector
+   wss://uat-tallyflow.jsrprimesolution.com/v1/connector
    ```
 
    Or unattended:
 
    ```powershell
-   TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://uat-tallyflow.theshubhanshu.dev/v1/connector
+   TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://uat-tallyflow.jsrprimesolution.com/v1/connector
    ```
 
 5. Open TallyPrime **and load the company**. The connector refuses to read a
@@ -321,7 +321,7 @@ docker compose --env-file uat.env up -d --build
 ```powershell
 # on a Windows machine -- then commit them, they are not gitignored
 python run.py connector
-python run.py release https://uat-tallyflow.theshubhanshu.dev
+python run.py release https://uat-tallyflow.jsrprimesolution.com
 copy apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe deploy\uat\downloads\
 copy apps\mobile\build\app\outputs\flutter-apk\app-release.apk deploy\uat\downloads\TallyFlow-0.1.0.apk
 git add deploy/uat/downloads && git commit -m "publish 0.1.0 artefacts" && git push
@@ -346,7 +346,7 @@ mount, so new binaries are live immediately — no rebuild, no restart.
 ```bash
 docker compose --env-file uat.env ps          # api healthy, migrate exited 0
 docker compose --env-file uat.env logs migrate --tail 5
-curl https://uat-tallyflow.theshubhanshu.dev/v1/ready
+curl https://uat-tallyflow.jsrprimesolution.com/v1/ready
 ```
 
 ---

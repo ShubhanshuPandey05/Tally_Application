@@ -4,9 +4,9 @@
 # certificate for each on its own, provided every A record points here and
 # ports 80 and 443 are open.
 #
-#   tallyflow.theshubhanshu.dev      marketing site + /downloads
-#   api-tallyflow.theshubhanshu.dev  the API and the connector WebSocket
-#   pd-tallyflow.theshubhanshu.dev   the management portal
+#   tallyflow.jsrprimesolution.com      marketing site + /downloads
+#   api-tallyflow.jsrprimesolution.com  the API and the connector WebSocket
+#   pd-tallyflow.jsrprimesolution.com   the management portal
 #
 # ---------------------------------------------------------------------------
 # Why /v1 is proxied on all three, not just on the API host

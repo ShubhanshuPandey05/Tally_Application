@@ -82,7 +82,7 @@ class HomeShell extends StatelessWidget {
   /// Width-dependent, because on a rail layout there is no bar to clear and a
   /// fixed 96px would just be a gap at the end of every list.
   static double contentInset(BuildContext context) =>
-      context.usesRail ? 28 : 96;
+      context.usesRail ? 24 : 84;
 }
 
 /// The wide-window navigation: a rail down the left-hand side.
@@ -171,7 +171,7 @@ class _RailItem extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: SizedBox(
-          height: 48,
+          height: 44,
           child: Row(
             mainAxisAlignment:
                 expanded ? MainAxisAlignment.start : MainAxisAlignment.center,
@@ -217,10 +217,10 @@ class _FloatingBar extends StatelessWidget {
     return SafeArea(
       top: false,
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 12),
         child: Container(
-          height: 62,
-          padding: const EdgeInsets.all(6),
+          height: 54,
+          padding: const EdgeInsets.all(5),
           decoration: BoxDecoration(
             // The card colour, not a literal: on the dim and dark skins a
             // hard-coded near-black bar would sit on a near-black page and stop

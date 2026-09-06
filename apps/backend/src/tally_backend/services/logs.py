@@ -253,6 +253,9 @@ class ServerLogStore:
         return taken
 
 
+_TRACE_FORMATTER = logging.Formatter()
+
+
 class StoreHandler(logging.Handler):
     """Feeds a :class:`ServerLogStore` from the root logger.
 
@@ -271,7 +274,12 @@ class StoreHandler(logging.Handler):
                 return
             trace = None
             if record.exc_info:
-                trace = self.formatException(record.exc_info)
+                # formatException lives on Formatter, not Handler. Calling it on
+                # self raised AttributeError inside emit, so every exception log
+                # was swallowed into a "--- Logging error ---" dump with no row
+                # stored -- the incident least likely to survive was the one the
+                # store exists for.
+                trace = _TRACE_FORMATTER.formatException(record.exc_info)
             self._store.capture(
                 LogRecordView(
                     seq=0,

@@ -85,7 +85,7 @@ class _VoucherBody extends StatelessWidget {
         FreshnessBanner(freshness: freshness, dense: true),
         if (detail.isExcluded) const _ExcludedNotice(),
         Padding(
-          padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+          padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
           child: HeroCard(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -480,7 +480,7 @@ class _VoucherSkeleton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => ListView(
-        padding: const EdgeInsets.all(16),
+        padding: const EdgeInsets.all(14),
         children: const <Widget>[
           SkeletonBox(height: 132, radius: 20),
           SizedBox(height: 14),

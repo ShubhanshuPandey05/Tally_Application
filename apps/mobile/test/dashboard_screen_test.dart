@@ -195,13 +195,13 @@ void main() {
     expect(_kpiAmount('Cash & bank', '₹4.69L'), findsOneWidget);
 
     // "Who owes me money?" -- one open receivable of 11,800.
-    expect(_kpiAmount('You are owed', '₹11,800'), findsOneWidget);
+    expect(_kpiAmount('Receivables', '₹11,800'), findsOneWidget);
     // ...and what the business owes, which is a much larger number here.
-    expect(_kpiAmount('You owe', '₹2.13L'), findsOneWidget);
+    expect(_kpiAmount('Payables', '₹2.13L'), findsOneWidget);
 
     // "What is running out?"
-    await _scrollTo(tester, find.text('Inventory'));
-    expect(find.text('Inventory'), findsOneWidget);
+    await _scrollTo(tester, find.text('Stock in hand'));
+    expect(find.text('Stock in hand'), findsOneWidget);
     expect(find.text('Running low'), findsOneWidget);
   });
 
@@ -530,5 +530,22 @@ void main() {
     expect(find.text('Almost there'), findsOneWidget);
     expect(find.textContaining('waiting to be approved'), findsOneWidget);
     expect(find.text('Set up a connection'), findsNothing);
+  });
+
+  testWidgets('the tile grid does not pad itself by the navigation bar',
+      (WidgetTester tester) async {
+    // A vertical scroll view with a null `padding` adopts MediaQuery's vertical
+    // insets as its own. The metric grid is nested inside the page's own list,
+    // so that rule handed it the height of the phone's navigation bar as bottom
+    // padding: a band of empty space in the middle of the dashboard, on a real
+    // device only -- the screen's own Scaffold eats the inset when the screen is
+    // pumped on its own, which is why this asserts on the property rather than
+    // on the geometry it produces.
+    await _pump(
+      tester,
+      repository: _FakeDashboardRepository(Dashboard.fromJson(fixture('dashboard'))),
+    );
+
+    expect(tester.widget<GridView>(find.byType(GridView)).padding, EdgeInsets.zero);
   });
 }

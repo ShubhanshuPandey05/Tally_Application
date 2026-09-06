@@ -11,9 +11,9 @@ export const CONTACT_EMAIL = 'gaurav2tally@gmail.com';
  * connector installer and the mobile app, so moving it means re-issuing both
  * to everyone who already installed them.
  */
-export const SERVICE_HOST = 'tallyflow.theshubhanshu.dev';
-export const API_HOST = 'api-tallyflow.theshubhanshu.dev';
-export const PORTAL_HOST = 'pd-tallyflow.theshubhanshu.dev';
+export const SERVICE_HOST = 'tallyflow.jsrprimesolution.com';
+export const API_HOST = 'api-tallyflow.jsrprimesolution.com';
+export const PORTAL_HOST = 'pd-tallyflow.jsrprimesolution.com';
 
 /**
  * Reports the app actually ships, grouped the way the app groups them.

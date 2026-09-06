@@ -109,7 +109,7 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
         if (statement.entries.isEmpty) return const <Widget>[];
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: _StatementSummary(statement: statement, periodLabel: periodLabel),
           ),
           Padding(

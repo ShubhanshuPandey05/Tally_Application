@@ -75,16 +75,22 @@ class MetricTile extends StatelessWidget {
       child: InkWell(
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.fromLTRB(13, 12, 13, 11),
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+          // Fills its cell and spreads whatever is left over between the rows.
+          // Every tile in the grid is the same height, but they do not all
+          // carry the same things -- a tile with no meter under it used to end
+          // early and leave a band of dead space above whatever card came
+          // next, which reads as a gap in the page rather than as one short
+          // tile.
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
-            mainAxisSize: MainAxisSize.min,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: <Widget>[
               Row(
                 children: <Widget>[
                   if (icon != null) ...<Widget>[
-                    IconTile(icon: icon!, colour: accent, size: 24),
-                    const SizedBox(width: 8),
+                    IconTile(icon: icon!, colour: accent, size: 22),
+                    const SizedBox(width: 7),
                   ],
                   Expanded(
                     child: Text(
@@ -97,7 +103,7 @@ class MetricTile extends StatelessWidget {
                   ),
                 ],
               ),
-              const SizedBox(height: 8),
+              const SizedBox(height: 5),
               Row(
                 crossAxisAlignment: CrossAxisAlignment.end,
                 children: <Widget>[
@@ -118,28 +124,29 @@ class MetricTile extends StatelessWidget {
                 ],
               ),
               if (caption != null) ...<Widget>[
-                const SizedBox(height: 3),
+                const SizedBox(height: 2),
                 Text(
                   caption!,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
+                  style: theme.textTheme.labelSmall
+                      ?.copyWith(color: context.mutedColor),
                 ),
               ],
               if (spark != null && spark!.length > 1) ...<Widget>[
-                const SizedBox(height: 8),
-                Sparkline(values: spark!, colour: accent, height: 24),
+                const SizedBox(height: 6),
+                Sparkline(values: spark!, colour: accent, height: 20),
               ] else if (meter != null) ...<Widget>[
-                const SizedBox(height: 9),
+                const SizedBox(height: 7),
                 Meter(fraction: meter, colour: accent),
                 if (meterCaption != null) ...<Widget>[
-                  const SizedBox(height: 5),
+                  const SizedBox(height: 4),
                   Text(
                     meterCaption!,
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style:
-                        theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
+                    style: theme.textTheme.labelSmall
+                        ?.copyWith(color: context.mutedColor),
                   ),
                 ],
               ],
@@ -170,7 +177,8 @@ class ChangeChip extends StatelessWidget {
     final Widget body = Row(
       mainAxisSize: MainAxisSize.min,
       children: <Widget>[
-        Icon(up ? Icons.arrow_upward : Icons.arrow_downward, size: 11, color: colour),
+        Icon(up ? Icons.arrow_upward : Icons.arrow_downward,
+            size: 11, color: colour),
         const SizedBox(width: 2),
         Text(
           '${changePct.abs().toStringAsFixed(changePct.abs() >= 100 ? 0 : 1)}%',
@@ -233,12 +241,13 @@ class SectionCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Padding(
-            padding: EdgeInsets.fromLTRB(14, 13, trailing != null ? 14 : 8, 8),
+            padding: EdgeInsets.fromLTRB(14, 10, trailing != null ? 14 : 6, 6),
             child: Row(
               children: <Widget>[
                 if (icon != null) ...<Widget>[
-                  IconTile(icon: icon!, colour: tint ?? AppTheme.tileBlue, size: 30),
-                  const SizedBox(width: 10),
+                  IconTile(
+                      icon: icon!, colour: tint ?? AppTheme.tileBlue, size: 26),
+                  const SizedBox(width: 9),
                 ],
                 Expanded(
                   child: Column(
@@ -263,7 +272,7 @@ class SectionCard extends StatelessWidget {
             ),
           ),
           child,
-          const SizedBox(height: 8),
+          const SizedBox(height: 6),
         ],
       ),
     );
@@ -276,7 +285,8 @@ class SectionCard extends StatelessWidget {
 /// tiles and one honest failure is far better than a whole dashboard replaced
 /// by an error, which reads as "the app is down".
 class SectionUnavailable extends StatelessWidget {
-  const SectionUnavailable({super.key, required this.title, this.reason, this.onRetry});
+  const SectionUnavailable(
+      {super.key, required this.title, this.reason, this.onRetry});
 
   final String title;
   final String? reason;
@@ -287,11 +297,12 @@ class SectionUnavailable extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     return Card(
       child: Padding(
-        padding: const EdgeInsets.all(14),
+        padding: const EdgeInsets.all(12),
         child: Row(
           children: <Widget>[
-            const IconTile(icon: Icons.cloud_off_outlined, size: 30, quiet: true),
-            const SizedBox(width: 12),
+            const IconTile(
+                icon: Icons.cloud_off_outlined, size: 26, quiet: true),
+            const SizedBox(width: 11),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -300,13 +311,16 @@ class SectionUnavailable extends StatelessWidget {
                   const SizedBox(height: 2),
                   Text(
                     reason ?? 'Could not read this from Tally.',
-                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+                    style: theme.textTheme.bodySmall
+                        ?.copyWith(color: context.mutedColor),
                   ),
                 ],
               ),
             ),
             if (onRetry != null)
-              IconButton(onPressed: onRetry, icon: const Icon(Icons.refresh, size: 20)),
+              IconButton(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh, size: 20)),
           ],
         ),
       ),
@@ -341,10 +355,13 @@ class AmountRow extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 9),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
         child: Row(
           children: <Widget>[
-            if (leading != null) ...<Widget>[leading!, const SizedBox(width: 12)],
+            if (leading != null) ...<Widget>[
+              leading!,
+              const SizedBox(width: 12)
+            ],
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -374,7 +391,9 @@ class AmountRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   MoneyFormat.full(amount),
-                  style: theme.textTheme.bodyMedium?.merge(AppTheme.amount).copyWith(
+                  style: theme.textTheme.bodyMedium
+                      ?.merge(AppTheme.amount)
+                      .copyWith(
                         color: amount.isNegative ? context.negativeColor : null,
                       ),
                 ),

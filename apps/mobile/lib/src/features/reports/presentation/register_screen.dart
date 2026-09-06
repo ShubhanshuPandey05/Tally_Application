@@ -119,7 +119,7 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
 
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: _MonthlyCard(
               report: report,
               tint: tint,

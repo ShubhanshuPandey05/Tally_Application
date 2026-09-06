@@ -102,7 +102,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen>
 
         return <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 14),
+            padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: SectionCard(
               title: 'Movement',
               subtitle:

@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Stops a read being sent to TallyPrime when the connector could not first confirm the company is open -- the case that crashed Tally with c0000005 when it was reopened with no company loaded."
+    "notes": "Built for the new server address, api-tallyflow.jsrprimesolution.com. Nothing about how the connector reads Tally has changed. An installation that is already running keeps the address it was set up with, so this only matters for a fresh install or a machine being pointed at the new host."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Pick a financial year at the top of the home screen and every report reads inside it. Remove a company you no longer follow. A demo account you can explore without TallyPrime."
+    "notes": "A tighter layout throughout -- more rows on screen without scrolling. Fixes a dashboard that came up blank when the period had something to compare against. Points at the new server address."
   }
 }

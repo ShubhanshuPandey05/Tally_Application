@@ -24,7 +24,7 @@
 #define AppPublisher     "TallyFlow"
 #define ExeName          "tally-connector.exe"
 #define ServiceExeName   "tally-connector-service.exe"
-#define DefaultBackend   "wss://api-tallyflow.theshubhanshu.dev/v1/connector"
+#define DefaultBackend   "wss://api-tallyflow.jsrprimesolution.com/v1/connector"
 
 ; Overridden by the build script (ISCC /DAppVersion=...) so the installer name
 ; cannot drift from tally_connector.__version__.
@@ -41,7 +41,7 @@ AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
 ; Points at the site's setup guide, which is a page that exists. A dead
 ; support link in Add/Remove Programs is found by the one person already stuck.
-AppSupportURL=https://tallyflow.theshubhanshu.dev/docs
+AppSupportURL=https://tallyflow.jsrprimesolution.com/docs
 DefaultDirName={autopf}\TallyFlow Connector
 DefaultGroupName=TallyFlow
 DisableProgramGroupPage=yes

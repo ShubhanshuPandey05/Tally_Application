@@ -22,7 +22,7 @@ class AppConfig {
   /// Release builds should still pass `TALLYFLOW_API_URL` explicitly --
   /// `run.py release <url>` does -- because this default follows whichever
   /// environment was current when the app was cut.
-  static const String _fallbackBaseUrl = 'https://api-tallyflow.theshubhanshu.dev';
+  static const String _fallbackBaseUrl = 'https://api-tallyflow.jsrprimesolution.com';
 
   static String get _defaultBaseUrl => _fallbackBaseUrl;
 

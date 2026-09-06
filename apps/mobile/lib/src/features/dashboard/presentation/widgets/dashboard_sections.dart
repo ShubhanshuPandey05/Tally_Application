@@ -19,53 +19,36 @@ import '../../domain/dashboard.dart';
 /// figures. An owner who only glances gets the shape; an owner who is checking
 /// something gets the names and the amounts without leaving the screen.
 
-/// Trade over time -- sales, and purchases against them.
+/// Trade over a window: the totals, how they moved, and who they were with.
 ///
-/// Two series on one axis rather than two cards, because "am I buying faster
-/// than I am selling?" is a question about the gap between the lines, and a gap
-/// cannot be read across a scroll.
-class TradeSection extends StatefulWidget {
+/// Figures rather than a plotted series. A shop owner reading this on a phone
+/// wants the four numbers and the names behind them; the day-by-day shape of
+/// the window is a report, and the register is where it lives.
+class TradeSection extends StatelessWidget {
   const TradeSection({
     super.key,
     required this.title,
     required this.summary,
     required this.currency,
-    this.compareWith,
-    this.compareLabel,
     this.periodLabel,
     this.tint,
   });
 
   final String title;
   final TradeSummary summary;
+
+  /// Still needed: the busiest-day figure arrives as a bare double, so it has
+  /// to be given its currency back before it can be shown.
   final String currency;
 
-  /// The second line. Optional: a company that records no purchases would get
-  /// a legend entry and a flat zero series, which says nothing and takes up the
-  /// same room as something that would.
-  final TradeSummary? compareWith;
-  final String? compareLabel;
-
-  /// Set when the dashboard is scoped to a period. The chart and the figures
-  /// below it then describe that window, so they must not keep calling
-  /// themselves "this month".
+  /// Set when the dashboard is scoped to a period. The figures then describe
+  /// that window, so they must not keep calling themselves "this month".
   final String? periodLabel;
 
   final Color? tint;
 
   @override
-  State<TradeSection> createState() => _TradeSectionState();
-}
-
-class _TradeSectionState extends State<TradeSection> {
-  /// Bars by default over the shortest windows. Six days of trade drawn as a
-  /// curve implies a continuum between days that a shop does not have; over a
-  /// month the line is what shows direction.
-  TrendShape _shape = TrendShape.line;
-
-  @override
   Widget build(BuildContext context) {
-    final TradeSummary summary = widget.summary;
     final TradePeriod? period = summary.period;
 
     final Money current = period?.total ?? summary.thisMonth;
@@ -73,24 +56,6 @@ class _TradeSectionState extends State<TradeSection> {
     final double? changePct = period == null ? summary.changePct : period.changePct;
 
     final List<TrendPoint> points = summary.trend;
-    final List<TrendPoint>? comparePoints = widget.compareWith?.trend;
-
-    final List<ChartSeries> series = <ChartSeries>[
-      ChartSeries(
-        label: widget.title,
-        colour: widget.tint ?? AppTheme.tileBlue,
-        values: <double>[for (final TrendPoint p in points) p.value],
-      ),
-      // Only when the two series line up day for day. A shorter second series
-      // would slide against the dates and draw a comparison that is off by a
-      // week without anything on screen saying so.
-      if (comparePoints != null && comparePoints.length == points.length)
-        ChartSeries(
-          label: widget.compareLabel ?? 'Purchases',
-          colour: AppTheme.tileViolet,
-          values: <double>[for (final TrendPoint p in comparePoints) p.value],
-        ),
-    ];
 
     // The busiest day in the window. A headline figure divided by its days is
     // an average; this is the ceiling, and an owner plans stock against the
@@ -101,31 +66,14 @@ class _TradeSectionState extends State<TradeSection> {
     );
 
     return SectionCard(
-      title: widget.title,
-      subtitle: widget.periodLabel ?? 'Last ${points.length} days',
+      title: title,
+      subtitle: periodLabel ?? 'Last ${points.length} days',
       icon: Icons.show_chart,
-      tint: widget.tint,
-      trailing: _ShapeToggle(
-        shape: _shape,
-        onChanged: (TrendShape shape) => setState(() => _shape = shape),
-      ),
+      tint: tint,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          if (series.length > 1)
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 0, 16, 2),
-              child: ChartLegend(series: series),
-            ),
-          TrendChart(
-            series: series,
-            dates: <DateTime>[for (final TrendPoint p in points) p.date],
-            currency: widget.currency,
-            shape: _shape,
-          ),
-          const SizedBox(height: 6),
-          const Divider(indent: 16, endIndent: 16),
-          const SizedBox(height: 10),
+          const SizedBox(height: 2),
           StatStrip(
             stats: <Stat>[
               Stat(
@@ -153,14 +101,14 @@ class _TradeSectionState extends State<TradeSection> {
                 label: 'Busiest day',
                 value: busiest <= 0
                     ? '--'
-                    : MoneyFormat.compactValue(busiest, widget.currency),
+                    : MoneyFormat.compactValue(busiest, currency),
               ),
             ],
           ),
           if (summary.topParties.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 12),
+            const SizedBox(height: 9),
             _SubHeading(
-              label: '${widget.title} by party',
+              label: '$title by party',
               trailing: '${summary.topParties.length} shown',
             ),
             ...rankedRows(
@@ -180,64 +128,10 @@ class _TradeSectionState extends State<TradeSection> {
                   ),
               ],
               whole: current,
-              colour: widget.tint ?? AppTheme.tileBlue,
+              colour: tint ?? AppTheme.tileBlue,
             ),
           ],
         ],
-      ),
-    );
-  }
-}
-
-/// Line or bars. A [SegmentedPill] would be the app's usual answer, but this
-/// lives inside a card header where there is room for two icons and none for
-/// two words.
-class _ShapeToggle extends StatelessWidget {
-  const _ShapeToggle({required this.shape, required this.onChanged});
-
-  final TrendShape shape;
-  final ValueChanged<TrendShape> onChanged;
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding: const EdgeInsets.all(3),
-      decoration: BoxDecoration(
-        color: context.surfaceColor,
-        borderRadius: BorderRadius.circular(999),
-      ),
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: <Widget>[
-          _button(context, TrendShape.line, Icons.show_chart, 'Line'),
-          _button(context, TrendShape.bars, Icons.bar_chart_rounded, 'Bars'),
-        ],
-      ),
-    );
-  }
-
-  Widget _button(BuildContext context, TrendShape value, IconData icon, String tip) {
-    final ThemeData theme = Theme.of(context);
-    final bool selected = value == shape;
-    return Tooltip(
-      message: tip,
-      child: GestureDetector(
-        behavior: HitTestBehavior.opaque,
-        onTap: () => onChanged(value),
-        child: AnimatedContainer(
-          duration: const Duration(milliseconds: 150),
-          width: 32,
-          height: 26,
-          decoration: BoxDecoration(
-            color: selected ? theme.cardTheme.color : Colors.transparent,
-            borderRadius: BorderRadius.circular(999),
-          ),
-          child: Icon(
-            icon,
-            size: 16,
-            color: selected ? theme.colorScheme.onSurface : context.mutedColor,
-          ),
-        ),
       ),
     );
   }
@@ -274,7 +168,7 @@ class OutstandingSection extends StatelessWidget {
       child: Column(
         children: <Widget>[
           Padding(
-            padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+            padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
             child: DonutBreakdown(
               centreLabel: 'total',
               centreValue: MoneyFormat.compact(summary.total),
@@ -308,7 +202,7 @@ class OutstandingSection extends StatelessWidget {
             ],
           ),
           if (summary.topParties.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 12),
+            const SizedBox(height: 9),
             const _SubHeading(label: 'Largest balances'),
             ...rankedRows(
               entries: <RankedEntry>[
@@ -386,9 +280,9 @@ class AgeingBar extends StatelessWidget {
       children: <Widget>[
         ClipRRect(
           borderRadius: BorderRadius.circular(4),
-          child: SizedBox(height: 8, child: Row(children: segments)),
+          child: SizedBox(height: 6, child: Row(children: segments)),
         ),
-        const SizedBox(height: 8),
+        const SizedBox(height: 6),
         Wrap(
           spacing: 12,
           runSpacing: 4,
@@ -492,7 +386,7 @@ class InventorySection extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
 
     return SectionCard(
-      title: 'Inventory',
+      title: 'Stock in hand',
       subtitle: '${summary.itemCount} items',
       icon: Icons.inventory_2_outlined,
       tint: AppTheme.tileAmber,
@@ -528,12 +422,12 @@ class InventorySection extends StatelessWidget {
             ],
           ),
           if (summary.lowStock.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 12),
+            const SizedBox(height: 9),
             const _SubHeading(label: 'Cover against reorder level'),
             for (int i = 0; i < math.min(5, summary.lowStock.length); i++)
               _StockCoverRow(rank: i + 1, item: summary.lowStock[i]),
           ] else if (summary.negativeStock.isNotEmpty) ...<Widget>[
-            const SizedBox(height: 12),
+            const SizedBox(height: 9),
             const _SubHeading(label: 'Negative stock'),
             for (final StockLine item in summary.negativeStock.take(5))
               ListTile(
@@ -618,7 +512,7 @@ class FundsSection extends StatelessWidget {
           if (alwaysCurrent) const CurrentOnlyNote(),
           if (!summary.cash.isZero || !summary.bank.isZero)
             Padding(
-              padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
+              padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
               child: DonutBreakdown(
                 centreLabel: 'available',
                 centreValue: MoneyFormat.compact(summary.total),
@@ -840,12 +734,12 @@ class ActivitySection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
             child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
+              spacing: 5,
+              runSpacing: 5,
               children: <Widget>[
                 for (final MapEntry<String, int> kind in byKind.entries)
                   Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 9, vertical: 4),
+                    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
                     decoration: BoxDecoration(
                       color: context.surfaceColor,
                       borderRadius: BorderRadius.circular(999),
@@ -921,13 +815,13 @@ class TransactionTile extends StatelessWidget {
     return AmountRow(
       onTap: link == null ? null : () => context.push(link),
       leading: Container(
-        width: 32,
-        height: 32,
+        width: 28,
+        height: 28,
         decoration: BoxDecoration(
           color: colour.withOpacity(0.10),
           borderRadius: BorderRadius.circular(9),
         ),
-        child: Icon(_icons[line.kind] ?? Icons.receipt_long, size: 16, color: colour),
+        child: Icon(_icons[line.kind] ?? Icons.receipt_long, size: 15, color: colour),
       ),
       title: line.party ?? line.voucherType ?? 'Voucher',
       subtitle: <String?>[

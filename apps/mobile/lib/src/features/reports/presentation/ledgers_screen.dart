@@ -52,7 +52,7 @@ class _LedgersScreenState extends ConsumerState<LedgersScreen> {
     final AsyncValue<Fresh<LedgerReport>> state = ref.watch(ledgersProvider(args));
 
     return ReportScaffold<LedgerReport>(
-      title: 'Ledger balances',
+      title: 'Ledgers',
       state: state,
       actions: <Widget>[
         PopupMenuButton<_LedgerSort>(
@@ -173,11 +173,21 @@ class _LedgersScreenState extends ConsumerState<LedgersScreen> {
         }
         final List<String> groups = byGroup.keys.toList()..sort();
 
+        // One group open by itself is not a choice the reader made -- it is the
+        // only answer there is -- so a filtered or searched list opens.
+        final bool expanded =
+            needle.isNotEmpty || _group != null || groups.length == 1;
+
         return <Widget>[
           for (final String group in groups)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-              child: _GroupCard(group: group, lines: byGroup[group]!),
+              child: _GroupCard(
+                key: ValueKey<String>(group),
+                group: group,
+                lines: byGroup[group]!,
+                initiallyExpanded: expanded,
+              ),
             ),
         ];
       },
@@ -257,46 +267,103 @@ class _FlatLedgerCard extends StatelessWidget {
   }
 }
 
-class _GroupCard extends StatelessWidget {
-  const _GroupCard({required this.group, required this.lines});
+/// One Tally group and the accounts under it, collapsed until asked for.
+///
+/// A real chart of accounts is thirty groups and several hundred ledgers, so
+/// the grouped view was a scroll long enough that the group headings -- the
+/// thing that makes it a chart of accounts rather than a list -- were never on
+/// screen together. Closed, the screen is the summary; open, it is the detail.
+class _GroupCard extends StatefulWidget {
+  const _GroupCard({
+    super.key,
+    required this.group,
+    required this.lines,
+    required this.initiallyExpanded,
+  });
 
   final String group;
   final List<LedgerLine> lines;
 
+  /// Open from the start when the reader has already narrowed the list. Having
+  /// typed a name, being shown a closed group that matches it and nothing else
+  /// reads as "not found".
+  final bool initiallyExpanded;
+
+  @override
+  State<_GroupCard> createState() => _GroupCardState();
+}
+
+class _GroupCardState extends State<_GroupCard> {
+  late bool _open = widget.initiallyExpanded;
+
+  @override
+  void didUpdateWidget(_GroupCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // A search that starts matching opens the group; closing one by hand and
+    // having the next keystroke reopen it would be worse, so this only follows
+    // the flag when it actually changes.
+    if (widget.initiallyExpanded != oldWidget.initiallyExpanded) {
+      _open = widget.initiallyExpanded;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final Money total = lines.fold(
+    final Money total = widget.lines.fold(
       Money.zero,
       (Money sum, LedgerLine line) => sum + line.closing,
     );
 
     return Card(
+      clipBehavior: Clip.antiAlias,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 14, 16, 8),
-            child: Row(
-              children: <Widget>[
-                Expanded(
-                  child: Text(group, style: theme.textTheme.titleSmall),
-                ),
-                Text(
-                  MoneyFormat.compact(total),
-                  style: theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
-                ),
-              ],
+          InkWell(
+            onTap: () => setState(() => _open = !_open),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 14, 12, 12),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Text(widget.group, style: theme.textTheme.titleSmall),
+                  ),
+                  Text(
+                    MoneyFormat.compact(total),
+                    style:
+                        theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
+                  ),
+                  const SizedBox(width: 2),
+                  // The count is what a closed group is worth: it says how much
+                  // is behind the heading without opening it.
+                  Text(
+                    ' · ${widget.lines.length}',
+                    style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
+                  ),
+                  AnimatedRotation(
+                    turns: _open ? 0.5 : 0,
+                    duration: const Duration(milliseconds: 150),
+                    child: Icon(
+                      Icons.expand_more,
+                      size: 20,
+                      color: context.mutedColor,
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          const Divider(indent: 16, endIndent: 16),
-          for (final LedgerLine line in lines)
-            _LedgerRow(
-              line: line,
-              subtitle:
-                  (line.gstin?.isNotEmpty ?? false) ? line.gstin : null,
-            ),
-          const SizedBox(height: 8),
+          if (_open) ...<Widget>[
+            const Divider(height: 1, indent: 16, endIndent: 16),
+            const SizedBox(height: 4),
+            for (final LedgerLine line in widget.lines)
+              _LedgerRow(
+                line: line,
+                subtitle: (line.gstin?.isNotEmpty ?? false) ? line.gstin : null,
+              ),
+            const SizedBox(height: 8),
+          ],
         ],
       ),
     );
