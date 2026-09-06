@@ -15,6 +15,7 @@ import platform
 import sys
 from collections.abc import Mapping
 from pathlib import Path
+from urllib.parse import urlsplit, urlunsplit
 
 from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -25,6 +26,27 @@ from .protocol import HostInfo
 logger = logging.getLogger(__name__)
 
 CONFIG_FILENAME = "connector.json"
+
+#: Backend hosts that were renamed, old name to new.
+#:
+#: This exists because an upgrade cannot repoint a machine any other way. The
+#: installer writes ``connector.json`` on a *first* install only -- on an
+#: upgrade the pairing and the address it was paired with are already on disk
+#: and must survive -- so a build that merely carries a new default reaches
+#: every shop PC and changes nothing. Without the rewrite below, retiring an
+#: old hostname would mean visiting every customer's machine.
+#:
+#: Rewriting it here makes the update that carries this build also the thing
+#: that moves the machine, which is what lets the old DNS record be retired at
+#: all: once no connector dials the old name, nothing does.
+#:
+#: This is a one-time correction, not a feature. Every entry is a name we have
+#: promised to keep answering on until the fleet has moved off it -- so delete
+#: an entry once that is true, and delete the map when it is empty.
+RENAMED_HOSTS = {
+    "api-tallyflow.theshubhanshu.dev": "api-tallyflow.jsrprimesolution.com",
+    "uat-tallyflow.theshubhanshu.dev": "uat-tallyflow.jsrprimesolution.com",
+}
 
 
 def install_dir() -> Path:
@@ -192,6 +214,22 @@ class ConnectorSettings(BaseSettings):
         return data
 
 
+def repointed_url(url: str) -> str | None:
+    """``url`` under its host's new name, or ``None`` if the host has not moved.
+
+    Only the host is replaced. The scheme, port and path are left exactly as
+    they are: a support engineer who set ``ws://`` against a plaintext test
+    backend, or a non-standard path, meant it, and a rename is no reason to
+    overrule them.
+    """
+    parsed = urlsplit(url)
+    new_host = RENAMED_HOSTS.get(parsed.hostname or "")
+    if new_host is None:
+        return None
+    # netloc, not hostname, so a userinfo or an explicit :port survives.
+    return urlunsplit(parsed._replace(netloc=parsed.netloc.replace(parsed.hostname, new_host, 1)))
+
+
 def load_settings(config_path: Path | None = None) -> ConnectorSettings:
     """Load settings from disk, then let the environment override."""
     path = config_path or install_dir() / CONFIG_FILENAME
@@ -205,6 +243,21 @@ def load_settings(config_path: Path | None = None) -> ConnectorSettings:
             # A corrupt config must not stop the connector from starting; it can
             # still come up unpaired and be re-paired from the app.
             logger.error("could not read %s: %s; falling back to defaults", path, exc)
+
+    # Applied to the file value rather than to the loaded settings, so an
+    # operator's TALLY_CONNECTOR_BACKEND_URL still wins and is never written to
+    # disk -- an env override is deliberately not this machine's configuration.
+    moved = repointed_url(str(file_values.get("backend_url", "")))
+    if moved is not None:
+        logger.warning("backend host renamed; this connector now dials %s", moved)
+        file_values["backend_url"] = moved
+        try:
+            save_settings({"backend_url": moved}, path)
+        except OSError as exc:
+            # Not fatal, and specifically not a reason to refuse to start. The
+            # value in memory is already right, so this run reaches the new
+            # host; only the persistence is lost, and the next start retries.
+            logger.error("could not record the new backend address in %s: %s", path, exc)
 
     # BaseSettings already layers env over these, so passing file values as
     # explicit kwargs gives file < env precedence for free.

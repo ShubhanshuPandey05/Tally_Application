@@ -15,11 +15,11 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.2.6',
-    file: 'TallyFlowConnector-Setup-0.2.6.exe',
-    url: '/downloads/TallyFlowConnector-Setup-0.2.6.exe',
-    size_bytes: 38141856,
-    sha256: '653c23c3324e7561318bc881573e3974a09504100620d9ada2465eaee5984612',
+    version: '0.2.7',
+    file: 'TallyFlowConnector-Setup-0.2.7.exe',
+    url: '/downloads/TallyFlowConnector-Setup-0.2.7.exe',
+    size_bytes: 38143529,
+    sha256: '9df9ef6db690cd9929552fd6d67ba7bb7253e3f46d28be83f2632101448068f8',
   },
   android: {
     version: '0.5.0',

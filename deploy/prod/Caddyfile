@@ -54,7 +54,17 @@
 # installer -- so it is the one hostname that cannot change without re-issuing
 # artefacts to every customer.
 # ---------------------------------------------------------------------------
-{$TALLYFLOW_API_HOST} {
+# The retired name is served alongside the current one, NOT redirected to it.
+# A connector holds a WebSocket, and a redirect is not something a WebSocket
+# upgrade survives -- so the old name has to be a real address on this stack
+# until the fleet has left it. An installed connector keeps the address it was
+# paired with (the installer preserves connector.json on an upgrade) and moves
+# itself on the first start after taking a build that carries the rename --
+# RENAMED_HOSTS in tally_connector/config.py.
+#
+# DELETE THE LEGACY NAME, HERE AND FROM DNS, once no connector dials it. This
+# block's access log is how you know: filter it by host.
+{$TALLYFLOW_API_HOST}, api-tallyflow.theshubhanshu.dev {
 	encode zstd gzip
 
 	handle /v1/* {
@@ -79,7 +89,10 @@
 # ---------------------------------------------------------------------------
 # The marketing site and the downloads. The public face.
 # ---------------------------------------------------------------------------
-{$TALLYFLOW_SITE_HOST} {
+# The retired name, kept for the same window as the API's. Download links
+# already handed out name it, and an old connector's manifest fetch is
+# redirected here from the API host. Delete it with the other one.
+{$TALLYFLOW_SITE_HOST}, tallyflow.theshubhanshu.dev {
 	encode zstd gzip
 
 	# The hero prints four aggregate counts from /v1/public/stats, fetched with

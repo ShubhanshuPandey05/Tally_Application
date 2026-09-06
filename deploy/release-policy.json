@@ -30,9 +30,9 @@
     "reports the wrong figures'."
   ],
   "connector": {
-    "mandatory": false,
+    "mandatory": true,
     "min_supported_version": "0.1.0",
-    "notes": "Built for the new server address, api-tallyflow.jsrprimesolution.com. Nothing about how the connector reads Tally has changed. An installation that is already running keeps the address it was set up with, so this only matters for a fresh install or a machine being pointed at the new host."
+    "notes": "Moves this computer to the new TallyFlow server address. Nothing about how it reads Tally has changed. Marked mandatory because the old address is being retired: a connector that skipped this build would keep dialling a name that stops answering, and could not then be reached to be told anything."
   },
   "android": {
     "mandatory": false,

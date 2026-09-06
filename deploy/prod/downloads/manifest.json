@@ -1,15 +1,15 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-06T18:12:50+00:00",
+  "generated_at": "2026-09-06T19:14:16+00:00",
   "connector": {
-    "version": "0.2.6",
-    "file": "TallyFlowConnector-Setup-0.2.6.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.6.exe",
-    "sha256": "653c23c3324e7561318bc881573e3974a09504100620d9ada2465eaee5984612",
-    "size_bytes": 38141856,
-    "mandatory": false,
+    "version": "0.2.7",
+    "file": "TallyFlowConnector-Setup-0.2.7.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.2.7.exe",
+    "sha256": "9df9ef6db690cd9929552fd6d67ba7bb7253e3f46d28be83f2632101448068f8",
+    "size_bytes": 38143529,
+    "mandatory": true,
     "min_supported_version": "0.1.0",
-    "notes": "Built for the new server address, api-tallyflow.jsrprimesolution.com. Nothing about how the connector reads Tally has changed. An installation that is already running keeps the address it was set up with, so this only matters for a fresh install or a machine being pointed at the new host."
+    "notes": "Moves this computer to the new TallyFlow server address. Nothing about how it reads Tally has changed. Marked mandatory because the old address is being retired: a connector that skipped this build would keep dialling a name that stops answering, and could not then be reached to be told anything."
   },
   "android": {
     "version": "0.5.0",
