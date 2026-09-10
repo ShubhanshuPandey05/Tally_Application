@@ -222,6 +222,74 @@ class ConnectorPairingResponse(BaseModel):
     pairing_code: str
 
 
+class OpenClaimRequest(BaseModel):
+    """What an unpaired connector says about itself when it asks for a code.
+
+    Every field is decoration for the confirmation screen in the app -- "SHOP-PC,
+    Windows 11, connector 0.2.6" reads very differently from a hex string when
+    somebody is about to hand a machine access to their books. None of it is
+    trusted for anything: it is unauthenticated input, so it is displayed and
+    never matched against.
+    """
+
+    hostname: str = Field(default="", max_length=200)
+    os: str = Field(default="", max_length=100)
+    connector_version: str = Field(default="", max_length=50)
+
+
+class OpenClaimResponse(BaseModel):
+    """The pair a connector needs: one to show, one to keep.
+
+    ``code`` goes into the QR on the connector's own screen. ``token`` never
+    leaves the process, and is what makes photographing that screen insufficient
+    to collect somebody else's pairing.
+    """
+
+    code: str
+    token: str
+    expires_in_seconds: int
+
+
+class ClaimCollectRequest(BaseModel):
+    code: str = Field(max_length=200)
+    token: str = Field(max_length=200)
+
+
+class ClaimCollectResponse(BaseModel):
+    """``pending`` until an admin has scanned; ``ready`` exactly once after.
+
+    A status rather than a 404 for the waiting case, because the connector polls
+    this every few seconds and an error-shaped answer to the normal state is how
+    a retry loop ends up logging an outage that is not happening.
+    """
+
+    status: Literal["pending", "ready"]
+    connector_id: str = ""
+    secret: str = ""
+    name: str = ""
+
+
+class ClaimConnectorRequest(BaseModel):
+    """An admin adopting the PC behind a scanned code."""
+
+    code: str = Field(max_length=200)
+    name: str = Field(default="Tally PC", max_length=200)
+
+
+class ConnectorClaimPreview(BaseModel):
+    """What the app shows before somebody confirms a scan.
+
+    The point of the screen this feeds is that adopting a PC is a decision, not
+    a side effect of pointing a camera at something. Whoever is about to grant
+    access should see which machine they are granting it to.
+    """
+
+    hostname: str = ""
+    os: str = ""
+    connector_version: str = ""
+    expires_in_seconds: int = 0
+
+
 class ConnectorResponse(BaseModel):
     id: str
     name: str

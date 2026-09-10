@@ -24,9 +24,10 @@ dashboard.
 packages/
   tally_core/    Shared layer      domain models, XML codec, query registry, wire protocol
 apps/
-  connector/     Windows service   the only thing that ever talks to Tally
+  connector/     Windows service   the only thing that ever talks to Tally,
+                                   plus its own native window on the shop's PC
   backend/       FastAPI server    auth, connector hub, dashboards, reports, sync
-  mobile/        Flutter app       dashboard, reports, pairing wizard
+  mobile/        Flutter app       dashboard, reports, QR pairing
   website/       React site        product story, downloads, pricing
   portal/        React SPA         management portal, served by Caddy at `/portal`
 deploy/uat/      Compose stack     Postgres + API + Caddy (TLS, /downloads)
@@ -290,6 +291,89 @@ second-word lockup: rebuilding that with "Flow" for "Prime" produces something a
 customer would take for an official Tally Solutions product, which is the exact
 claim the website's footer disclaims. If somebody asks for the logo to be moved
 closer to Tally's, that is what they are asking for and the answer is no.
+
+### Pairing is a camera, not a keyboard
+
+The first thing every customer does used to be the worst thing: read a connector
+id and a 43-character secret off a phone, walk across a shop, and type both into
+a Windows machine. That step is gone.
+
+The **connector shows a code and the phone reads it.** The connector invents a
+`code` and a `token`, registers them with the backend and draws the code as a
+QR; an admin scans it, which is when a `Connector` row and its secret first
+exist; the connector then collects that secret with the token — the half that
+was never on screen — over TLS, exactly once. Both halves are stored only as
+SHA-256 and the waiting secret is encrypted, so `connector_claims` completes no
+pairing if it leaks, and photographing the screen is not enough to receive
+somebody's credential.
+
+**The connector still dials out for every step of it.** A flow where the phone
+connected to the PC over the shop's wifi would have been less code and would
+have put an inbound socket on a network we do not control — and it would have
+failed on mobile data, on guest wifi, and behind AP isolation. Routing through
+the backend is both the safer shape and the one that works.
+
+The typed flow is kept, second, for a machine with no camera to hand or no
+working window. It is the one that shows a secret to a human, which is why it is
+second rather than why it is gone.
+
+### The connector's local window
+
+A real window — the pairing code, whether the backend and TallyPrime are
+answering, which companies this PC feeds, who in the business can see them, the
+Tally port, Reconnect and Refresh. It was a page in a browser tab until it
+became `tally-connector-window.exe`, a **third executable in the same
+installer**: a Flutter Windows build, produced from the phone app's package
+under `apps/mobile` as a second `--target`, so the window and the app share one
+theme rather than drifting into two products. The full record is
+`apps/connector/NATIVE-UI.md`.
+
+**The window is a client, never a host.** The connector starts at logon, before
+anybody opens anything, and keeps serving Tally whether the window is closed,
+killed or never installed. Anything that makes the connector stop working when
+the window closes is wrong by construction.
+
+**Loopback only, and not configurable.** Same rule as everywhere else: no
+inbound port on a customer's machine. It stayed HTTP rather than becoming a
+named pipe because Dart has no pipe in its standard library and would need an
+FFI shim to draw a status screen. So the two defences against a browser tab on
+the same machine driving this socket both stay: the `Host` header is checked
+(DNS rebinding), and every call must carry a custom header, which a
+cross-origin page cannot set without a preflight this server refuses. Address
+reuse is off, because on Windows `SO_REUSEADDR` lets a second process take a
+port that is already being listened on.
+
+**The pairing code is encoded by the connector, painted by the window.** `segno`
+builds the module grid — a full QR, never a Micro QR, with its four-module quiet
+zone included in the grid — and the window draws it black on white, snapped to
+whole *device* pixels. Every one of those is a code that scans or does not, and
+none of them is visible from the machine drawing it.
+
+**It cannot disconnect this computer.** No unlink, no remove, no unpair — those
+decisions belong to whoever holds the account on their phone, not to whoever is
+standing at the till. Reconnect is a *session* restart, not a process one: a
+process restart cannot report its own result and cannot relaunch a scheduled
+task it is running under, while rebuilding the session from freshly loaded
+settings gives a new socket, a re-read `connector.json` and a new Tally client
+on whatever port was just saved.
+
+What it shows about the account is pushed down as a **roster** — names, roles
+and sync times, never a figure. A shop PC that could be asked for a balance over
+its own loopback socket would be a read path into the books outside every check
+in `deps.get_company`.
+
+### Re-pairing cuts the PC off first
+
+"Re-pair this computer" in the app replaces the credential *immediately*, closes
+the live socket, and keeps the row — companies, history and sync cursors all
+stay attached, which is the whole reason it is not "add the PC again". The
+machine then sees `reason_code: revoked` on its next handshake, stops offering a
+credential that cannot work, and shows a fresh code to scan.
+
+`revoked` is the only rejection that does that. A signature failure, or a
+backend that cannot decrypt its own secrets, leaves the stored pairing alone:
+a connector that unpairs itself on any refusal is one bad deploy away from a
+fleet that has to be re-paired by hand, machine by machine.
 
 ### Freshness reaches the UI
 

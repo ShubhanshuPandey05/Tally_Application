@@ -276,5 +276,17 @@ void main() {
       expect(connectors.single.health, ConnectorHealth.tallyClosed);
       expect(connectors.single.health.advice, contains('TallyPrime'));
     });
+
+    test('decodes the machine behind a scanned pairing code', () {
+      // The last screen before somebody hands a computer the ability to read
+      // their books. A field that silently decoded to empty would turn a named
+      // machine into "That computer", which is not something to confirm.
+      final ClaimPreview preview = ClaimPreview.fromJson(fixture('claim_preview'));
+
+      expect(preview.hostname, 'SHOP-PC');
+      expect(preview.label, 'SHOP-PC');
+      expect(preview.os, isNotEmpty);
+      expect(preview.connectorVersion, isNotEmpty);
+    });
   });
 }

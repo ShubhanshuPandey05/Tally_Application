@@ -648,7 +648,9 @@ def _entry_out(entry: LedgerEntry) -> dict[str, Any]:
     }
 
 
-def _inventory_out(entry: InventoryEntry) -> dict[str, Any]:
+def _inventory_out(
+    entry: InventoryEntry, *, item: StockItem | None = None
+) -> dict[str, Any]:
     return {
         "item": entry.item_name,
         "quantity": round(abs(entry.quantity), 3),
@@ -657,16 +659,52 @@ def _inventory_out(entry: InventoryEntry) -> dict[str, Any]:
         "amount": money_out(magnitude(entry.amount)),
         "godown": entry.godown,
         "batch": entry.batch,
+        # Off the stock master, not off the voucher line: Tally stores HSN and
+        # the GST rate on the item, and a voucher export does not repeat them.
+        # Null when the master read has not landed yet, which the document
+        # renders as an absent column rather than an empty one -- a tax
+        # document with a blank HSN box states something untrue about a supply.
+        "hsn_code": item.hsn_code if item is not None else None,
+        "gst_rate": item.gst_rate if item is not None else None,
     }
 
 
-def voucher_detail(voucher: Voucher, *, inventory_kept: bool = True) -> dict[str, Any]:
+def _party_out(ledger: Ledger) -> dict[str, Any]:
+    """A party's own details, for the document a voucher is shared as.
+
+    Contact details only. No balance and no credit limit: this block exists to
+    put an address on a shared invoice, and a receipt somebody sends a customer
+    must not carry what that customer still owes on other bills.
+    """
+    return {
+        "name": ledger.name,
+        "gstin": ledger.gstin,
+        "address": list(ledger.address),
+        "state": ledger.state,
+        "phone": ledger.phone,
+        "email": ledger.email,
+    }
+
+
+def voucher_detail(
+    voucher: Voucher,
+    *,
+    inventory_kept: bool = True,
+    party: Ledger | None = None,
+    items: dict[str, StockItem] | None = None,
+) -> dict[str, Any]:
     """Everything posted on one voucher.
 
     ``debit_total`` and ``credit_total`` are emitted so the app can show that
     the voucher balances. They are not decoration: sides that do not agree mean
     the read dropped a line, and showing both totals is the only way a reader
     can tell that from a voucher that genuinely has one entry.
+
+    ``party`` and ``items`` are the master records this voucher names, looked up
+    from snapshots the backend already holds. They carry the address, GSTIN and
+    HSN that turn the screen into a document somebody can send a customer, and
+    every one of them is optional -- a company that fills none of those fields
+    in Tally still gets a shareable voucher, with those lines simply absent.
     """
     debits = _sum([e.amount for e in voucher.ledger_entries if e.amount.side is Side.DEBIT])
     credits = _sum([e.amount for e in voucher.ledger_entries if e.amount.side is Side.CREDIT])
@@ -688,8 +726,12 @@ def voucher_detail(voucher: Voucher, *, inventory_kept: bool = True) -> dict[str
         "is_optional": voucher.is_optional,
         "debit_total": money_out(magnitude(debits)),
         "credit_total": money_out(magnitude(credits)),
+        "party_details": _party_out(party) if party is not None else None,
         "ledger_entries": [_entry_out(e) for e in voucher.ledger_entries],
-        "inventory_entries": [_inventory_out(e) for e in voucher.inventory_entries],
+        "inventory_entries": [
+            _inventory_out(e, item=(items or {}).get(e.item_name.strip().lower()))
+            for e in voucher.inventory_entries
+        ],
         # Whether an empty stock list means "this voucher had no items" or
         # "we did not keep them for a voucher this old".
         #

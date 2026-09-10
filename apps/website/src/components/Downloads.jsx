@@ -44,8 +44,8 @@ export default function Downloads() {
           <h2>Two things to install, in this order.</h2>
           <p>
             The connector goes on the PC where TallyPrime already runs. The app goes on
-            your phone. They find each other through a Connector ID and secret that the
-            app hands you.
+            your phone. They find each other by camera: the PC shows a code and the app
+            reads it. Nothing to type.
           </p>
         </div>
 
@@ -62,7 +62,7 @@ export default function Downloads() {
 
             <ul className="dl-points">
               <li>Installs for your user only — no admin rights, no UAC prompt</li>
-              <li>Asks for the Connector ID and secret from the app</li>
+              <li>Shows a code for the app to scan — nothing to type in</li>
               <li>Starts at every logon and reconnects on its own</li>
               <li>Does not need Tally to be open while it installs</li>
             </ul>
@@ -99,7 +99,7 @@ export default function Downloads() {
 
             <ul className="dl-points">
               <li>Dashboard, ten reports, stock and outstanding</li>
-              <li>Guided pairing — no IP addresses or ports to type</li>
+              <li>Pairs a PC by scanning it — no IP addresses, ports or keys</li>
               <li>Shows the last figures read when your PC is off, and says so</li>
               <li>Tells you when a newer version is available</li>
             </ul>

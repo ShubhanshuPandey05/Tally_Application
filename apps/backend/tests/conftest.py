@@ -280,8 +280,18 @@ async def linked_company(app, registered, client: AsyncClient) -> dict[str, Any]
         session.add(company)
         await session.commit()
         company_id = company.id
+        org_id = connector.org_id
 
-    return {"headers": headers, "connector_id": connector_id, "company_id": company_id}
+    return {
+        "headers": headers,
+        "connector_id": connector_id,
+        "company_id": company_id,
+        "org_id": org_id,
+        # Carried out rather than restated in each test: it is the exact string
+        # Tally knows the company by, and a test that hardcodes it is a test
+        # that breaks when this fixture's sample name changes.
+        "tally_name": company.tally_name,
+    }
 
 
 # --------------------------------------------------------------------------

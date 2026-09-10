@@ -19,7 +19,7 @@ import json
 import logging
 import random
 import ssl
-from typing import Any
+from typing import Any, Protocol
 
 import websockets
 from pydantic import ValidationError
@@ -43,6 +43,8 @@ from .protocol import (
     Ping,
     Pong,
     QueryCapability,
+    Roster,
+    RosterRequest,
     StatusEvent,
     UpdateCommand,
 )
@@ -61,7 +63,38 @@ class AuthenticationRejected(Exception):
 
     Retrying with the same credentials cannot succeed, so this stops the
     reconnect loop rather than hammering the backend forever.
+
+    ``reason_code`` is what the caller branches on. Only ``revoked`` means the
+    stored pairing is dead for good and the machine should ask to be paired
+    again; everything else -- a signature check that failed for a reason nobody
+    has diagnosed, a backend that cannot decrypt its own secrets -- leaves the
+    credential on disk, because a fleet that unpairs itself over a server-side
+    mistake is not recoverable from a phone.
     """
+
+    def __init__(self, message: str, *, reason_code: str = "") -> None:
+        super().__init__(message)
+        self.reason_code = reason_code
+
+
+class SessionObserver(Protocol):
+    """Somewhere to report what the session is doing, for a screen.
+
+    Narrow and synchronous on purpose. The connector must run identically with
+    no observer at all -- there is no desktop on a headless build and no page on
+    a machine whose owner turned it off -- so nothing below this protocol may
+    ever be load-bearing, and nothing implementing it may block the loop.
+    """
+
+    def connection_changed(
+        self, *, connected: bool, session_id: str = "", detail: str = ""
+    ) -> None: ...
+
+    def tally_changed(
+        self, *, online: bool | None, companies_open: list[str] | None = None
+    ) -> None: ...
+
+    def roster_received(self, roster: Roster) -> None: ...
 
 
 class ConnectorSession:
@@ -74,9 +107,15 @@ class ConnectorSession:
         version: str,
         tally: TallyClient | None = None,
         log_handler: RemoteLogHandler | None = None,
+        observer: SessionObserver | None = None,
     ) -> None:
         self._settings = settings
         self._version = version
+        self._observer = observer
+        #: The live socket, kept so an out-of-band request -- somebody pressing
+        #: Refresh on the local page -- can be sent without waiting for the next
+        #: frame to arrive. ``None`` between connections.
+        self._socket: Any | None = None
         # Owned by `main`, not by the session: the buffer has to outlive a
         # dropped connection, otherwise the lines explaining *why* the
         # connection dropped would be thrown away with it.
@@ -132,6 +171,16 @@ class ConnectorSession:
         # the updater to a working session would strand it permanently.
         self._updater.start()
 
+        # Watches Tally for as long as the session lives, whether or not the
+        # backend is reachable. Without it the local page only learns about
+        # TallyPrime from a heartbeat -- so a shop whose internet is down, which
+        # is the machine most likely to have somebody standing in front of that
+        # page, would be told nothing about the one component that is still on
+        # this side of the outage.
+        watcher = (
+            asyncio.create_task(self._watch_tally()) if self._observer is not None else None
+        )
+
         while not self._stopping.is_set():
             try:
                 await self._run_once()
@@ -145,6 +194,11 @@ class ConnectorSession:
 
             except Exception as exc:  # noqa: BLE001 - reconnect on anything
                 logger.warning("session ended (%s: %s)", type(exc).__name__, exc)
+                # The page in front of somebody at the shop shows this verbatim.
+                # "Not connected" is true of a wrong address, a dead internet
+                # and an expired certificate alike, and those need three
+                # different things done about them.
+                self._report(connected=False, detail=_readable(exc))
 
             if self._stopping.is_set():
                 break
@@ -157,6 +211,11 @@ class ConnectorSession:
             with contextlib.suppress(TimeoutError):
                 await asyncio.wait_for(self._stopping.wait(), timeout=sleep_for)
             delay = min(delay * 2, self._settings.reconnect_max_seconds)
+
+        if watcher is not None:
+            watcher.cancel()
+            with contextlib.suppress(asyncio.CancelledError):
+                await watcher
 
         await self._drain_jobs()
 
@@ -188,11 +247,15 @@ class ConnectorSession:
             logger.info("session %s established", ack.session_id)
 
             self._last_inbound = asyncio.get_running_loop().time()
+            self._socket = socket
+            self._report(connected=True, session_id=ack.session_id or "")
             watchdog = asyncio.create_task(self._watch_heartbeat(socket))
             shipper = asyncio.create_task(self._ship_logs(socket))
             try:
                 await self._serve(socket)
             finally:
+                self._socket = None
+                self._report(connected=False, detail="Reconnecting...")
                 for task in (watchdog, shipper):
                     task.cancel()
                     with contextlib.suppress(asyncio.CancelledError):
@@ -226,7 +289,9 @@ class ConnectorSession:
 
         ack = HelloAck.model_validate_json(raw)
         if not ack.accepted:
-            raise AuthenticationRejected(ack.reason or "handshake rejected")
+            raise AuthenticationRejected(
+                ack.reason or "handshake rejected", reason_code=ack.reason_code
+            )
         if ack.protocol_version != PROTOCOL_VERSION:
             raise AuthenticationRejected(
                 f"backend speaks protocol v{ack.protocol_version}, "
@@ -262,6 +327,8 @@ class ConnectorSession:
                 self._start_job(socket, message)
             elif kind == "update":
                 self._handle_update_command(message)
+            elif kind == "roster":
+                self._handle_roster(message)
             else:
                 # Forward compatibility: a newer backend may send message types
                 # this build predates. Ignoring beats disconnecting.
@@ -321,6 +388,43 @@ class ConnectorSession:
         )
         self._updater.nudge(f"backend requested {command.version}")
 
+    # -- the roster ------------------------------------------------------
+
+    def _handle_roster(self, message: dict[str, Any]) -> None:
+        """Take the account description the backend pushed.
+
+        Swallows everything. This feeds a status page, and a malformed roster
+        must cost that page one refresh -- never the socket a shop's reports
+        come back on.
+        """
+        if self._observer is None:
+            return
+        try:
+            roster = Roster.model_validate(message)
+        except ValidationError as exc:
+            logger.debug("discarding malformed roster: %s", exc)
+            return
+        try:
+            self._observer.roster_received(roster)
+        except Exception:  # noqa: BLE001 - a screen is never worth the session
+            logger.debug("could not record the roster", exc_info=True)
+
+    async def request_roster(self) -> bool:
+        """Ask the backend to re-send the roster. ``False`` if not connected.
+
+        Called from the local page's Refresh button, which is why it answers
+        rather than raising: the person pressing it needs to be told "we cannot
+        reach TallyFlow right now", not to see nothing happen.
+        """
+        socket = self._socket
+        if socket is None:
+            return False
+        try:
+            await self._send(socket, RosterRequest())
+        except (ConnectionClosed, OSError):
+            return False
+        return True
+
     # -- handlers --------------------------------------------------------
 
     def _start_ping(self, socket: Any, message: dict[str, Any]) -> None:
@@ -347,6 +451,12 @@ class ConnectorSession:
 
     async def _report_status_change(self, socket: Any, online: bool) -> None:
         """Push an event only on transitions, not on every heartbeat."""
+        # The local page is told on every probe rather than only on transitions.
+        # It has no memory across a connector restart, so a page opened during a
+        # steady outage would otherwise sit on "not checked yet" indefinitely --
+        # which is the one state that makes somebody restart working software.
+        self._notify_tally(online)
+
         if self._tally_online == online:
             return
         self._tally_online = online
@@ -424,6 +534,24 @@ class ConnectorSession:
                 if len(entries) < MAX_LOG_ENTRIES_PER_BATCH:
                     break
 
+    async def _watch_tally(self) -> None:
+        """Keep the observer's view of TallyPrime current.
+
+        Goes through the pipeline like everything else, so it answers from what
+        a real request has just proved and only probes when the gateway is idle.
+        The heartbeat's own probe usually satisfies this one for free; this
+        exists for the case where there is no heartbeat.
+        """
+        interval = max(10.0, self._settings.tally_liveness_ttl_seconds)
+        while True:
+            try:
+                self._notify_tally(await self._pipeline.is_alive())
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - a status probe is never fatal
+                logger.debug("tally liveness probe failed", exc_info=True)
+            await asyncio.sleep(interval)
+
     async def _watch_heartbeat(self, socket: Any) -> None:
         """Force a reconnect when the backend stops pinging.
 
@@ -447,11 +575,45 @@ class ConnectorSession:
         logger.info("waiting for %d in-flight task(s)", len(pending))
         await asyncio.gather(*pending, return_exceptions=True)
 
+    # -- observation -----------------------------------------------------
+
+    def _report(self, *, connected: bool, session_id: str = "", detail: str = "") -> None:
+        if self._observer is None:
+            return
+        with contextlib.suppress(Exception):
+            self._observer.connection_changed(
+                connected=connected, session_id=session_id, detail=detail
+            )
+
+    def _notify_tally(self, online: bool | None) -> None:
+        if self._observer is None:
+            return
+        with contextlib.suppress(Exception):
+            self._observer.tally_changed(online=online)
+
     # -- introspection ---------------------------------------------------
 
     def stats(self) -> dict[str, Any]:
         """Queue health, for logs and support calls."""
         return {"jobs_accepted": len(self._jobs), **self._pipeline.stats()}
+
+
+def _readable(exc: BaseException) -> str:
+    """A connection failure in words a shop owner can act on.
+
+    Not a translation table for every possible error -- the last line falls back
+    to the exception itself, which support can read over the phone. It covers
+    the three that are actually common, and each of them has a different fix.
+    """
+    if isinstance(exc, AuthenticationRejected):
+        return "TallyFlow refused this computer's credentials."
+    if isinstance(exc, ssl.SSLError):
+        return "The secure connection to TallyFlow could not be established."
+    if isinstance(exc, InvalidStatus):
+        return f"TallyFlow answered {exc.response.status_code}."
+    if isinstance(exc, TimeoutError | ConnectionError | OSError):
+        return "Could not reach TallyFlow. Check this computer's internet connection."
+    return f"{type(exc).__name__}: {exc}"
 
 
 def is_fatal_connect_error(exc: BaseException) -> bool:

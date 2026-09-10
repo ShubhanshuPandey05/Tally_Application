@@ -55,6 +55,8 @@ class VoucherStockLine {
     this.rate,
     this.godown,
     this.batch,
+    this.hsnCode,
+    this.gstRate,
   });
 
   final String item;
@@ -65,6 +67,13 @@ class VoucherStockLine {
   final String? godown;
   final String? batch;
 
+  /// Off the stock master rather than the voucher line, and null whenever Tally
+  /// does not hold it. The shared document leaves the column out entirely in
+  /// that case: a tax document with an empty HSN box asserts something about a
+  /// supply that nobody entered.
+  final String? hsnCode;
+  final double? gstRate;
+
   factory VoucherStockLine.fromJson(Map<String, Object?> json) => VoucherStockLine(
         item: json['item'] as String? ?? '',
         quantity: (json['quantity'] as num?)?.toDouble() ?? 0,
@@ -73,6 +82,49 @@ class VoucherStockLine {
         rate: json['rate'] == null ? null : Money.fromJson(json['rate']),
         godown: json['godown'] as String?,
         batch: json['batch'] as String?,
+        hsnCode: json['hsn_code'] as String?,
+        gstRate: (json['gst_rate'] as num?)?.toDouble(),
+      );
+}
+
+/// A party's own contact details, as Tally holds them on the ledger master.
+///
+/// Contact only. A receipt an owner forwards to a customer must not carry that
+/// customer's balance or credit limit, so those never reach this shape.
+class PartyDetails {
+  const PartyDetails({
+    required this.name,
+    this.gstin,
+    this.address = const <String>[],
+    this.state,
+    this.phone,
+    this.email,
+  });
+
+  final String name;
+  final String? gstin;
+  final List<String> address;
+  final String? state;
+  final String? phone;
+  final String? email;
+
+  bool get hasContact =>
+      (gstin?.isNotEmpty ?? false) ||
+      address.isNotEmpty ||
+      (state?.isNotEmpty ?? false) ||
+      (phone?.isNotEmpty ?? false) ||
+      (email?.isNotEmpty ?? false);
+
+  factory PartyDetails.fromJson(Map<String, Object?> json) => PartyDetails(
+        name: json['name'] as String? ?? '',
+        gstin: json['gstin'] as String?,
+        address: <String>[
+          for (final Object? line in (json['address'] as List<Object?>?) ?? const <Object?>[])
+            if (line != null && line.toString().trim().isNotEmpty) line.toString().trim(),
+        ],
+        state: json['state'] as String?,
+        phone: json['phone'] as String?,
+        email: json['email'] as String?,
       );
 }
 
@@ -92,6 +144,7 @@ class VoucherDetail {
     this.party,
     this.narration,
     this.reference,
+    this.partyDetails,
     this.isCancelled = false,
     this.isOptional = false,
     this.inventoryOmitted = false,
@@ -116,6 +169,10 @@ class VoucherDetail {
   final String? party;
   final String? narration;
   final String? reference;
+
+  /// The party ledger's own address and GSTIN, when Tally holds them. Null on a
+  /// voucher with no party, and on one whose master snapshot has not landed yet.
+  final PartyDetails? partyDetails;
 
   /// Excluded from every total in the product. The detail screen says so out
   /// loud rather than showing a figure that is in none of the ones around it.
@@ -147,6 +204,9 @@ class VoucherDetail {
         party: json['party'] as String?,
         narration: json['narration'] as String?,
         reference: json['reference'] as String?,
+        partyDetails: json['party_details'] == null
+            ? null
+            : PartyDetails.fromJson(_map(json['party_details'])),
         isCancelled: json['is_cancelled'] as bool? ?? false,
         isOptional: json['is_optional'] as bool? ?? false,
         inventoryOmitted: json['inventory_omitted'] as bool? ?? false,

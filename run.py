@@ -400,8 +400,80 @@ def cmd_image(argv: list[str]) -> int:
     )
 
 
+#: The window's Flutter entrypoint. A second target inside the phone app's
+#: package rather than a package of its own -- see lib/connector_window.dart.
+WINDOW_TARGET = "lib/connector_window.dart"
+
+#: Where `flutter build windows` leaves it, and what the installer copies.
+WINDOW_BUILD = MOBILE / "build" / "windows" / "x64" / "runner" / "Release"
+WINDOW_EXE = "tally-connector-window.exe"
+
+
+def visual_studio_with_atl() -> str | None:
+    """A Visual Studio install that can build the window, if there is one.
+
+    CMake picks a VS instance on its own, and on a machine with more than one it
+    can pick the wrong one -- Build Tools without ATL, say, which fails on
+    ``atlstr.h`` deep inside a plugin with nothing to suggest the fix is "use
+    the other install". Asked here instead, and handed to CMake through the
+    environment variable it consults before choosing for itself.
+    """
+    vswhere = Path(os.environ.get("ProgramFiles(x86)", r"C:\Program Files (x86)"))
+    vswhere = vswhere / "Microsoft Visual Studio" / "Installer" / "vswhere.exe"
+    if not vswhere.is_file():
+        return None
+    try:
+        found = subprocess.run(
+            [
+                str(vswhere),
+                "-products", "*",
+                "-latest",
+                # Both, because the window needs a C++ toolchain and the
+                # dependency that fails without ATL is not ours to remove.
+                "-requires", "Microsoft.VisualStudio.Component.VC.Tools.x86.x64",
+                "-requires", "Microsoft.VisualStudio.Component.VC.ATL",
+                "-property", "installationPath",
+                "-format", "value",
+            ],
+            capture_output=True,
+            text=True,
+            timeout=30,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return None
+    return found.stdout.strip() or None
+
+
+def build_window() -> int:
+    """Build the connector's window.
+
+    Kept in the same command as the executables it reports on. They ship in one
+    installer and their state contract is written twice -- once in
+    ``ui/state.py`` and once in ``src/connector/state.dart`` -- so building one
+    without the other is how the two drift apart unnoticed.
+    """
+    env: dict[str, str] = {}
+    instance = visual_studio_with_atl()
+    if instance and "VS170COMNTOOLS" not in os.environ:
+        # CMake reads this before choosing an instance itself. Left alone when
+        # it is already set: a machine that has deliberately pointed its
+        # toolchain somewhere knows better than this lookup does.
+        env["VS170COMNTOOLS"] = str(Path(instance) / "Common7" / "Tools") + os.sep
+    elif not instance:
+        print("! No Visual Studio install with the C++ tools and ATL was found.")
+        print("  The window build will fail on 'atlstr.h' if the instance CMake")
+        print("  picks does not have ATL. Add it from the Visual Studio Installer")
+        print("  under 'Desktop development with C++'.\n")
+
+    return run(
+        [need_flutter(), "build", "windows", "--release", f"--target={WINDOW_TARGET}"],
+        cwd=MOBILE,
+        env=env,
+    )
+
+
 def cmd_connector(_: list[str]) -> int:
-    """Build the two connector executables, then the Windows installer.
+    """Build the two connector executables and the window, then the installer.
 
     PyInstaller freezes for the platform it runs on, so this is Windows-only by
     nature -- there is no cross-compile to offer.
@@ -420,6 +492,11 @@ def cmd_connector(_: list[str]) -> int:
     for name in ("tally-connector.exe", "tally-connector-service.exe"):
         if not (CONNECTOR / "dist" / name).is_file():
             return usage_error(f"PyInstaller reported success but {name} is missing")
+
+    if build_window() != 0:
+        return 1
+    if not (WINDOW_BUILD / WINDOW_EXE).is_file():
+        return usage_error(f"Flutter reported success but {WINDOW_EXE} is missing")
 
     iscc = inno_compiler()
     if iscc is None:

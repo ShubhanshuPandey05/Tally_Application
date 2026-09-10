@@ -386,6 +386,22 @@ class Connector(Base, TimestampMixin):
     last_seen_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     last_tally_online: Mapped[bool] = mapped_column(Boolean, default=False)
     revoked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Set when an admin asked for this PC to be paired again, and cleared the
+    #: moment it authenticates with the credential that came out of that.
+    #:
+    #: It exists because of what the machine on the other end can and cannot
+    #: work out for itself. Re-pairing replaces the secret, so the PC's next
+    #: handshake fails its signature check -- which is indistinguishable, from
+    #: the signature alone, from a genuine authentication failure. One of those
+    #: means "show a code and wait to be scanned" and the other must never mean
+    #: that, because a server-side fault that answered it would put an entire
+    #: fleet on a pairing screen at once.
+    #:
+    #: This column is what tells them apart, and it can only be written by an
+    #: admin deliberately asking for it.
+    repair_requested_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
 
     organisation: Mapped[Organisation] = relationship(back_populates="connectors")
     companies: Mapped[list[Company]] = relationship(back_populates="connector")
@@ -396,6 +412,72 @@ class Connector(Base, TimestampMixin):
         if not self.capabilities:
             return True
         return any(entry.get("name") == query for entry in self.capabilities)
+
+
+class ConnectorClaim(Base):
+    """A shop PC waiting to be told which account it belongs to.
+
+    This is what replaced typing a 43-character secret into a Windows PC while
+    reading it off a phone. The connector shows a QR code; the owner scans it in
+    the app; the credentials travel over TLS through this table instead of
+    through a person.
+
+    The direction is the point. The connector still dials *out* for this -- it
+    registers a claim and then polls for the answer -- so nothing new listens on
+    the customer's machine and the local page stays bound to loopback. A pairing
+    flow where the phone connected directly to the PC would have been simpler
+    and would have meant opening a port on a shop's network, which is the one
+    thing this product does not do.
+
+    Neither half of the credential pair is stored as it was issued:
+
+    ``code``   is in the QR, so it is on a screen anybody in the shop can see.
+    ``token``  never leaves the connector process, and is required to collect.
+
+    Both are kept as SHA-256, so a database leak yields no pairing that can be
+    completed. And because the token is what collects, photographing the QR is
+    not enough to receive somebody's connector secret -- only the machine that
+    drew the code can pick it up.
+    """
+
+    __tablename__ = "connector_claims"
+    __table_args__ = (Index("ix_connector_claims_expiry", "expires_at"),)
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    #: SHA-256 of the code shown in the QR. Unique so a repeat registration of
+    #: the same code updates one row rather than growing a pile of them.
+    code_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    token_hash: Mapped[str] = mapped_column(String(64))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    #: Short. A claim is completed by somebody standing at the PC with their
+    #: phone out, so minutes is generous; anything longer is a code left on a
+    #: screen overnight.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+
+    #: What the connector said about itself, so the app can show "SHOP-PC,
+    #: Windows 11" rather than a hex string before the owner confirms.
+    hostname: Mapped[str] = mapped_column(String(200), default="")
+    os: Mapped[str] = mapped_column(String(100), default="")
+    connector_version: Mapped[str] = mapped_column(String(50), default="")
+
+    #: Filled in when somebody in the app claims this PC. Until then the claim
+    #: belongs to nobody, which is why there is no foreign key on either.
+    org_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    connector_id: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    #: The connector's new secret, encrypted with the same box that protects
+    #: ``Connector.secret_encrypted`` -- it sits here for the minute or two
+    #: between the owner scanning and the PC collecting, and in the clear it
+    #: would be a working pairing credential at rest in a table.
+    secret_encrypted: Mapped[str | None] = mapped_column(Text, nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    #: Set the moment the connector collects. Collection is single-use: a second
+    #: attempt gets nothing, so a captured response cannot be replayed into a
+    #: second machine holding the same credentials.
+    collected_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    @property
+    def is_expired(self) -> bool:
+        return as_utc(self.expires_at) <= utc_now()
 
 
 class Company(Base, TimestampMixin):

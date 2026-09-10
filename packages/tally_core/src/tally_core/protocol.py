@@ -179,6 +179,25 @@ class HelloAck(ServerMessage):
     session_id: str | None = None
     heartbeat_interval_seconds: float = 30.0
     reason: str | None = None
+    #: Why a rejection happened, in a form code can branch on. ``reason`` is
+    #: for a human reading a log; this decides what the connector *does*.
+    #:
+    #: Two codes tell a connector to stop offering its credential and ask to be
+    #: paired again: ``revoked`` (the row is gone or was removed) and
+    #: ``repairing`` (an admin asked for this PC to be paired again, which
+    #: replaced its secret). Both can only be produced by somebody deciding it.
+    #:
+    #: Every other code -- ``auth_failed`` and ``server_key`` especially --
+    #: leaves the stored pairing alone. A backend that cannot decrypt its own
+    #: secrets, or a signature check that broke for a reason nobody has
+    #: diagnosed yet, must never be able to put a whole fleet on a pairing
+    #: screen by answering the same way a deliberate decision does.
+    #:
+    #: Empty from a backend that predates this field, which reads as "no
+    #: opinion" and therefore also leaves the pairing intact.
+    reason_code: Literal[
+        "", "revoked", "repairing", "auth_failed", "server_key", "protocol", "malformed"
+    ] = ""
 
 
 # --------------------------------------------------------------------------
@@ -327,6 +346,84 @@ class UpdateCommand(ServerMessage):
 
 
 # --------------------------------------------------------------------------
+# Roster
+#
+# What the shop PC is allowed to be told about the account it serves. The
+# connector now has a small local window -- a page on 127.0.0.1 that the person
+# standing at the till can open -- and the two questions asked there are "which
+# of my companies is this PC feeding?" and "who can see them?". Neither is
+# answerable on the PC: the connector knows which companies are *open in Tally*,
+# and nothing at all about who signed up.
+#
+# So the backend pushes it. Deliberately a roster and not a data feed: names,
+# roles and sync times, no figures. A shop PC that could be asked for a balance
+# over a loopback socket would be a second read path into the books, outside
+# every check in `deps.get_company`.
+# --------------------------------------------------------------------------
+
+
+class RosterCompany(BaseModel):
+    """One set of books this connector is linked to, as the backend has it.
+
+    ``open_in_tally`` is filled in by the connector, not the backend -- it is
+    the one field the shop PC knows better than the server, and it is the whole
+    answer to "why is this company showing yesterday's figures?".
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    id: str
+    name: str
+    tally_name: str
+    is_active: bool = True
+    last_synced_at: datetime | None = None
+
+
+class RosterUser(BaseModel):
+    """Somebody in the organisation that owns this connector.
+
+    Sent to the customer's own machine and nowhere else, which is what makes an
+    email address here reasonable: it is the address of a colleague in the same
+    business, shown to the person who owns that business.
+    """
+
+    model_config = ConfigDict(extra="ignore")
+
+    name: str = ""
+    email: str = ""
+    role: str = "staff"
+    #: Whether this person can actually see the companies on this PC. An admin
+    #: always can; a staff member sees only what they were granted, and a list
+    #: that ignored that would tell an owner their whole team can read the
+    #: books when it cannot.
+    has_access: bool = True
+
+
+class Roster(ServerMessage):
+    """Who and what this connector serves. Pushed on connect, and on request."""
+
+    type: Literal["roster"] = "roster"
+    organisation: str = ""
+    #: ``pending`` until somebody approves the account, which is the single
+    #: most common reason a correctly installed connector shows nothing.
+    org_status: str = ""
+    connector_name: str = ""
+    companies: list[RosterCompany] = Field(default_factory=list)
+    users: list[RosterUser] = Field(default_factory=list)
+
+
+class RosterRequest(ClientMessage):
+    """The connector asking for a fresh roster.
+
+    Sent when somebody presses Refresh on the local page. It is a request for
+    *this connector's own* roster -- there is no parameter to vary, so a
+    connector cannot ask about anybody else's account.
+    """
+
+    type: Literal["roster_request"] = "roster_request"
+
+
+# --------------------------------------------------------------------------
 # Diagnostics
 # --------------------------------------------------------------------------
 
@@ -382,8 +479,11 @@ class LogBatch(ClientMessage):
 
 
 #: Messages the connector may receive.
-Inbound = Annotated[HelloAck | Ping | JobRequest | UpdateCommand, Field(discriminator="type")]
+Inbound = Annotated[
+    HelloAck | Ping | JobRequest | UpdateCommand | Roster, Field(discriminator="type")
+]
 #: Messages the connector may send.
 Outbound = Annotated[
-    Hello | Pong | JobResult | StatusEvent | LogBatch, Field(discriminator="type")
+    Hello | Pong | JobResult | StatusEvent | LogBatch | RosterRequest,
+    Field(discriminator="type"),
 ]

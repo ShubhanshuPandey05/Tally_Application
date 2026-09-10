@@ -111,6 +111,20 @@ class ConnectorSettings(BaseSettings):
     log_level: str = "INFO"
     log_dir: Path | None = None
 
+    # --- Local window ---------------------------------------------------
+    #: Serve the small status page on this machine. It is what somebody
+    #: standing at the shop's PC can open to see whether the connector is
+    #: working, which companies it feeds, and to pair it in the first place.
+    #:
+    #: Off is a supported way to run: everything the page does is also a CLI
+    #: command, and a machine locked down by an IT department should be able to
+    #: refuse the extra socket.
+    ui_enabled: bool = True
+    #: Loopback only, and not configurable to anything else -- see
+    #: ``ui.server``. The port is settable because a shop PC is somebody else's
+    #: machine and something may already be on this one.
+    ui_port: int = 9787
+
     # --- Remote diagnostics ---------------------------------------------
     #: Ship log lines to the backend over the socket that is already open, so
     #: support can read them without asking a shop owner to find a file. Off
@@ -155,6 +169,19 @@ class ConnectorSettings(BaseSettings):
     #: backend_url", which keeps a UAT connector pointed at UAT artefacts
     #: without a second setting to get wrong.
     update_manifest_url: str = ""
+
+    @property
+    def api_base_url(self) -> str:
+        """The backend's HTTP origin, derived from the socket address.
+
+        Same derivation as :attr:`manifest_url` and for the same reason: there
+        is one address to configure on a shop PC, and a second setting for the
+        same host is a second thing to get wrong on a support call. Pairing and
+        the update manifest both ride on it.
+        """
+        base = self.backend_url
+        base = "https://" + base[6:] if base.startswith("wss://") else "http://" + base[5:]
+        return base.split("/v1/", 1)[0].rstrip("/")
 
     @property
     def manifest_url(self) -> str:

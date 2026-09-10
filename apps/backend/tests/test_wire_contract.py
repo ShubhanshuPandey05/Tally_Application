@@ -71,6 +71,12 @@ def normalise(value: Any) -> Any:
                 result[key] = _PLACEHOLDER_TIME if _is_aware(item) else _NAIVE_TIME
             elif key == "age_seconds":
                 result[key] = 0.0
+            elif key == "expires_in_seconds":
+                # A countdown, so it lands on 900 or 899 depending on which side
+                # of a second the run started. Pinning the value would make this
+                # file fail roughly half the time and teach everyone to
+                # regenerate it without reading the diff.
+                result[key] = 0
             elif key in {"id", "company_id", "connector_id", "org_id"} and isinstance(
                 item, str
             ):
@@ -89,7 +95,11 @@ def check(name: str, payload: Any) -> None:
     rendered = json.dumps(normalise(payload), indent=2, sort_keys=True) + "\n"
 
     if os.environ.get("UPDATE_WIRE_FIXTURES") or not path.exists():
-        path.write_text(rendered, encoding="utf-8")
+        # newline="\n" explicitly. Without it, regenerating on Windows rewrites
+        # every line of every fixture with CRLF and the diff is a thousand lines
+        # of nothing -- which is exactly the diff nobody reads, on the one file
+        # set whose whole job is to be read when it changes.
+        path.write_text(rendered, encoding="utf-8", newline="\n")
         return
 
     existing = path.read_text(encoding="utf-8")
@@ -283,6 +293,28 @@ async def test_company_and_connector_shapes(
     check("me", me.json())
 
 
+async def test_claim_preview_shape(client: AsyncClient, linked_company) -> None:
+    """What the app shows between reading a code and granting a PC access.
+
+    Pinned like every other decoded response, and worth pinning despite being
+    four fields: it is the last screen before somebody hands a machine the
+    ability to read their books, and a field that silently decoded to empty
+    would turn a named computer into "That computer".
+    """
+    opened = await client.post(
+        "/v1/pairing/claims",
+        json={"hostname": "SHOP-PC", "os": "Windows 11", "connector_version": "0.3.0"},
+    )
+    assert opened.status_code == 201, opened.text
+
+    preview = await client.get(
+        f"/v1/connectors/claims/{opened.json()['code']}",
+        headers=linked_company["headers"],
+    )
+    assert preview.status_code == 200, preview.text
+    check("claim_preview", preview.json())
+
+
 async def test_sync_status_shapes(
     app, client: AsyncClient, linked_company, dated, settings
 ) -> None:
@@ -457,6 +489,17 @@ async def test_voucher_detail_shape(
 ) -> None:
     key, on = await _first_voucher_key(client, backfilled)
 
+    # The ledger list first, the way the app reaches this screen: from a report
+    # or a dashboard that has already read the masters. The party's address and
+    # GSTIN ride on this response so a voucher can be shared as a document, and
+    # they are served from that snapshot -- capturing the fixture cold would pin
+    # the shape with the party block missing, as though that were the normal one.
+    warm = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/ledgers",
+        headers=backfilled["headers"],
+    )
+    assert warm.status_code == 200, warm.text
+
     response = await client.get(
         f"/v1/companies/{backfilled['company_id']}/reports/voucher"
         f"?key={key}&on={on}",
@@ -471,6 +514,18 @@ async def test_voucher_detail_shape(
         "debit",
         "credit",
     }
+
+    # The party's own details, off the ledger master rather than off the
+    # voucher. This is what puts an address on a shared invoice, and it costs
+    # the shop's Tally nothing -- it comes from a snapshot already held.
+    party = body["data"]["party_details"]
+    assert party is not None, "the ledger snapshot was warm, so the party is known"
+    assert party["name"] == body["data"]["party"]
+    assert "gstin" in party and "address" in party
+    # Contact only. A receipt an owner forwards to a customer must not carry
+    # that customer's balance or credit limit.
+    assert "closing_balance" not in party and "credit_limit" not in party
+
     check("voucher", body)
 
 

@@ -28,6 +28,13 @@ MOBILE = ROOT / "apps/mobile"
 WEBSITE = ROOT / "apps/website"
 ANDROID = MOBILE / "android/app/src/main/res"
 IOS = MOBILE / "ios/Runner/Assets.xcassets/AppIcon.appiconset"
+#: The connector's window, which is a Windows target of the mobile package.
+WINDOWS_ICON = MOBILE / "windows/runner/resources/app_icon.ico"
+
+#: What Windows asks an .ico for. Explorer, the taskbar and Alt-Tab each pick a
+#: different one, so a file carrying only a large image is resampled by the
+#: shell at exactly the sizes where the mark has least room.
+WINDOWS_SIZES = (16, 24, 32, 48, 64, 128, 256)
 
 # Android density buckets, as multiples of the baseline. Legacy launcher icons
 # are 48dp; the adaptive-icon layers are 108dp.
@@ -44,6 +51,44 @@ def _ios_jobs(square: str) -> list[tuple[str, Path, int]]:
         side = float(image["size"].split("x")[0]) * float(image["scale"].rstrip("x"))
         jobs.append((square, IOS / image["filename"], round(side)))
     return jobs
+
+
+def windows_icon(app: str) -> None:
+    """Pack the app tile into the .ico the connector's window is built with.
+
+    Every size is drawn rather than downsampled from one large image. The mark
+    falls back to a stacked monogram in a small square, and letting the shell
+    resample a 256px wordmark down to 16px produces a grey smudge instead --
+    which is the size the taskbar and Alt-Tab actually use.
+
+    The **app** colourway, not the favicon's: this is a program on a taskbar
+    beside other programs, the same place the phone app's black tile earns its
+    keep, and a white square there reads as a missing image.
+    """
+    scratch = WINDOWS_ICON.parent / "_ico"
+    scratch.mkdir(parents=True, exist_ok=True)
+    try:
+        frames = [(app, scratch / f"{size}.png", size) for size in WINDOWS_SIZES]
+        raster.render(frames)
+
+        images = [Image.open(path).convert("RGBA") for _, path, _ in frames]
+        try:
+            # Largest first: Pillow writes the base image plus append_images,
+            # and a reader that ignores the directory order takes the first.
+            images[-1].save(
+                WINDOWS_ICON,
+                format="ICO",
+                sizes=[(size, size) for size in WINDOWS_SIZES],
+                append_images=images[:-1],
+            )
+        finally:
+            for image in images:
+                image.close()
+        print(f"  {len(WINDOWS_SIZES):>4} sz  {WINDOWS_ICON.relative_to(ROOT)}")
+    finally:
+        for leftover in scratch.glob("*.png"):
+            leftover.unlink()
+        scratch.rmdir()
 
 
 def _flatten(paths) -> None:
@@ -92,6 +137,7 @@ def main() -> None:
     raster.render(jobs)
     _flatten(dest for _, dest, _ in _ios_jobs(square))
     _flatten([WEBSITE / "public/apple-touch-icon.png"])
+    windows_icon(app)
 
     for _, dest, size in jobs:
         print(f"  {size:>4}px  {dest.relative_to(ROOT)}")

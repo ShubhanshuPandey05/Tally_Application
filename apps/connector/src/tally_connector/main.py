@@ -9,6 +9,7 @@ Subcommands:
 ``configure``  change the server address or the credentials of an installed one
 ``uninstall``  remove it from startup (``--purge`` also unpairs the machine)
 ``status``     report whether the background connector is registered and running
+``ui``         open the connector's local status and pairing window
 ``update``     check for a newer build (``--apply`` installs it)
 """
 
@@ -20,7 +21,10 @@ import contextlib
 import json
 import logging
 import signal
+import socket
+import subprocess
 import sys
+import time
 from pathlib import Path
 
 from pydantic import ValidationError
@@ -34,22 +38,22 @@ from .config import ConnectorSettings, load_settings, save_pairing, save_setting
 from .livecheck import livecheck, print_manifest
 from .loaded import GuardedClient
 from .logging_setup import setup_logging
-from .session import AuthenticationRejected, ConnectorSession
+from .runner import ConnectorRunner
 from .updater import UpdateError, UpdateManager
 from .updater import supported as updater_supported
 
 logger = logging.getLogger(__name__)
 
 
-async def serve(settings: ConnectorSettings) -> int:
-    if not settings.is_paired:
-        logger.error(
-            "This connector is not paired yet. Open the TallyFlow app, add this "
-            "computer, then run: tally-connector pair --id <ID> --secret <SECRET>"
-        )
-        return 2
+async def serve(settings: ConnectorSettings, config_path: Path | None = None) -> int:
+    """Run the connector until it is told to stop.
 
-    # Installed before the session so the lines describing a *failed* first
+    Thin, deliberately: everything that decides *what* to run -- pair this
+    machine, serve, restart, pair again -- is :class:`ConnectorRunner`. What is
+    left here is the process's business: install the log handler, catch the
+    signals, and turn the runner's answer into an exit code.
+    """
+    # Installed before the runner so the lines describing a *failed* first
     # connection are already buffered when the socket finally comes up.
     #
     # Never below `log_level`: the root logger filters before any handler is
@@ -65,41 +69,18 @@ async def serve(settings: ConnectorSettings) -> int:
         else None
     )
 
-    session = ConnectorSession(settings, version=__version__, log_handler=log_handler)
-    stop = asyncio.Event()
+    runner = ConnectorRunner(
+        config_path=config_path, version=__version__, log_handler=log_handler
+    )
 
     loop = asyncio.get_running_loop()
     for sig in (signal.SIGINT, signal.SIGTERM):
         with contextlib.suppress(NotImplementedError, AttributeError):
             # Windows ProactorEventLoop has no add_signal_handler; the
             # KeyboardInterrupt path in run() covers Ctrl+C there.
-            loop.add_signal_handler(sig, stop.set)
+            loop.add_signal_handler(sig, lambda: asyncio.ensure_future(runner.stop()))
 
-    runner = asyncio.create_task(session.run_forever())
-    stopper = asyncio.create_task(stop.wait())
-
-    done, _ = await asyncio.wait({runner, stopper}, return_when=asyncio.FIRST_COMPLETED)
-
-    if stopper in done:
-        logger.info("shutting down")
-        await session.stop()
-        runner.cancel()
-        with contextlib.suppress(asyncio.CancelledError):
-            await runner
-
-    stopper.cancel()
-    await session.aclose()
-
-    if runner in done and not runner.cancelled():
-        exc = runner.exception()
-        if isinstance(exc, AuthenticationRejected):
-            logger.error("Backend rejected this connector: %s", exc)
-            logger.error("Re-pair this computer from the TallyFlow app.")
-            return 3
-        if exc is not None:
-            logger.error("connector stopped: %s", exc)
-            return 1
-    return 0
+    return await runner.run()
 
 
 async def diagnose(settings: ConnectorSettings) -> int:
@@ -298,14 +279,23 @@ def install(args: argparse.Namespace) -> int:
     if not connector_id and not secret and load_settings(args.config).is_paired:
         return _reinstall(args)
 
-    if not connector_id or not secret:
-        print("error: both a connector id and a secret are required", file=sys.stderr)
+    # One without the other is a mistake worth stopping for; neither is now the
+    # normal case. Since pairing moved to a scanned code, a fresh install has no
+    # credentials to be given -- the connector starts, shows a code on its own
+    # page, and is paired from the app a minute later. Refusing to install
+    # without a secret would make the typed flow compulsory again.
+    if bool(connector_id) != bool(secret):
+        print(
+            "error: a connector id and a secret must be given together, "
+            "or neither (this computer will then show a pairing code)",
+            file=sys.stderr,
+        )
         return 2
 
     config_path = save_settings(
         {
-            "connector_id": connector_id,
-            "connector_secret": secret,
+            "connector_id": connector_id or None,
+            "connector_secret": secret or None,
             "backend_url": values.get("backend_url") or None,
             # A background process with no console has nowhere else to report
             # itself, so file logging is not optional for an installed connector.
@@ -313,7 +303,14 @@ def install(args: argparse.Namespace) -> int:
         },
         args.config,
     )
-    print(f"Paired as {connector_id}; settings written to {config_path}")
+    if connector_id:
+        print(f"Paired as {connector_id}; settings written to {config_path}")
+    else:
+        print(f"Settings written to {config_path}.")
+        print(
+            "This computer is not paired yet. Open TallyFlow Connector on it "
+            "(or run: tally-connector ui) and scan the code with the app."
+        )
 
     if args.no_autostart:
         print("Skipping startup registration (--no-autostart).")
@@ -472,6 +469,14 @@ def status(args: argparse.Namespace) -> int:
     print(f"Backend   : {settings.backend_url}")
     print(f"Startup   : {state or 'not registered'}")
     print(f"Logs      : {settings.log_dir or '(console only)'}")
+    print(
+        "Window    : "
+        + (
+            f"tally-connector ui ({local_ui_url(settings)})"
+            if settings.ui_enabled
+            else "disabled (ui_enabled=false)"
+        )
+    )
 
     if not settings.is_paired:
         print("\nThis computer is not paired. Re-run the installer, or use: "
@@ -484,6 +489,115 @@ def status(args: argparse.Namespace) -> int:
         print(f'\nThe startup task exists but is {state}. Start it with: '
               f'schtasks /Run /TN "{autostart.TASK_NAME}"')
         return 1
+    return 0
+
+
+def local_ui_url(settings: ConnectorSettings) -> str:
+    """Where the connector answers the window.
+
+    Loopback, always -- see ``ui.server``. Built here as well so ``status`` can
+    print it without importing the server into a command that does not run one.
+    """
+    return f"http://127.0.0.1:{settings.ui_port}/"
+
+
+#: The window, as it is named on disk. A third executable in the same installer
+#: as the service and this CLI.
+WINDOW_EXE = "tally-connector-window.exe"
+
+#: The subfolder the installer lays it down in. A Flutter build is an executable
+#: beside several DLLs and a data directory, and those must stay together --
+#: the window looks for ``data`` next to itself.
+WINDOW_DIR = "window"
+
+#: Where a checkout builds it. Only reached when this CLI is *not* frozen, so a
+#: developer running from source gets the same window the shortcut opens.
+_DEV_WINDOW_PATH = Path("apps/mobile/build/windows/x64/runner/Release") / WINDOW_EXE
+
+
+def window_executable() -> Path | None:
+    """The window's executable, or ``None`` if this install has no window.
+
+    Looked up beside the running executable rather than searched for. In an
+    installed build the CLI, the service and the window are laid down together
+    by one installer, so anything found further afield belongs to a different
+    install of the product -- and launching *that* one would point a window at a
+    connector it does not belong to.
+    """
+    if getattr(sys, "frozen", False):
+        candidate = Path(sys.executable).resolve().parent / WINDOW_DIR / WINDOW_EXE
+        return candidate if candidate.is_file() else None
+
+    candidate = (Path(__file__).resolve().parents[4] / _DEV_WINDOW_PATH).resolve()
+    return candidate if candidate.is_file() else None
+
+
+def _connector_is_up(port: int, *, attempts: int = 6, gap: float = 0.5) -> bool:
+    """Whether the connector is answering the window's port yet.
+
+    Retried rather than asked once, because the Start-menu shortcut and the
+    installer's final step both run this while the connector is still starting;
+    a single probe would report "not running" about a second before it is.
+    """
+    for attempt in range(attempts):
+        try:
+            with socket.create_connection(("127.0.0.1", port), timeout=1.0):
+                return True
+        except OSError:
+            if attempt < attempts - 1:
+                time.sleep(gap)
+    return False
+
+
+def open_ui(args: argparse.Namespace) -> int:
+    """Open the connector's window.
+
+    A command as well as a Start-menu shortcut, because the first thing support
+    asks a shop owner to do is open it, and "type this one line" is a far
+    shorter phone call than describing where a shortcut went.
+    """
+    settings = load_settings(args.config)
+
+    if not settings.ui_enabled:
+        print("The window is switched off for this connector (ui_enabled=false).")
+        return 1
+
+    window = window_executable()
+    if window is None:
+        print("The window is not installed on this computer. Re-run the installer.")
+        return 1
+
+    # Checked before the window opens, never after. A window that opened and
+    # then said it could not reach anything reads to a shop owner as *TallyFlow*
+    # being down -- rather than as the connector on this machine not running,
+    # which is the actual fact and has a completely different fix.
+    if not _connector_is_up(settings.ui_port):
+        print("The connector does not seem to be running on this computer.")
+        state = autostart.task_status()
+        if state is None:
+            print("It is not registered to start at logon. Re-run the installer.")
+        else:
+            print(f'The startup task is {state}. Start it with: '
+                  f'schtasks /Run /TN "{autostart.TASK_NAME}"')
+        return 1
+
+    # Detached, and never waited on. This command is run by a shortcut and by
+    # the installer's final step, and a shell that stays open for as long as
+    # somebody leaves the window up is a console window a shop owner will
+    # eventually close -- taking the window with it.
+    try:
+        subprocess.Popen(  # noqa: S603 - a fixed path beside our own executable
+            [str(window), f"--port={settings.ui_port}"],
+            cwd=str(window.parent),
+            close_fds=True,
+            creationflags=getattr(subprocess, "DETACHED_PROCESS", 0)
+            | getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+        )
+    except OSError as exc:
+        print(f"The window would not start ({exc}).")
+        return 1
+
+    print("Opening the TallyFlow Connector window.")
     return 0
 
 
@@ -566,6 +680,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
 
     sub.add_parser("status", help="report whether the background connector is running")
+    sub.add_parser("ui", help="open the connector's status and pairing window")
 
     return parser
 
@@ -594,6 +709,8 @@ def run(argv: list[str] | None = None, *, fallback_log_dir: Path | None = None) 
         return uninstall(args)
     if args.command == "status":
         return status(args)
+    if args.command == "ui":
+        return open_ui(args)
 
     settings = load_settings(args.config)
     setup_logging(args.log_level or settings.log_level, settings.log_dir or fallback_log_dir)
@@ -609,8 +726,9 @@ def run(argv: list[str] | None = None, *, fallback_log_dir: Path | None = None) 
             return asyncio.run(alterid_probe(settings, args.company))
         if args.command == "update":
             return asyncio.run(update(settings, apply=args.apply))
-        handler = serve if args.command == "run" else diagnose
-        return asyncio.run(handler(settings))
+        if args.command == "run":
+            return asyncio.run(serve(settings, args.config))
+        return asyncio.run(diagnose(settings))
     except KeyboardInterrupt:
         logger.info("interrupted")
         return 0

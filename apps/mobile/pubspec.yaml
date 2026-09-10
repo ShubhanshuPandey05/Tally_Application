@@ -5,7 +5,7 @@ publish_to: 'none'
 # Must match the APK the site links to and the update manifest names: the
 # updater compares this against the manifest, so a pubspec that disagrees with
 # the shipped artefact makes every client believe it is permanently out of date.
-version: 0.5.0+5
+version: 0.6.0+6
 
 environment:
   sdk: ^3.5.3
@@ -45,10 +45,30 @@ dependencies:
   # date -- is expensive to diagnose.
   package_info_plus: ^8.0.2
 
+  # Pairing a Tally PC by camera. The alternative it replaces is a shop owner
+  # reading a 43-character secret off this screen and typing it into a Windows
+  # keyboard across the room, which is where new customers actually get stuck.
+  #
+  # Wraps the platform's own barcode engines (ML Kit on Android, Vision on iOS)
+  # rather than decoding frames in Dart: a scanner that struggles with a code on
+  # a dusty monitor under shop lighting is a scanner nobody uses twice.
+  mobile_scanner: ^5.2.3
+
   # Hands the APK download to the browser. Installing a package from our own
   # storage would need REQUEST_INSTALL_PACKAGES and a FileProvider; the browser
   # already owns that flow and shows the prompt users recognise.
   url_launcher: ^6.3.0
+
+  # Sharing a voucher or a statement as a document. `pdf` draws it and
+  # `printing` hands it to the platform's own share sheet, which is what a shop
+  # owner already uses to put a bill on WhatsApp.
+  #
+  # Drawn on the phone from data already on screen rather than rendered by the
+  # backend: the document must come out of a pocket while standing in front of
+  # the customer, and a round trip to a server -- then to a sleeping Windows PC
+  # -- is exactly the wait that makes somebody open TallyPrime instead.
+  pdf: ^3.11.3
+  printing: ^5.14.3
 
   cupertino_icons: ^1.0.8
 

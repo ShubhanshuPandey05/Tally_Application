@@ -23,7 +23,23 @@ from PyInstaller.utils.hooks import collect_submodules
 # everything -- a failure that does not reproduce in development.
 hiddenimports = collect_submodules("tally_core.tally.queries")
 
-EXCLUDES = ["tkinter", "matplotlib", "numpy", "pytest"]
+# Named rather than trusted to absence. PyInstaller freezes whatever the import
+# graph can reach in the venv it runs in, including optional imports nothing
+# ever takes -- so a package installed for an unrelated reason silently lands in
+# a customer's download. That happened: `pip install -r tools/brand/requirements`
+# put Pillow and fontTools in the venv to regenerate an icon, and the next build
+# shipped 7 MB of image codecs inside each connector executable, over ADSL, to
+# every shop. The connector draws nothing and shapes no text; segno gives it the
+# QR as a matrix of booleans and the window paints it.
+EXCLUDES = [
+    "tkinter",
+    "matplotlib",
+    "numpy",
+    "pytest",
+    "PIL",
+    "fontTools",
+    "uharfbuzz",
+]
 
 
 def analyse(script):

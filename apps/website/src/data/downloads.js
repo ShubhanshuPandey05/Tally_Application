@@ -15,18 +15,18 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.2.7',
-    file: 'TallyFlowConnector-Setup-0.2.7.exe',
-    url: '/downloads/TallyFlowConnector-Setup-0.2.7.exe',
-    size_bytes: 38143529,
-    sha256: '9df9ef6db690cd9929552fd6d67ba7bb7253e3f46d28be83f2632101448068f8',
+    version: '0.3.0',
+    file: 'TallyFlowConnector-Setup-0.3.0.exe',
+    url: '/downloads/TallyFlowConnector-Setup-0.3.0.exe',
+    size_bytes: 48586744,
+    sha256: '2961f5f7d3f9db8919e832f3ef1e9380aa0790c778afefed2a40dca7cd674949',
   },
   android: {
-    version: '0.5.0',
-    file: 'TallyFlow-0.5.0.apk',
-    url: '/downloads/TallyFlow-0.5.0.apk',
-    size_bytes: 24863012,
-    sha256: 'a9af53e55e168b686587bc6d37335ed48d761574526cb2c23062839a6b501ac4',
+    version: '0.6.0',
+    file: 'TallyFlow-0.6.0.apk',
+    url: '/downloads/TallyFlow-0.6.0.apk',
+    size_bytes: 35804737,
+    sha256: '6e73d16236352156c9d6e609fe4002815fdee0ed25703803e2a95bf07246bce6',
   },
 };
 
@@ -42,12 +42,12 @@ export const SETUP_STEPS = [
     n: '2',
     title: 'Install the connector',
     body:
-      'Run the installer on that same PC and paste the Connector ID and secret the app gives you. No admin rights needed; it starts again at every logon.',
+      'Run the installer on that same PC. It asks for nothing — no admin rights, no keys to type — and starts again at every logon.',
   },
   {
     n: '3',
-    title: 'Open the app',
+    title: 'Scan the code it shows',
     body:
-      'Link the companies you want to see. The first sync pulls history in chunks so your Tally stays usable while it runs.',
+      'The connector opens a window with a code in it. In the app: Tally PCs → Add a PC → point the camera at it. Then link the companies you want to see; the first sync pulls history in chunks so your Tally stays usable while it runs.',
   },
 ];

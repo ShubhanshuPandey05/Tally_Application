@@ -30,13 +30,13 @@
     "reports the wrong figures'."
   ],
   "connector": {
-    "mandatory": true,
+    "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Moves this computer to the new TallyFlow server address. Nothing about how it reads Tally has changed. Marked mandatory because the old address is being retired: a connector that skipped this build would keep dialling a name that stops answering, and could not then be reached to be told anything."
+    "notes": "Setting up a computer no longer means typing a connector id and a 43-character secret: this build shows a code and the app's camera reads it. It also replaces the status page that opened in a browser with a proper TallyFlow Connector window -- whether TallyFlow and TallyPrime are answering, which companies this PC feeds and when each last synced, who in the business can see them, and the pairing code when one is needed. Nothing about how it reads Tally has changed, and a computer already paired stays paired. Not marked mandatory: it changes no wire format and fixes no security problem, so a shop that has asked not to be interrupted keeps that choice."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "A tighter layout throughout -- more rows on screen without scrolling. Fixes a dashboard that came up blank when the period had something to compare against. Points at the new server address."
+    "notes": "Add a Tally PC by scanning the code it shows, instead of typing an id and a secret across the room. Send a ledger statement or a voucher as a PDF from the screen you are looking at."
   }
 }

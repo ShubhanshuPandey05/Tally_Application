@@ -12,6 +12,11 @@ dependencies = [
     "websockets>=12.0",
     "pydantic>=2.7,<3",
     "pydantic-settings>=2.3",
+    # Draws the pairing code on the connector's local page. Pure Python with no
+    # dependencies of its own, which is what makes it acceptable inside a
+    # one-file Windows build -- an imaging library here would add tens of
+    # megabytes to a download that shop PCs pull over ADSL.
+    "segno>=1.6",
 ]
 
 [project.optional-dependencies]

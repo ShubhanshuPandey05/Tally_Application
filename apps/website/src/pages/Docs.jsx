@@ -7,8 +7,8 @@ const TOC = [
   ['before', 'Before you start'],
   ['tally', '1 · Turn on Tally’s gateway'],
   ['account', '2 · Create your account'],
-  ['pc', '3 · Add the PC in the app'],
-  ['connector', '4 · Install the connector'],
+  ['connector', '3 · Install the connector'],
+  ['pc', '4 · Scan the code'],
   ['companies', '5 · Choose your companies'],
   ['verify', 'Checking it works'],
   ['bulk', 'Several shops at once'],
@@ -29,8 +29,16 @@ const TROUBLE = [
     'Your account exists but has not been activated yet. Nothing is wrong with the install. Write to us and we will turn it on.',
   ],
   [
+    'The code on the PC will not scan',
+    'Wipe the screen, turn the monitor brightness up, and hold the phone about a hand’s width away. If the code has been on screen a long time it may have expired — press “Show a new code” on that page.',
+  ],
+  [
+    'The connector page shows no code and says it cannot reach TallyFlow',
+    'That PC has no internet, or is pointed at the wrong server. The page prints the address it is dialling; the connection is the thing to fix, not the pairing.',
+  ],
+  [
     'The pairing screen stays on “Waiting for the PC…”',
-    'The connector has not reached us yet. On the PC, open Start → TallyFlow → Connector Status. It should report that this computer is paired, and running.',
+    'You are on the typed path, and the connector has not reached us yet. On the PC, open Start → TallyFlow → TallyFlow Connector. It says whether this computer is paired and connected.',
   ],
   [
     '“Check Tally Connection” cannot reach Tally',
@@ -58,7 +66,7 @@ const TROUBLE = [
   ],
   [
     'You lost the secret key',
-    'It is shown once and stored encrypted, so it cannot be handed back. Delete that connection in the app and create a new one.',
+    'It is shown once and stored encrypted, so it cannot be handed back — and you no longer need it. In the app, open that PC and choose “Re-pair this computer”: it disconnects immediately, then shows a fresh code to scan. Its companies and everything already synced are kept.',
   ],
 ];
 
@@ -180,37 +188,8 @@ export default function Docs() {
             </div>
           </section>
 
-          <section id="pc">
-            <h2>3 · Add the PC in the app</h2>
-            <p>
-              Once the account is active, go to <b>Account</b> → <b>Tally PCs</b> →{' '}
-              <b>Add a PC</b>.
-            </p>
-            <ol>
-              <li>
-                Give the computer a name you will recognise later — “Shop PC”, “Back
-                office”, “Warehouse”. This is the name the app uses when it tells you
-                which branch has gone offline.
-              </li>
-              <li>
-                Tap <b>Create connection</b>. The app shows a <b>Connector ID</b>, a{' '}
-                <b>Pairing code</b> and a <b>Secret key</b>.
-              </li>
-              <li>
-                Leave that screen open — you are about to type two of those into the
-                installer.
-              </li>
-            </ol>
-            <div className="docs-callout">
-              <b>The secret key is shown once.</b>
-              It is stored encrypted, so nobody — us included — can read it back to
-              you. If it is lost, delete that connection in the app and create a new
-              one. Copying it across now is easier than doing this twice.
-            </div>
-          </section>
-
           <section id="connector">
-            <h2>4 · Install the connector</h2>
+            <h2>3 · Install the connector</h2>
             <p>
               On the Tally PC, download{' '}
               <a className="link num" href={connector.url} download>
@@ -219,42 +198,52 @@ export default function Docs() {
               and run it. Windows will warn that the publisher is unknown, because the
               file is not code-signed yet: choose <b>More info</b> → <b>Run anyway</b>.
             </p>
-            <p>The wizard asks for three things on one page:</p>
-            <div className="docs-scroll">
-              <table className="docs-table">
-                <thead>
-                  <tr>
-                    <th>Field</th>
-                    <th>What to enter</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  <tr>
-                    <td>Connector ID</td>
-                    <td>Copy it from the app screen in step 3</td>
-                  </tr>
-                  <tr>
-                    <td>Connector secret</td>
-                    <td>The secret key from that same screen</td>
-                  </tr>
-                  <tr>
-                    <td>Server address</td>
-                    <td>
-                      Already filled in — leave it as it is unless we told you otherwise
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
-            </div>
             <p>
-              Setup copies the program in, saves the pairing, registers it to start at
-              every logon, and starts it straight away. On the last page you can tick{' '}
-              <b>Check the connection to TallyPrime now</b> to confirm it can reach
-              Tally.
+              The wizard asks for nothing. Setup copies the program in, registers it to
+              start at every logon, starts it straight away, and then opens the
+              connector’s own page — the one showing a square code. Leave that on
+              screen.
             </p>
             <p>
-              Back on your phone, the pairing screen changes from “Waiting for the PC…”
-              to <b>Choose companies</b> within a few seconds.
+              You can reopen it at any time from <b>Start</b> → <b>TallyFlow</b> →{' '}
+              <b>TallyFlow Connector</b>. It is the page that answers most questions
+              about this computer: whether it is talking to us, whether TallyPrime is
+              answering, which companies it feeds and who can see them.
+            </p>
+          </section>
+
+          <section id="pc">
+            <h2>4 · Scan the code</h2>
+            <p>
+              Once the account is active, on your phone go to <b>Account</b> →{' '}
+              <b>Tally PCs</b> → <b>Add a PC</b>.
+            </p>
+            <ol>
+              <li>
+                Give the computer a name you will recognise later — “Shop PC”, “Back
+                office”, “Warehouse”. This is the name the app uses when it tells you
+                which branch has gone offline.
+              </li>
+              <li>
+                Tap <b>Scan the code on that PC</b> and point the camera at the square
+                code on the screen in front of you.
+              </li>
+              <li>
+                Check the computer name the app shows you, and confirm. It goes
+                straight to <b>Choose companies</b>.
+              </li>
+            </ol>
+            <div className="docs-callout">
+              <b>Nothing is typed, and no key is shown to anybody.</b>
+              The code on the PC only identifies that machine; the credentials travel
+              from our server to it directly, encrypted. Photographing the screen does
+              not give anyone your connection.
+            </div>
+            <p>
+              If the camera is unavailable, <b>Type the details instead</b> on the same
+              screen gives you an ID and a secret key to enter on the PC by hand. That
+              key is shown once and stored encrypted, so nobody — us included — can
+              read it back to you.
             </p>
           </section>
 
@@ -314,9 +303,14 @@ export default function Docs() {
               <code>{`${connector.file} /VERYSILENT /ID=<id> /SECRET=<secret>`}</code>
             </pre>
             <p>
-              Add <code>/SERVER=wss://…</code> to point at a different backend. When
-              both <code>/ID</code> and <code>/SECRET</code> are supplied the pairing
-              page is skipped entirely.
+              Add <code>/SERVER=wss://…</code> to point at a different backend.
+              Supplying <code>/ID</code> and <code>/SECRET</code> is the only thing
+              that brings the credentials page back — an ordinary install never sees
+              it, because scanning is the path.
+            </p>
+            <p>
+              You can also leave both out. Each machine then comes up unpaired,
+              showing its own code, and gets scanned whenever somebody reaches it.
             </p>
             <p>
               <b>Each machine still needs its own pairing</b> — create a separate

@@ -13,15 +13,15 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
-from tally_core.domain.masters import VoucherTypeKind
-from tally_core.domain.transactions import OutstandingKind
+from tally_core.domain.masters import Ledger, StockItem, VoucherTypeKind
+from tally_core.domain.transactions import OutstandingKind, Voucher
 
 from ...core.errors import AppError, NotFound
 from ...db.models import Company
 from ...services import analytics as an
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
-from ...services.reads import DataResult, FetchMode
+from ...services.reads import DataResult, FetchMode, ReadService
 from ...services.sync import SyncCoordinator
 from ..deps import (
     CompanyDep,
@@ -551,9 +551,59 @@ async def voucher_detail(
     inventory_kept = on >= date.today() - timedelta(days=settings.sync_inventory_days)
 
     return DataEnvelope(
-        data=an.voucher_detail(found, inventory_kept=inventory_kept),
+        data=an.voucher_detail(
+            found,
+            inventory_kept=inventory_kept,
+            party=await _party_master(reads, company, found.party_name),
+            items=await _item_masters(reads, company, found),
+        ),
         meta=result.meta(),
     )
+
+
+# The two lookups below exist for one reason: a voucher a customer shares has to
+# carry an address, a GSTIN and an HSN code, and none of those are on a voucher
+# export -- Tally keeps them on the masters. Both read snapshots the backend
+# already refreshes, so a shared invoice costs the shop's Tally nothing.
+#
+# Both swallow their errors. The voucher is the answer to the request; a missing
+# master read must cost the document a line of its header, not the whole screen.
+
+
+async def _party_master(
+    reads: ReadService, company: Company, name: str | None
+) -> Ledger | None:
+    if not name:
+        return None
+    try:
+        result = await reads.fetch(company, dataset="ledgers.list", mode=FetchMode.CACHED)
+    except AppError:
+        return None
+    wanted = name.strip().lower()
+    return next(
+        (led for led in an.parse_ledgers(result.payload) if led.name.strip().lower() == wanted),
+        None,
+    )
+
+
+async def _item_masters(
+    reads: ReadService, company: Company, voucher: Voucher
+) -> dict[str, StockItem]:
+    """The stock masters this voucher's lines name, keyed by folded name."""
+    wanted = {e.item_name.strip().lower() for e in voucher.inventory_entries if e.item_name}
+    if not wanted:
+        return {}
+    try:
+        result = await reads.fetch(
+            company, dataset="stock_items.list", mode=FetchMode.CACHED, heavy=True
+        )
+    except AppError:
+        return {}
+    return {
+        item.name.strip().lower(): item
+        for item in an.parse_stock(result.payload)
+        if item.name.strip().lower() in wanted
+    }
 
 
 @router.get("/reports/ledger-statement", response_model=DataEnvelope)

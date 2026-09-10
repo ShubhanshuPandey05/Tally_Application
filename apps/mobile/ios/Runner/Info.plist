@@ -24,6 +24,13 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<!-- Shown in the system prompt the first time the scanner opens. iOS
+	     terminates an app that reaches for the camera without this string, so
+	     its absence is a crash on the pairing screen rather than a missing
+	     sentence. Says what it is for and, just as importantly, what it is
+	     not: this app never writes to anybody's books. -->
+	<key>NSCameraUsageDescription</key>
+	<string>TallyFlow uses the camera only to scan the pairing code shown on your Tally PC.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

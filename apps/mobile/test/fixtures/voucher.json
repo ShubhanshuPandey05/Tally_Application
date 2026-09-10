@@ -58,6 +58,14 @@
     ],
     "narration": null,
     "party": "SARA DISITIBUTOR",
+    "party_details": {
+      "address": [],
+      "email": null,
+      "gstin": null,
+      "name": "SARA DISITIBUTOR",
+      "phone": null,
+      "state": null
+    },
     "reference": null,
     "voucher_number": "3",
     "voucher_type": "Purchase"

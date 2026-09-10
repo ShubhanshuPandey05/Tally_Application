@@ -21,12 +21,24 @@ only, and a test asserts that.
 
 ## Install
 
-Run `TallyFlowConnector-Setup-<version>.exe` on the shop PC and enter the
-Connector ID and Secret from the app (**Settings → Tally PCs → Add this
-computer**).
+Run `TallyFlowConnector-Setup-<version>.exe` on the shop PC. It installs
+per-user, so there is no UAC prompt, and registers a Scheduled Task that starts
+the connector at logon.
 
-It installs per-user, so there is no UAC prompt, and registers a Scheduled Task
-that starts the connector at logon.
+Then pair it, which takes no typing:
+
+1. On the PC, open **TallyFlow Connector** (or run `tally-connector ui`). It
+   shows a QR code.
+2. In the app: **Tally PCs → Add a PC → Scan the code on that PC**.
+
+The credentials go from the server straight to that machine over TLS. Nobody
+sees a secret, and nothing is typed — which matters because the alternative was
+reading a 43-character key off a phone and typing it into a Windows keyboard
+across the room, and that is where new customers used to get stuck.
+
+The typed flow still exists for a PC with no camera on hand, no working local
+page, or an owner who prefers it: **Add a PC → Type the details instead** gives
+an ID and a secret for `tally-connector pair`.
 
 For an unattended rollout across many machines:
 
@@ -54,9 +66,44 @@ the app say *which* shop went offline.
 | `install` | Pair and register the logon task (what the installer runs) |
 | `uninstall [--purge]` | Remove from startup; `--purge` also unpairs |
 | `capabilities` | Print the queries this build supports |
+| `ui` | Open the connector's own status and pairing window |
 
-`status` and `diagnose` are the two worth knowing — they answer most support
-calls without anyone reading a log.
+`status`, `diagnose` and `ui` are the three worth knowing — they answer most
+support calls without anyone reading a log.
+
+---
+
+## The window
+
+`tally-connector ui`, and the Start-menu entry, open the connector's own window
+— `tally-connector-window.exe`, installed beside the two executables above. It
+is what somebody standing at the shop's PC can look at. It shows:
+
+* whether the connector is talking to TallyFlow, and whether TallyPrime is
+  answering — two different problems with two different fixes;
+* which companies this PC feeds, when each last synced, and who in the business
+  can see them;
+* the Tally port, the server address and the log folder;
+* **Reconnect**, **Refresh**, **Change** the port, and the pairing code with
+  **Show a new code** when one is needed.
+
+**It is a client of the connector, never its host.** Closing it, killing it or
+never opening it changes nothing: the connector runs from a logon task and keeps
+serving Tally either way. It reads over `127.0.0.1:9787` and **that is bound to
+loopback and nothing else**, not configurable — the product opens no inbound
+port on a customer's machine. The phone never talks to this window; it talks to
+the backend.
+
+**It cannot disconnect this computer.** No unlink, no remove, no unpair. Those
+decisions belong to whoever holds the account on their phone, not to whoever is
+standing at the till. Pressing **Re-pair this computer** in the app cuts this
+machine off immediately, and the window then shows a fresh code to scan.
+
+Turn it off with `ui_enabled: false` in `connector.json` on a machine where the
+extra socket is not wanted; every button it has is also a command above.
+
+Design record, including why it is a Flutter build inside the phone app's
+package: [`NATIVE-UI.md`](NATIVE-UI.md).
 
 ---
 
@@ -76,8 +123,11 @@ task is running it is restarted automatically, because a running connector holds
 the old settings in memory.
 
 **Lost the secret?** Do *not* add a second Tally PC. In the app, open the PC and
-choose **Re-pair this computer** — it issues a fresh secret for the same
-connector, keeping its companies and their synced history. Then:
+choose **Re-pair this computer**. That disconnects the machine immediately and
+keeps the same connector row, its companies and their synced history.
+
+The connector then shows a fresh code on its own page — scan it and the PC is
+back. If that page is unavailable, take **Type a key** in the same dialog and:
 
 ```powershell
 tally-connector configure --secret <new secret>

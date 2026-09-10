@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 /// The lifecycle of a paired PC, as the backend records it.
 enum ConnectorStatus {
   pending,
@@ -96,6 +98,65 @@ enum ConnectorHealth {
         ConnectorHealth.revoked =>
           'This connector was removed. Pair the PC again to restore access.',
       };
+}
+
+/// A pairing code read off a Tally PC's own screen.
+///
+/// The connector draws this as a QR; the camera hands back the string inside
+/// it. Parsing is deliberately strict and deliberately quiet: a phone camera
+/// sees every barcode put in front of it, including the ones on the packets
+/// behind the monitor, so anything that is not one of ours has to be *ignored*
+/// rather than reported as an error the user has to dismiss.
+class PairingCode {
+  const PairingCode({required this.code, required this.host});
+
+  /// Identifies the claim. Not a credential on its own -- the connector keeps a
+  /// second string, never shown, that is what actually collects the secret.
+  final String code;
+
+  /// The TallyFlow server that PC is pointed at. Carried so the app can say
+  /// "that computer is set up against a different server" instead of failing
+  /// with a code that looks perfectly valid.
+  final String host;
+
+  /// The one payload shape this app understands, or null for anything else.
+  static PairingCode? tryParse(String raw) {
+    final Object? decoded;
+    try {
+      decoded = jsonDecode(raw);
+    } on FormatException {
+      return null;
+    }
+    if (decoded is! Map<String, Object?>) return null;
+    // Version-checked rather than duck-typed. A future connector may show a
+    // code this build cannot complete, and saying so beats sending a payload
+    // the server will reject for reasons nobody at the shop can act on.
+    if (decoded['v'] != 1) return null;
+    final Object? code = decoded['c'];
+    if (code is! String || code.isEmpty) return null;
+    return PairingCode(code: code, host: decoded['h'] as String? ?? '');
+  }
+}
+
+/// The machine behind a scanned code, shown before anyone adopts it.
+class ClaimPreview {
+  const ClaimPreview({
+    required this.hostname,
+    required this.os,
+    required this.connectorVersion,
+  });
+
+  final String hostname;
+  final String os;
+  final String connectorVersion;
+
+  String get label => hostname.isEmpty ? 'That computer' : hostname;
+
+  factory ClaimPreview.fromJson(Map<String, Object?> json) => ClaimPreview(
+        hostname: json['hostname'] as String? ?? '',
+        os: json['os'] as String? ?? '',
+        connectorVersion: json['connector_version'] as String? ?? '',
+      );
 }
 
 /// Returned exactly once, when a connector is created.

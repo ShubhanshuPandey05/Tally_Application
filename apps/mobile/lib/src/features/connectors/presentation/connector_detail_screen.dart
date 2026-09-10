@@ -15,6 +15,11 @@ import '../application/connector_providers.dart';
 import '../domain/connector.dart';
 import 'connectors_screen.dart';
 import 'pair_connector_screen.dart';
+import 'scan_connector_screen.dart';
+
+/// How the owner wants to finish re-pairing. Both disconnect the PC now; they
+/// differ only in whether a human ever sees the new key.
+enum _RepairChoice { scan, typeAKey }
 
 class ConnectorDetailScreen extends ConsumerWidget {
   const ConnectorDetailScreen({super.key, required this.connectorId});
@@ -161,7 +166,7 @@ class _Body extends ConsumerWidget {
           const SizedBox(height: 12),
           TextButton.icon(
             onPressed: () => _rePair(context, ref, connector),
-            icon: const Icon(Icons.key_outlined),
+            icon: const Icon(Icons.qr_code_scanner),
             label: const Text('Re-pair this computer'),
           ),
         ],
@@ -196,46 +201,74 @@ class _Body extends ConsumerWidget {
     );
   }
 
-  /// Issue a fresh secret for this same PC.
+  /// Cut this PC off, and give it a way back.
   ///
   /// The alternative a shop reaches for -- adding a second Tally PC -- links
   /// the same books twice, because a company belongs to one connector. They
   /// then see the company duplicated, each copy with half a history.
+  ///
+  /// Whichever way they finish, the existing credential dies the moment they
+  /// confirm rather than when they get to the machine. That ordering is the
+  /// point of the button: somebody who has decided a PC should no longer read
+  /// their books has decided it now.
   Future<void> _rePair(
     BuildContext context,
     WidgetRef ref,
     Connector connector,
   ) async {
-    final bool? confirmed = await showDialog<bool>(
+    final _RepairChoice? choice = await showDialog<_RepairChoice>(
       context: context,
       builder: (BuildContext context) => AlertDialog(
         title: const Text('Re-pair this computer?'),
         content: const Text(
-          'A new secret key will be issued for this same PC. Its companies and '
-          'their synced history are kept.\n\n'
-          'The current key stops working immediately, so this PC will go '
-          'offline until you enter the new one on it.',
+          'This PC is disconnected straight away and stops sending data. Its '
+          'companies and everything already synced are kept.\n\n'
+          'The connector on that computer will then show a code for you to '
+          'scan, and it starts working again as soon as you do.',
         ),
         actions: <Widget>[
           TextButton(
-            onPressed: () => Navigator.of(context).pop(false),
+            onPressed: () => Navigator.of(context).pop(),
             child: const Text('Cancel'),
           ),
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(_RepairChoice.typeAKey),
+            child: const Text('Type a key'),
+          ),
           FilledButton(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: const Text('Issue new key'),
+            onPressed: () => Navigator.of(context).pop(_RepairChoice.scan),
+            child: const Text('Disconnect and scan'),
           ),
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (choice == null) return;
 
     try {
-      final ConnectorPairing pairing =
-          await ref.read(connectorRepositoryProvider).rePair(connector.id);
+      if (choice == _RepairChoice.typeAKey) {
+        // The old path, kept for a machine whose local page is switched off or
+        // that cannot reach us to open a claim. It revokes and rotates in one
+        // call, so this branch is no gentler than the other.
+        final ConnectorPairing pairing =
+            await ref.read(connectorRepositoryProvider).rePair(connector.id);
+        ref.invalidate(connectorsProvider);
+        ref.invalidate(connectorStatusProvider(connector.id));
+        if (context.mounted) await _showNewKey(context, pairing);
+        return;
+      }
+
+      await ref.read(connectorRepositoryProvider).repair(connector.id);
       ref.invalidate(connectorsProvider);
       ref.invalidate(connectorStatusProvider(connector.id));
-      if (context.mounted) await _showNewKey(context, pairing);
+      if (!context.mounted) return;
+
+      await Navigator.of(context).push<Connector>(
+        MaterialPageRoute<Connector>(
+          builder: (BuildContext context) =>
+              ScanConnectorScreen(connectorId: connector.id),
+        ),
+      );
+      ref.invalidate(connectorStatusProvider(connector.id));
     } on ApiException catch (error) {
       if (context.mounted) {
         ScaffoldMessenger.of(context)

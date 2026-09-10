@@ -9,14 +9,26 @@ import '../../../core/network/api_exception.dart';
 import '../../companies/application/company_providers.dart';
 import '../application/connector_providers.dart';
 import '../domain/connector.dart';
+import 'scan_connector_screen.dart';
 
 /// The pairing wizard.
 ///
-/// Three steps, in this order for a reason: the credentials are issued first
-/// and shown exactly once, then the user walks to their PC, then the app waits
-/// for that PC to call in. The wait is real -- someone is physically installing
-/// software -- so the screen has to keep saying something useful throughout
-/// rather than sitting on a spinner.
+/// Two ways through, and the order they are offered in is the whole point.
+///
+/// **Scanning** is the way. The PC shows a code, the phone reads it, and the
+/// credential goes from the server to that machine over TLS without ever being
+/// displayed to anybody. Nothing is typed.
+///
+/// **Typing** is kept because scanning needs a working camera and a machine
+/// that has already reached the internet, and neither is guaranteed in a shop.
+/// It is the older flow unchanged: credentials issued first and shown exactly
+/// once, then the user walks to their PC, then the app waits for that PC to
+/// call in. That wait is real -- somebody is physically installing software --
+/// so the screen keeps saying something useful throughout rather than sitting
+/// on a spinner.
+///
+/// The typing path is also the one that shows a secret to a human, which is
+/// the reason it is second rather than the reason it is gone.
 class PairConnectorScreen extends ConsumerStatefulWidget {
   const PairConnectorScreen({super.key});
 
@@ -122,15 +134,49 @@ class _PairConnectorScreenState extends ConsumerState<PairConnectorScreen> {
           Text(_error!, style: TextStyle(color: context.negativeColor)),
         ],
         const SizedBox(height: 24),
-        FilledButton(
+        FilledButton.icon(
+          onPressed: _busy ? null : _scan,
+          icon: const Icon(Icons.qr_code_scanner),
+          label: const Text('Scan the code on that PC'),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          'Open TallyFlow Connector on the computer running TallyPrime. It '
+          'shows a code for you to scan.',
+          style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+          textAlign: TextAlign.center,
+        ),
+        const SizedBox(height: 18),
+        TextButton(
           onPressed: _busy ? null : _create,
           child: _busy
               ? const SizedBox(
                   width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2.2))
-              : const Text('Create connection'),
+              : const Text('Type the details instead'),
         ),
       ],
     );
+  }
+
+  /// Hand off to the camera, and go straight to choosing companies on success.
+  ///
+  /// The connector row already exists by the time this returns -- the scan
+  /// created it -- so there is no waiting step to show. That is the difference
+  /// worth noticing between the two paths: typing ends in a wait for the PC to
+  /// call in, and scanning does not, because the PC was already talking to us.
+  Future<void> _scan() async {
+    final Connector? connector = await Navigator.of(context).push<Connector>(
+      MaterialPageRoute<Connector>(
+        builder: (BuildContext context) => ScanConnectorScreen(
+          suggestedName: _name.text.trim().isEmpty ? 'Tally PC' : _name.text.trim(),
+        ),
+      ),
+    );
+    if (connector == null || !mounted) return;
+
+    ref.invalidate(connectorsProvider);
+    ref.invalidate(companiesProvider);
+    context.pushReplacement('${Routes.connectors}/${connector.id}/link');
   }
 }
 
@@ -160,7 +206,19 @@ class _WaitingStep extends ConsumerWidget {
           style: theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
         ),
         const SizedBox(height: 20),
-        Text('2. Enter these details', style: theme.textTheme.titleSmall),
+        Text('2. Enter these on that PC', style: theme.textTheme.titleSmall),
+        const SizedBox(height: 6),
+        Text(
+          // The installer no longer asks for these -- pairing by camera is the
+          // path it takes -- so the honest instruction is the command, not a
+          // wizard page that is skipped.
+          'Open a Command Prompt in the connector\'s folder and run:\n'
+          'tally-connector pair --id <ID> --secret <SECRET>',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: context.mutedColor,
+            fontFamily: 'monospace',
+          ),
+        ),
         const SizedBox(height: 10),
         CopyField(label: 'Connector ID', value: pairing.connectorId),
         const SizedBox(height: 10),

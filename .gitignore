@@ -67,3 +67,4 @@ deploy/prod/prod.env
 # Headless Chrome profile, created by tools/brand/raster.py when it renders the
 # icon. Regenerated on demand and full of browser state; nothing to keep.
 tools/brand/.chrome-profile/
+tmp

@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/documents/share_document.dart';
+import '../../../core/documents/statement_document.dart';
 import '../../../core/model/date_range.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
@@ -16,6 +18,7 @@ import '../../../core/widgets/charts.dart';
 import '../../../core/widgets/period_picker.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
+import '../../companies/domain/company.dart';
 import '../application/report_providers.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
@@ -51,6 +54,15 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
       ? PeriodSelection(year.confine(DateRange.lastDays(90)), 'Last 90 days')
       : PeriodSelection(year.toDate, year.label);
 
+  StatementDocument _document(LedgerStatement statement, Company company) =>
+      StatementDocument(
+        statement: statement,
+        companyName: company.name,
+        periodLabel: periodLabel,
+        from: range.from,
+        to: range.to,
+      );
+
   @override
   Widget build(BuildContext context) {
     watchFinancialYear();
@@ -69,11 +81,31 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
         (companyId: companyId, ledger: widget.ledger, range: range);
     final AsyncValue<Fresh<LedgerStatement>> state =
         ref.watch(ledgerStatementProvider(args));
+    final Company? company = ref.watch(activeCompanyProvider).valueOrNull;
 
     return ReportScaffold<LedgerStatement>(
       title: widget.ledger,
       subtitle: periodLabel,
       state: state,
+      actions: <Widget>[
+        // A statement of nothing is not worth sending, and neither is one
+        // built over a skeleton, so the button waits for rows.
+        if ((state.valueOrNull?.data.entries.isNotEmpty ?? false) && company != null)
+          IconButton(
+            icon: const Icon(Icons.ios_share),
+            tooltip: 'Share as PDF',
+            onPressed: () {
+              final StatementDocument document =
+                  _document(state.valueOrNull!.data, company);
+              ShareDocument.share(
+                context,
+                fileName: document.fileName,
+                subject: '${widget.ledger} statement from ${company.name}',
+                build: document.build,
+              );
+            },
+          ),
+      ],
       // No live read: this screen is reached by tapping, and a customer walking
       // through five ledgers must not queue five exports against the PC running
       // their till. Re-reading the provider is the honest refresh here.

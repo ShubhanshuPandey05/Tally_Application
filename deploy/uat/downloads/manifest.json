@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-06T19:14:16+00:00",
+  "generated_at": "2026-09-10T18:28:18+00:00",
   "connector": {
-    "version": "0.2.7",
-    "file": "TallyFlowConnector-Setup-0.2.7.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.2.7.exe",
-    "sha256": "9df9ef6db690cd9929552fd6d67ba7bb7253e3f46d28be83f2632101448068f8",
-    "size_bytes": 38143529,
-    "mandatory": true,
-    "min_supported_version": "0.1.0",
-    "notes": "Moves this computer to the new TallyFlow server address. Nothing about how it reads Tally has changed. Marked mandatory because the old address is being retired: a connector that skipped this build would keep dialling a name that stops answering, and could not then be reached to be told anything."
-  },
-  "android": {
-    "version": "0.5.0",
-    "file": "TallyFlow-0.5.0.apk",
-    "url": "/downloads/TallyFlow-0.5.0.apk",
-    "sha256": "a9af53e55e168b686587bc6d37335ed48d761574526cb2c23062839a6b501ac4",
-    "size_bytes": 24863012,
+    "version": "0.3.0",
+    "file": "TallyFlowConnector-Setup-0.3.0.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.3.0.exe",
+    "sha256": "2961f5f7d3f9db8919e832f3ef1e9380aa0790c778afefed2a40dca7cd674949",
+    "size_bytes": 48586744,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "A tighter layout throughout -- more rows on screen without scrolling. Fixes a dashboard that came up blank when the period had something to compare against. Points at the new server address.",
-    "build_number": 5
+    "notes": "Setting up a computer no longer means typing a connector id and a 43-character secret: this build shows a code and the app's camera reads it. It also replaces the status page that opened in a browser with a proper TallyFlow Connector window -- whether TallyFlow and TallyPrime are answering, which companies this PC feeds and when each last synced, who in the business can see them, and the pairing code when one is needed. Nothing about how it reads Tally has changed, and a computer already paired stays paired. Not marked mandatory: it changes no wire format and fixes no security problem, so a shop that has asked not to be interrupted keeps that choice."
+  },
+  "android": {
+    "version": "0.6.0",
+    "file": "TallyFlow-0.6.0.apk",
+    "url": "/downloads/TallyFlow-0.6.0.apk",
+    "sha256": "6e73d16236352156c9d6e609fe4002815fdee0ed25703803e2a95bf07246bce6",
+    "size_bytes": 35804737,
+    "mandatory": false,
+    "min_supported_version": "0.1.0",
+    "notes": "Add a Tally PC by scanning the code it shows, instead of typing an id and a secret across the room. Send a ledger statement or a voucher as a PDF from the screen you are looking at.",
+    "build_number": 6
   }
 }

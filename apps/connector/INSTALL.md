@@ -14,12 +14,18 @@ never exposed to the internet.
 python run.py connector
 ```
 
-That does two things:
+That does three things:
 
 1. PyInstaller freezes both executables into `apps\connector\dist\`
    - `tally-connector.exe` — the console CLI a person runs
    - `tally-connector-service.exe` — windowless, what the startup task runs
-2. Inno Setup compiles them into:
+2. Flutter builds the window into
+   `apps\mobile\build\windows\x64\runner\Release\`
+   - `tally-connector-window.exe` — what a person at the shop's PC looks at.
+     It needs a Visual Studio install with the C++ tools **and ATL**; the build
+     finds one with `vswhere` and says so if there is none. See
+     [`NATIVE-UI.md`](NATIVE-UI.md).
+3. Inno Setup compiles all of it into:
 
 ```
 apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
@@ -54,40 +60,40 @@ Double-click `TallyFlowConnector-Setup-0.1.0.exe`.
 (`PrivilegesRequired=lowest`), so there is no UAC prompt and the shop owner can
 run it themselves.
 
-The wizard asks for three things on one page:
+**The wizard asks for nothing.** Pairing happens afterwards, from the app's
+camera — the connector shows a QR code and the phone reads it. The step that
+used to live there, typing a connector id and a 43-character secret, is the step
+this replaced.
 
-| Field | Where it comes from |
-|---|---|
-| Connector ID | TallyFlow app → **Settings → Connectors → Add this computer** |
-| Connector secret | Same screen, the long line below the ID |
-| Server address | Pre-filled `wss://api.tallyflow.app/v1/connector` |
+Setup:
 
-The secret is shown **only once** — keep the app open until setup finishes.
-The server address must start with `wss://` (or `ws://` for a local test
-server); a typo is caught on that page rather than becoming a connector that
-installs cleanly and never comes online.
-
-Setup then:
-
-1. Copies both executables to `%LOCALAPPDATA%\Programs\TallyFlow Connector`
-2. Writes the pairing details to a temp file (never onto a command line — any
+1. Copies both executables to `%LOCALAPPDATA%\Programs\TallyFlow Connector`,
+   and the window into a `window\` folder beside them
+2. Writes the server address to a temp file (never onto a command line — any
    process on the machine can read another process's arguments)
 3. Runs `tally-connector.exe install --from-file …`, which writes
    `connector.json` and registers the **"TallyFlow Connector"** scheduled task
 4. Starts the connector immediately, and at every logon thereafter
+5. Offers to open the connector's own window, which is where the code is
 
-Optionally tick *"Check the connection to TallyPrime now"* on the final page.
+Then, on the phone: **Tally PCs → Add a PC → Scan the code on that PC**. The
+credentials go from the server to that machine over TLS; nobody sees a secret.
 
 ### Silent / bulk install
 
-For a business rolling this out to twenty shop PCs:
+For a business rolling this out to twenty shop PCs, where nobody is going to
+walk between them with a phone:
 
 ```powershell
 TallyFlowConnector-Setup-0.1.0.exe /VERYSILENT /ID=<id> /SECRET=<secret>
 ```
 
-Add `/SERVER=wss://…` to override the backend. When both `/ID` and `/SECRET`
-are supplied the pairing page is skipped entirely.
+Add `/SERVER=wss://…` to override the backend. Supplying `/ID` or `/SECRET` is
+the only thing that brings the credentials page back — an interactive install
+never sees it, because scanning is the path.
+
+Without them the install is still valid: the machine comes up unpaired, shows a
+code in its own window, and is paired whenever somebody gets to it.
 
 **Each machine still needs its own pairing.** One connector row per PC is what
 lets the app say *which* shop went offline.

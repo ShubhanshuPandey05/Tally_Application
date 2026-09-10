@@ -6,6 +6,18 @@
          connection" while the browser on the same device reaches the API. -->
     <uses-permission android:name="android.permission.INTERNET"/>
 
+    <!-- Pairing a Tally PC by scanning the code it shows. Asked for at the
+         moment the scanner opens, never at launch: a read-only accounting app
+         that wants the camera on first run looks like one that is doing
+         something else with it. -->
+    <uses-permission android:name="android.permission.CAMERA"/>
+    <!-- The camera is optional hardware, deliberately. Declaring it required
+         would hide this app in the Play Store from every device without one,
+         and the rest of the product works perfectly on such a device, since
+         pairing can still be finished by typing the credentials. -->
+    <uses-feature android:name="android.hardware.camera" android:required="false"/>
+    <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
+
     <application
         android:label="TallyFlow"
         android:name="${applicationName}"

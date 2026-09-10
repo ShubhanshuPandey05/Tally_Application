@@ -4,6 +4,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../../core/documents/share_document.dart';
+import '../../../core/documents/voucher_document.dart';
 import '../../../core/layout/adaptive.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
@@ -15,6 +17,7 @@ import '../../../core/widgets/freshness_banner.dart';
 import '../../../core/widgets/primitives.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
+import '../../companies/domain/company.dart';
 import '../application/report_providers.dart';
 import '../domain/drilldown.dart';
 
@@ -52,8 +55,30 @@ class VoucherScreen extends ConsumerWidget {
     final VoucherArgs args = (companyId: companyId, key: voucherKey, on: on);
     final AsyncValue<Fresh<VoucherDetail>> state = ref.watch(voucherProvider(args));
 
+    // The company is the seller side of anything shared from here. A voucher
+    // names the party it was with and never its own books, so without this the
+    // document would go out with no idea who issued it.
+    final Company? company = ref.watch(activeCompanyProvider).valueOrNull;
+
     return Scaffold(
-      appBar: AppBar(title: const Text('Voucher')),
+      appBar: AppBar(
+        title: const Text('Voucher'),
+        actions: <Widget>[
+          // Only once the voucher is actually loaded. A share button over a
+          // skeleton is a button that produces an empty bill.
+          if (state.valueOrNull != null && company != null)
+            IconButton(
+              icon: const Icon(Icons.ios_share),
+              tooltip: 'Share as PDF',
+              onPressed: () => ShareDocument.share(
+                context,
+                fileName: _document(state.valueOrNull!.data, company).fileName,
+                subject: _subject(state.valueOrNull!.data, company),
+                build: () => _document(state.valueOrNull!.data, company).build(),
+              ),
+            ),
+        ],
+      ),
       body: ContentPane(
         child: state.when(
           loading: () => const _VoucherSkeleton(),
@@ -67,6 +92,16 @@ class VoucherScreen extends ConsumerWidget {
       ),
     );
   }
+
+  static VoucherDocument _document(VoucherDetail detail, Company company) =>
+      VoucherDocument(detail: detail, companyName: company.name);
+
+  /// What lands in the subject line of a mail or the caption of a chat share.
+  static String _subject(VoucherDetail detail, Company company) => <String?>[
+        detail.voucherType,
+        detail.voucherNumber == null ? null : '#${detail.voucherNumber}',
+        'from ${company.name}',
+      ].whereType<String>().join(' ');
 }
 
 class _VoucherBody extends StatelessWidget {

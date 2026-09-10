@@ -76,6 +76,12 @@ StatusCallback = Callable[["ConnectorLink"], Awaitable[None]]
 #: between two frames on the connection a customer's reports come back on.
 LogCallback = Callable[["ConnectorLink", LogBatch], None]
 
+#: ``(link) -> None``. Called when a connector asks for a fresh roster, which is
+#: somebody pressing Refresh on the local page of a shop PC. Awaitable, unlike
+#: :data:`LogCallback`: this one has to read the database, and it is a rare
+#: human-driven request rather than a frame that arrives on a timer.
+RosterCallback = Callable[["ConnectorLink"], Awaitable[None]]
+
 
 class LinkClosed(Exception):
     """The connector went away before its job could be answered."""
@@ -95,6 +101,7 @@ class ConnectorLink:
         heartbeat_grace_seconds: float = 90.0,
         on_status_change: StatusCallback | None = None,
         on_logs: LogCallback | None = None,
+        on_roster_request: RosterCallback | None = None,
         releases: ReleaseView | None = None,
         push_updates: bool = True,
     ) -> None:
@@ -108,6 +115,7 @@ class ConnectorLink:
         self._heartbeat_grace = heartbeat_grace_seconds
         self._on_status_change = on_status_change
         self._on_logs = on_logs
+        self._on_roster_request = on_roster_request
         self._releases = releases
         self._push_updates = push_updates
 
@@ -305,6 +313,8 @@ class ConnectorLink:
             await self._handle_status(message)
         elif kind == "log_batch":
             self._handle_logs(message)
+        elif kind == "roster_request":
+            await self._handle_roster_request()
         else:
             # Forward compatibility: a newer connector may send frames this
             # backend predates. Ignoring beats dropping a working session.
@@ -416,6 +426,23 @@ class ConnectorLink:
             self._on_logs(self, batch)
         except Exception:  # noqa: BLE001
             logger.warning("could not accept logs from %s", self.connector_id, exc_info=True)
+
+    async def _handle_roster_request(self) -> None:
+        """Rebuild and push this connector's roster.
+
+        Every failure is swallowed for the same reason as the log path: this
+        serves a page on a shop PC, and a database hiccup while somebody looks
+        at it must not drop the socket their reports come back on. The page
+        keeps showing what it last had and says when that was.
+        """
+        if self._on_roster_request is None:
+            return
+        try:
+            await self._on_roster_request(self)
+        except Exception:  # noqa: BLE001 - a roster is never worth the session
+            logger.warning(
+                "could not answer roster request from %s", self.connector_id, exc_info=True
+            )
 
     async def _handle_pong(self, message: dict[str, Any]) -> None:
         pong = Pong.model_validate(message)

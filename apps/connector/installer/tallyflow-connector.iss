@@ -4,10 +4,15 @@
 ; Output: apps/connector/dist/installer/TallyFlowConnector-Setup-<version>.exe
 ;
 ; What this installer is responsible for:
-;   1. copying two executables,
-;   2. collecting the connector id + secret from the TallyFlow app,
-;   3. handing them to `tally-connector.exe install`, which writes the config
-;      and registers the logon task.
+;   1. copying two executables and the window that reports on them,
+;   2. registering the logon task via `tally-connector.exe install`,
+;   3. opening that window, which shows a code for the app to scan.
+;
+; It no longer asks anybody to type a connector id and a secret. That step is
+; where new customers got stuck -- a 43-character key read off a phone and typed
+; into a keyboard across the room -- and it is now a QR code the phone reads.
+; The pairing fields survive only as /ID= and /SECRET= for an unattended
+; rollout, where there is nobody standing at the machine to scan anything.
 ;
 ; Deliberately *not* responsible for: writing connector.json, or talking to
 ; Task Scheduler. That logic lives in Python where it is unit tested; Pascal
@@ -24,6 +29,11 @@
 #define AppPublisher     "TallyFlow"
 #define ExeName          "tally-connector.exe"
 #define ServiceExeName   "tally-connector-service.exe"
+; The window, and the folder it is laid down in. A Flutter build is an
+; executable beside a handful of DLLs and a data directory, so it goes in a
+; subfolder of its own rather than scattered through {app}.
+#define WindowDir        "window"
+#define WindowBuild      "..\..\mobile\build\windows\x64\runner\Release"
 #define DefaultBackend   "wss://api-tallyflow.jsrprimesolution.com/v1/connector"
 
 ; Overridden by the build script (ISCC /DAppVersion=...) so the installer name
@@ -64,8 +74,23 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Source: "..\dist\{#ExeName}";        DestDir: "{app}"; Flags: ignoreversion
 Source: "..\dist\{#ServiceExeName}"; DestDir: "{app}"; Flags: ignoreversion
 Source: "check-tally.cmd";           DestDir: "{app}"; Flags: ignoreversion
+; The whole Flutter output, not a hand-picked list. Its DLLs are loaded by the
+; plugin registrant compiled into the executable, so a missing one is a window
+; that fails to start with nothing written anywhere to say why -- and the set
+; changes whenever a dependency does.
+Source: "{#WindowBuild}\*"; DestDir: "{app}\{#WindowDir}"; \
+      Flags: ignoreversion recursesubdirs createallsubdirs
 
 [Icons]
+; First in the group because it is the answer to almost every question a shop
+; owner has: is this working, which companies does it feed, and -- before it is
+; paired -- the code to scan.
+; Points at the CLI rather than straight at the window: `ui` checks that the
+; connector is actually running first, and a window that opened and then said it
+; could not reach anything reads as TallyFlow being down rather than as the
+; program on this PC not being started.
+Name: "{group}\TallyFlow Connector";    Filename: "{app}\{#ExeName}"; Parameters: "ui"; \
+      Comment: "Open the connector's status and pairing window"
 Name: "{group}\Check Tally Connection"; Filename: "{app}\check-tally.cmd"; \
       Comment: "Test whether the connector can read TallyPrime on this computer"
 Name: "{group}\Connector Status";       Filename: "{app}\check-tally.cmd"; Parameters: "status"; \
@@ -77,7 +102,7 @@ Name: "{group}\Uninstall {#AppName}";   Filename: "{uninstallexe}"
 ; The pairing details go through a file in {tmp}, never on the command line:
 ; any process on the machine can read another process's arguments.
 Filename: "{app}\{#ExeName}"; Parameters: "install --from-file ""{tmp}\pairing.txt"""; \
-      StatusMsg: "Pairing this computer and starting the connector..."; \
+      StatusMsg: "Setting up the connector and starting it..."; \
       Flags: runhidden waituntilterminated; Check: not IsUpgrade
 ; An upgrade has no credentials to pass -- the secret is shown once, at pairing
 ; time, and is not recoverable here. `install` with no id/secret re-registers
@@ -86,6 +111,13 @@ Filename: "{app}\{#ExeName}"; Parameters: "install --from-file ""{tmp}\pairing.t
 Filename: "{app}\{#ExeName}"; Parameters: "install"; \
       StatusMsg: "Updating the connector..."; \
       Flags: runhidden waituntilterminated; Check: IsUpgrade
+; Opens the connector's window as the last step of a fresh install, because that
+; window is where the pairing code is. Checked by default -- it is the next thing
+; the customer has to do. Skipped on an upgrade, which is already paired and has
+; no code to show, and on a silent rollout, where nobody is standing there.
+Filename: "{app}\{#ExeName}"; Parameters: "ui"; \
+      Description: "Show the pairing code for the TallyFlow app"; \
+      Flags: postinstall skipifsilent nowait; Check: not IsUpgrade
 Filename: "{app}\check-tally.cmd"; Description: "Check the connection to TallyPrime now"; \
       Flags: postinstall skipifsilent nowait unchecked
 
@@ -158,13 +190,15 @@ end;
 procedure InitializeWizard;
 begin
 
+  { Only ever seen on an unattended rollout that supplied /ID or /SECRET -- see
+    ShouldSkipPage. A person installing this on their own shop PC is not asked
+    for anything: the connector shows a code when it starts, and the app reads
+    it. That is the whole point of the change. }
   PairPage := CreateInputQueryPage(wpWelcome,
     'Connect to your TallyFlow account',
-    'Enter the pairing details shown in the TallyFlow app.',
-    'On your phone, open TallyFlow, go to Settings > Connectors, and tap' + #13#10 +
-    '"Add this computer". Type the Connector ID and Secret it shows below.' + #13#10 + #13#10 +
-    'The secret is displayed only once, so keep the app open until this' + #13#10 +
-    'installer finishes.');
+    'Pairing details for this computer.',
+    'These were supplied on the command line. Leave the ID and secret blank' + #13#10 +
+    'to pair this computer by scanning the code it shows after setup.');
 
   PairPage.Add('Connector ID:', False);
   PairPage.Add('Connector secret:', False);
@@ -184,12 +218,18 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  { Nothing to ask when both were supplied on the command line, and nothing to
-    ask on an upgrade -- the pairing being preserved is already on disk. }
+  { Skipped for everybody except an unattended rollout that named a machine's
+    credentials, and always on an upgrade -- the pairing being preserved is
+    already on disk.
+
+    Asking a shop owner for a connector id and a 43-character secret is the step
+    that pairing by camera exists to remove, so it must not be on the path of an
+    ordinary install. Both are still reachable with /ID= and /SECRET=, for
+    twenty machines nobody is going to walk between with a phone. }
   Result := (PageID = PairPage.ID) and
             (IsUpgrade or
-             ((ExpandConstant('{param:ID|}') <> '') and
-              (ExpandConstant('{param:SECRET|}') <> '')));
+             ((ExpandConstant('{param:ID|}') = '') and
+              (ExpandConstant('{param:SECRET|}') = '')));
 end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
@@ -200,15 +240,11 @@ begin
   if (CurPageID <> PairPage.ID) or IsUpgrade then
     exit;
 
-  if Trim(PairPage.Values[0]) = '' then begin
-    MsgBox('Enter the Connector ID shown in the TallyFlow app.', mbError, MB_OK);
-    Result := False;
-    exit;
-  end;
-
-  if Trim(PairPage.Values[1]) = '' then begin
-    MsgBox('Enter the Connector Secret shown in the TallyFlow app.' + #13#10 +
-           'It is the long line of letters and numbers below the ID.',
+  { One without the other is a typo, not a choice. Neither is fine: it installs
+    unpaired and the connector shows a code. }
+  if (Trim(PairPage.Values[0]) = '') <> (Trim(PairPage.Values[1]) = '') then begin
+    MsgBox('Enter both the Connector ID and its secret, or leave both blank ' +
+           'to pair this computer by scanning the code it shows afterwards.',
            mbError, MB_OK);
     Result := False;
     exit;
@@ -247,8 +283,13 @@ var
 begin
   PairingFile := ExpandConstant('{tmp}\pairing.txt');
 
-  { Never written on an upgrade: the values would be blank, and `install`
-    treats a blank id as a fatal error rather than as "keep what you have". }
+  { Never written on an upgrade: `install` with no file re-registers the startup
+    task against the pairing already on disk, and a file of blank values would
+    be indistinguishable from that only by luck.
+
+    On a fresh install it is written even when the id and secret are empty,
+    which is now the normal case -- the file still carries the server address,
+    and an empty id means "install unpaired and show a code". }
   if (CurStep = ssInstall) and not IsUpgrade then begin
     SetArrayLength(Lines, 3);
     Lines[0] := 'id=' + Trim(PairPage.Values[0]);

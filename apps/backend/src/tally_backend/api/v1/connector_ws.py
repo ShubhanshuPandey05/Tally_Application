@@ -30,6 +30,7 @@ from ...core.security import constant_time_equals
 from ...db.models import Connector, ConnectorStatus, utc_now
 from ...hub import ConnectorHub, ConnectorLink
 from ...services.releases import ConnectorReleaseView
+from ...services.roster import build_roster
 
 logger = logging.getLogger(__name__)
 
@@ -62,7 +63,7 @@ async def connector_socket(websocket: WebSocket) -> None:
         return
     except Exception as exc:  # noqa: BLE001 - any malformed hello is a rejection
         logger.info("malformed handshake: %s", exc)
-        await _reject(websocket, "malformed handshake")
+        await _reject(websocket, "malformed handshake", code="malformed")
         return
 
     if hello.protocol_version != PROTOCOL_VERSION:
@@ -72,11 +73,12 @@ async def connector_socket(websocket: WebSocket) -> None:
             websocket,
             f"backend speaks protocol v{PROTOCOL_VERSION}, connector sent "
             f"v{hello.protocol_version}",
+            code="protocol",
         )
         return
 
     if abs(int(time.time()) - hello.issued_at) > MAX_HANDSHAKE_AGE_SECONDS:
-        await _reject(websocket, "handshake is too old")
+        await _reject(websocket, "handshake is too old", code="malformed")
         return
 
     async with session_factory() as session:
@@ -87,15 +89,40 @@ async def connector_socket(websocket: WebSocket) -> None:
         if connector is None or connector.status is ConnectorStatus.REVOKED:
             # Same message either way: a distinct "unknown connector" reply would
             # let anyone enumerate valid connector ids.
-            await _reject(websocket, "unknown or revoked connector")
+            #
+            # ``revoked`` is the one code that makes a connector give up on its
+            # stored pairing and ask to be paired again, so it is answered only
+            # here -- where the credential really is dead for good.
+            await _reject(websocket, "unknown or revoked connector", code="revoked")
             return
 
-        if not _verify(hello, connector, websocket.app.state.secret_box):
+        verdict = _verify(hello, connector, websocket.app.state.secret_box)
+        if verdict is not True:
+            # A signature that does not check out means one of two very
+            # different things, and the row is the only place the difference is
+            # recorded. An admin who asked for this PC to be paired again
+            # replaced its secret on purpose, and the machine should say so and
+            # show a code; anything else is a fault, and a fault must never put
+            # a fleet on a pairing screen -- least of all a backend that cannot
+            # decrypt its own secrets, which fails this way for every customer
+            # at once.
+            if connector.repair_requested_at is not None:
+                logger.info(
+                    "connector %s is waiting to be paired again", hello.connector_id
+                )
+                await _reject(websocket, "this computer is being paired again",
+                              code="repairing")
+                return
             logger.warning("bad signature from connector %s", hello.connector_id)
-            await _reject(websocket, "authentication failed")
+            await _reject(websocket, "authentication failed", code=verdict)
             return
 
         connector.status = ConnectorStatus.ACTIVE
+        # Cleared by the thing it was waiting for. Not cleared when the new
+        # secret is *issued*: between an admin scanning and the PC collecting,
+        # the machine still holds the old credential and still needs to be told
+        # to show a code.
+        connector.repair_requested_at = None
         connector.last_seen_at = utc_now()
         connector.hostname = hello.host.hostname
         connector.os = hello.host.os
@@ -116,6 +143,10 @@ async def connector_socket(websocket: WebSocket) -> None:
         # round trip on this receive loop would sit between two frames on the
         # socket a customer's reports come back on.
         on_logs=_log_receiver(getattr(websocket.app.state, "connector_logs", None)),
+        # Answers the Refresh button on the connector's local page. It reads the
+        # database, so it is a callback rather than something the link could
+        # compute -- the link is transport and knows nothing about an account.
+        on_roster_request=_roster_sender(session_factory),
         # The link stamps the published version onto every frame it sends and
         # checks the version on every frame it receives, so an outdated connector
         # is told to update within one heartbeat instead of at its next poll.
@@ -145,6 +176,10 @@ async def connector_socket(websocket: WebSocket) -> None:
     # Evaluated after attach so the socket is fully live before an update
     # command can be sent on it.
     await link.review_version(hello.host.connector_version)
+    # Pushed unasked, straight after the handshake. The local page on the shop
+    # PC is often opened *because* something is wrong, and a page that had to
+    # ask for its contents would be blank exactly when the socket is flapping.
+    await _send_roster(session_factory, link)
 
     heartbeat = asyncio.create_task(link.heartbeat_loop())
     try:
@@ -172,8 +207,14 @@ async def connector_socket(websocket: WebSocket) -> None:
             await _mark_offline(session_factory, hello.connector_id)
 
 
-def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool:
-    """Recompute the handshake signature and compare in constant time."""
+def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool | str:
+    """Recompute the handshake signature and compare in constant time.
+
+    Returns ``True``, or the rejection code explaining the failure. The two
+    failures are worth telling apart on the wire and not only in a log: a wrong
+    signature is one connector's problem, and a secret this backend cannot
+    decrypt is every connector's problem at once.
+    """
     try:
         secret = secret_box.decrypt(connector.secret_encrypted)
     except SecretDecryptionError:
@@ -184,7 +225,7 @@ def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool:
             "cannot decrypt secret for connector %s; check TALLYFLOW_SECRET_KEYS",
             connector.id,
         )
-        return False
+        return "server_key"
 
     expected = sign_handshake(
         connector_id=hello.connector_id,
@@ -192,7 +233,7 @@ def _verify(hello: Hello, connector: Connector, secret_box: SecretBox) -> bool:
         issued_at=hello.issued_at,
         secret=secret,
     )
-    return constant_time_equals(expected, hello.signature)
+    return True if constant_time_equals(expected, hello.signature) else "auth_failed"
 
 
 def _log_receiver(ingest):  # noqa: ANN001, ANN202 - closure over app state
@@ -216,6 +257,28 @@ def _log_receiver(ingest):  # noqa: ANN001, ANN202 - closure over app state
         )
 
     return receive
+
+
+async def _send_roster(session_factory, link: ConnectorLink) -> None:
+    """Build this connector's roster and push it.
+
+    Never fatal. A connector with no roster shows an honest "we could not reach
+    the server for this" on its page and goes on serving reports, which is the
+    only ordering that makes sense: the roster is the diagnostic, and the
+    reports are the product.
+    """
+    with contextlib.suppress(Exception):
+        async with session_factory() as session:
+            roster = await build_roster(session, link.connector_id)
+        if roster is not None:
+            await link.send(roster)
+
+
+def _roster_sender(session_factory):  # noqa: ANN202 - closure over app state
+    async def send(link: ConnectorLink) -> None:
+        await _send_roster(session_factory, link)
+
+    return send
 
 
 def _status_persister(session_factory):  # noqa: ANN202 - closure over app state
@@ -248,9 +311,9 @@ async def _mark_offline(session_factory, connector_id: str) -> None:
                 await session.commit()
 
 
-async def _reject(websocket: WebSocket, reason: str) -> None:
+async def _reject(websocket: WebSocket, reason: str, *, code: str = "") -> None:
     with contextlib.suppress(Exception):
         await websocket.send_text(
-            HelloAck(accepted=False, reason=reason).model_dump_json()
+            HelloAck(accepted=False, reason=reason, reason_code=code).model_dump_json()
         )
         await websocket.close(code=1008, reason=reason)
