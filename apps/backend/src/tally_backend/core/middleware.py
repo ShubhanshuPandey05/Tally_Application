@@ -76,20 +76,41 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         self._auth = auth_per_minute
         self._hits: dict[str, deque[float]] = {}
 
-    def _limit_for(self, path: str) -> int:
-        # Credential endpoints get a tighter bucket: they are the ones worth
-        # brute-forcing, and no legitimate client logs in ten times a minute.
-        return self._auth if path.startswith("/v1/auth/") else self._default
+    #: Endpoints that trade a guessable secret for a session. These are the ones
+    #: worth brute-forcing, and no legitimate client signs in ten times a minute.
+    _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register", "/v1/auth/demo")
+
+    def _bucket_for(self, path: str) -> tuple[str, int]:
+        """The counter this request belongs in, and the ceiling for it.
+
+        The name matters as much as the number. Both are needed because the two
+        limits must not share a window: counting every request in one deque and
+        then checking it against whichever ceiling the current path happens to
+        carry means the *tightest* ceiling is applied to *all* the traffic. That
+        shipped, and the symptom was somebody's first ever sign-in being refused
+        because the app had just loaded a dashboard.
+
+        ``/v1/auth/refresh`` and ``/v1/auth/logout`` are deliberately not
+        credential endpoints. A refresh token is 40-odd random characters and
+        replaying one revokes the whole family, so guessing is not the threat --
+        while renewing a session is routine background traffic that several
+        phones on one shop's wifi do continuously. Sharing a bucket with sign-in
+        would let that housekeeping lock a person out of signing in.
+        """
+        if path.startswith(self._CREDENTIAL_PATHS):
+            return "credential", self._auth
+        return "default", self._default
 
     async def dispatch(self, request: Request, call_next: Handler) -> Response:
         if request.url.path in {"/v1/health", "/v1/ready"}:
             return await call_next(request)
 
-        identity = self._identity(request)
-        limit = self._limit_for(request.url.path)
+        bucket, limit = self._bucket_for(request.url.path)
+        # Keyed by both, never by identity alone -- see _bucket_for.
+        key = f"{bucket}|{self._identity(request)}"
         now = time.monotonic()
 
-        window = self._hits.setdefault(identity, deque())
+        window = self._hits.setdefault(key, deque())
         while window and now - window[0] > 60.0:
             window.popleft()
 
