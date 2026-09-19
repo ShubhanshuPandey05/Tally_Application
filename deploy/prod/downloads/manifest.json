@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-19T08:48:09+00:00",
+  "generated_at": "2026-09-19T11:26:39+00:00",
   "connector": {
-    "version": "0.4.0",
-    "file": "TallyFlowConnector-Setup-0.4.0.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.4.0.exe",
-    "sha256": "4e0606dd40c9d2cc891cfb9a3b8f54d4f81c32fd13649e6b0004b776e464e3ac",
-    "size_bytes": 48744017,
+    "version": "0.4.1",
+    "file": "TallyFlowConnector-Setup-0.4.1.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.4.1.exe",
+    "sha256": "e226ae80cc5e384b8d94ca5ab1137c641c8bb4a49403f44907279c5c0baa5292",
+    "size_bytes": 48746705,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Lets the app send entries into TallyPrime. By default each one arrives as an optional voucher, so nothing touches your books until you approve it inside Tally; the new Entries tab in the connector window lets you change that. Also adds a Sync speed setting for shops whose Tally slows down during a sync. Not mandatory: an older connector keeps working for reports, it just cannot receive entries."
+    "notes": "Sales orders and purchase orders sent from the app are now accepted by TallyPrime. Receipts from the app are entered credit first, the way TallyPrime shows them. Not mandatory: an older connector keeps working, but it cannot receive orders."
   },
   "android": {
-    "version": "0.7.0",
-    "file": "TallyFlow-0.7.0.apk",
-    "url": "/downloads/TallyFlow-0.7.0.apk",
-    "sha256": "544cb363d666d9ee5874cd80291c8a8dc9f9b6258efc2ddf21b910bc72491433",
-    "size_bytes": 36083946,
+    "version": "0.7.1",
+    "file": "TallyFlow-0.7.1.apk",
+    "url": "/downloads/TallyFlow-0.7.1.apk",
+    "sha256": "92ddb8afd7e58ea28971534d9b7e047271f3eb0f703e7c839bf9423ac3ebd748",
+    "size_bytes": 36120242,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Record a receipt, payment or sale from your phone with the new + button. It goes into TallyPrime for approval, and waits safely on our server if your PC is off.",
-    "build_number": 7
+    "notes": "Sales orders and purchase orders now go into TallyPrime. Add CGST, SGST or IGST to a sale or order from your Tally tax ledgers. Picking an item fills its unit and rate, and receipts and payments offer your cash and bank accounts.",
+    "build_number": 8
   }
 }
