@@ -33,6 +33,7 @@ Two things in that sample decide the whole builder:
 
 from __future__ import annotations
 
+from datetime import date
 from decimal import Decimal
 from typing import ClassVar
 from xml.etree import ElementTree as ET
@@ -68,21 +69,36 @@ _CANONICAL_TYPE: dict[VoucherTypeKind, str] = {
 
 ACCOUNTING_VIEW = "Accounting Voucher View"
 INVOICE_VIEW = "Invoice Voucher View"
-ORDER_VIEW = "Order Voucher View"
 
 #: Which of Tally's entry screens the voucher belongs to. ``OBJVIEW`` is how
 #: Tally decides whether to expect accounting lines, stock lines or both.
 #:
-#: Only the two accounting kinds are fixed. A sale depends on what is on it --
-#: see :func:`_view_for` -- and the order view has not been confirmed against a
-#: live Tally, because neither company available here uses order vouchers.
+#: Orders are entered on the invoice screen too. Verified live 2026-09-19 on
+#: "D.D Enterprises": a sales order and a purchase order entered by hand in
+#: TallyPrime both export as ``Invoice Voucher View``, and there is no separate
+#: order view -- the "Order Voucher View" this used to send was a guess.
 _VIEW: dict[VoucherTypeKind, str] = {
     VoucherTypeKind.RECEIPT: ACCOUNTING_VIEW,
     VoucherTypeKind.PAYMENT: ACCOUNTING_VIEW,
     VoucherTypeKind.SALES: INVOICE_VIEW,
-    VoucherTypeKind.SALES_ORDER: ORDER_VIEW,
-    VoucherTypeKind.PURCHASE_ORDER: ORDER_VIEW,
+    VoucherTypeKind.SALES_ORDER: INVOICE_VIEW,
+    VoucherTypeKind.PURCHASE_ORDER: INVOICE_VIEW,
 }
+
+#: Where an order's goods come from or go to, and which batch, when the app
+#: does not say. "Any" is Tally's own word for "not decided yet": an order is a
+#: promise about goods, and the godown is settled when they actually move.
+ANY = "Any"
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
+
+
+def _order_date(value: date) -> str:
+    """``31-Mar-26``: the form Tally exports an order's due date in, and the
+    one verified to import. Built by hand rather than with ``%b`` so the
+    machine's locale cannot change the month's name."""
+    return f"{value.day}-{_MONTHS[value.month - 1]}-{value:%y}"
 
 
 def _view_for(draft: VoucherDraft) -> str:
@@ -140,8 +156,17 @@ def _ledger_entry_xml(entry: DraftLedgerEntry) -> str:
     return f"<ALLLEDGERENTRIES.LIST>{''.join(parts)}</ALLLEDGERENTRIES.LIST>"
 
 
-def _inventory_entry_xml(entry: DraftInventoryEntry, *, positive: bool) -> str:
+def _inventory_entry_xml(
+    entry: DraftInventoryEntry,
+    *,
+    positive: bool,
+    order: tuple[str, date] | None = None,
+) -> str:
     quantity = _quantity(entry.quantity, entry.unit)
+    # A debit line -- goods coming in on a purchase order -- carries a negative
+    # amount, like every other debit in Tally's XML. Tally's own purchase order
+    # exports its stock line as ``ISDEEMEDPOSITIVE Yes`` with ``-59375.00``.
+    amount = _amount(-entry.amount if positive else entry.amount)
     parts = [
         tag("STOCKITEMNAME", entry.item_name),
         tag("ISDEEMEDPOSITIVE", _flag(positive)),
@@ -150,7 +175,7 @@ def _inventory_entry_xml(entry: DraftInventoryEntry, *, positive: bool) -> str:
         # invoice goes out for goods that never left the godown.
         tag("ACTUALQTY", quantity),
         tag("BILLEDQTY", quantity),
-        tag("AMOUNT", _amount(entry.amount)),
+        tag("AMOUNT", amount),
     ]
     if entry.rate is not None:
         parts.insert(2, tag("RATE", _rate(entry.rate, entry.unit)))
@@ -159,10 +184,28 @@ def _inventory_entry_xml(entry: DraftInventoryEntry, *, positive: bool) -> str:
             "<ACCOUNTINGALLOCATIONS.LIST>"
             f"{tag('LEDGERNAME', entry.ledger_name)}"
             f"{tag('ISDEEMEDPOSITIVE', _flag(positive))}"
-            f"{tag('AMOUNT', _amount(entry.amount))}"
+            f"{tag('AMOUNT', amount)}"
             "</ACCOUNTINGALLOCATIONS.LIST>"
         )
-    if entry.godown:
+    if order is not None:
+        # The part of an order Tally will not do without. Every line names its
+        # order number and due date inside a batch allocation; without them
+        # Tally refuses the whole voucher as "Bad Order Number in Voucher!".
+        # Ten variations were refused before one hand-entered order was
+        # exported and copied -- see :data:`_VIEW`.
+        number, due = order
+        parts.append(
+            "<BATCHALLOCATIONS.LIST>"
+            f"{tag('GODOWNNAME', entry.godown or ANY)}"
+            f"{tag('BATCHNAME', ANY)}"
+            f"{tag('ORDERNO', number)}"
+            f"{tag('ORDERDUEDATE', _order_date(due))}"
+            f"{tag('AMOUNT', amount)}"
+            f"{tag('ACTUALQTY', quantity)}"
+            f"{tag('BILLEDQTY', quantity)}"
+            "</BATCHALLOCATIONS.LIST>"
+        )
+    elif entry.godown:
         parts.append(
             "<BATCHALLOCATIONS.LIST>"
             f"{tag('GODOWNNAME', entry.godown)}"
@@ -209,8 +252,14 @@ def build_voucher_xml(draft: VoucherDraft) -> str:
     # purchase order they are coming in. Getting this backwards moves stock the
     # wrong way, which no amount of checking the rupee total would reveal.
     positive = draft.kind is VoucherTypeKind.PURCHASE_ORDER
+    order = (
+        (draft.order_number, draft.order_due_date or draft.date)
+        if draft.order_number
+        else None
+    )
     parts.extend(
-        _inventory_entry_xml(entry, positive=positive) for entry in draft.inventory_entries
+        _inventory_entry_xml(entry, positive=positive, order=order)
+        for entry in draft.inventory_entries
     )
 
     attrs = f'VCHTYPE="{xml_escape(type_name)}" ACTION="Create" OBJVIEW="{xml_escape(view)}"'

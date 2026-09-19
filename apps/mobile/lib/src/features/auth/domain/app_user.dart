@@ -32,7 +32,7 @@ enum UserRole {
 
   String get description => switch (this) {
         UserRole.admin =>
-          'Can add Tally PCs, connect companies, and manage people.',
+          'Can add Tally PCs, connect companies, and manage users.',
         UserRole.staff => 'Can only view the companies you choose.',
       };
 }

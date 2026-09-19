@@ -577,3 +577,46 @@ def test_a_sale_with_stock_lines_is_still_an_invoice() -> None:
     )
 
     assert 'OBJVIEW="Invoice Voucher View"' in build(invoice)
+
+
+def test_an_order_is_built_the_way_tallyprime_exports_one():
+    """Verified live 2026-09-19: this shape created a sales order and a
+    purchase order in "D.D Enterprises" after ten guesses were refused as
+    "Bad Order Number in Voucher!"."""
+    from tally_core.tally.mutations.vouchers import build_voucher_xml
+
+    draft = VoucherDraft(
+        kind=VoucherTypeKind.PURCHASE_ORDER,
+        date=date(2026, 3, 31),
+        party_name="Wholesaler",
+        reference="PO-17",
+        order_number="PO-17",
+        ledger_entries=[
+            DraftLedgerEntry(
+                ledger_name="Wholesaler", amount=Decimal("100"), is_deemed_positive=False
+            )
+        ],
+        inventory_entries=[
+            DraftInventoryEntry(
+                item_name="Cloth Item 5",
+                quantity=Decimal("1"),
+                rate=Decimal("100"),
+                amount=Decimal("100"),
+                unit="Pcs",
+                ledger_name="Gst Purchase",
+            )
+        ],
+    )
+
+    xml = build_voucher_xml(draft)
+
+    assert 'OBJVIEW="Invoice Voucher View"' in xml
+    # Every line carries the order number and due date, in a batch that is
+    # "Any" godown and "Any" batch until the goods actually move.
+    assert (
+        "<BATCHALLOCATIONS.LIST><GODOWNNAME>Any</GODOWNNAME><BATCHNAME>Any</BATCHNAME>"
+        "<ORDERNO>PO-17</ORDERNO><ORDERDUEDATE>31-Mar-26</ORDERDUEDATE>"
+    ) in xml
+    # Goods coming in are a debit: negative, on the line and its ledger.
+    assert xml.count("<AMOUNT>-100.00</AMOUNT>") == 3
+    assert "<LEDGERNAME>Gst Purchase</LEDGERNAME>" in xml

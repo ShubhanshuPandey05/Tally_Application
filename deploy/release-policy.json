@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Lets the app send entries into TallyPrime. By default each one arrives as an optional voucher, so nothing touches your books until you approve it inside Tally; the new Entries tab in the connector window lets you change that. Also adds a Sync speed setting for shops whose Tally slows down during a sync. Not mandatory: an older connector keeps working for reports, it just cannot receive entries."
+    "notes": "Sales orders and purchase orders sent from the app are now accepted by TallyPrime. Receipts from the app are entered credit first, the way TallyPrime shows them. Not mandatory: an older connector keeps working, but it cannot receive orders."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Record a receipt, payment or sale from your phone with the new + button. It goes into TallyPrime for approval, and waits safely on our server if your PC is off."
+    "notes": "Sales orders and purchase orders now go into TallyPrime. Add CGST, SGST or IGST to a sale or order from your Tally tax ledgers. Picking an item fills its unit and rate, and receipts and payments offer your cash and bank accounts."
   }
 }

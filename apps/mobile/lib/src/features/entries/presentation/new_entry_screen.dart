@@ -36,7 +36,9 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
   late final EntryKind _kind = widget.initialKind;
   DateTime _date = DateTime.now();
   final List<EntryLine> _lines = <EntryLine>[];
+  final List<EntryTax> _taxes = <EntryTax>[];
   bool _saving = false;
+  bool _accountSettled = false;
 
   @override
   void initState() {
@@ -54,27 +56,44 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
     super.dispose();
   }
 
+  /// What the entry charges once tax is added. [_total] is the taxable value.
+  double get _grandTotal => _taxes.fold<double>(
+        _total,
+        (double sum, EntryTax t) => sum + t.amountOn(_total),
+      );
+
   /// On a kind with lines the total is the lines, not something typed.
   double get _total {
     if (_kind.takesLines && _lines.isNotEmpty) {
-      return _lines.fold<double>(0, (double sum, EntryLine l) => sum + l.amount);
+      return _lines.fold<double>(
+          0, (double sum, EntryLine l) => sum + l.amount);
     }
     return double.tryParse(_amount.text.trim()) ?? 0;
   }
 
   Future<void> _addLine() async {
-    final String? companyId = ref.read(activeCompanyIdResolvedProvider);
-    final List<String> items =
-        ref.read(itemNamesProvider(companyId ?? '')).valueOrNull ??
-            const <String>[];
+    final String companyId = ref.read(activeCompanyIdResolvedProvider) ?? '';
 
     final EntryLine? line = await showModalBottomSheet<EntryLine>(
       context: context,
       isScrollControlled: true,
-      builder: (BuildContext context) => _LineSheet(items: items),
+      builder: (BuildContext context) => _LineSheet(companyId: companyId),
     );
     if (line != null) {
       setState(() => _lines.add(line));
+    }
+  }
+
+  Future<void> _addTax() async {
+    final String companyId = ref.read(activeCompanyIdResolvedProvider) ?? '';
+
+    final EntryTax? tax = await showModalBottomSheet<EntryTax>(
+      context: context,
+      isScrollControlled: true,
+      builder: (BuildContext context) => _TaxSheet(companyId: companyId),
+    );
+    if (tax != null) {
+      setState(() => _taxes.add(tax));
     }
   }
 
@@ -121,6 +140,7 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                   narration: _narration.text.trim(),
                   reference: _reference.text.trim(),
                   lines: _lines,
+                  taxes: _taxes,
                 ),
               );
       if (!mounted) {
@@ -205,7 +225,9 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
     setState(() => _saving = true);
     try {
       final String? problem = isParty
-          ? await ref.read(entriesRepositoryProvider).createLedger(companyId, name)
+          ? await ref
+              .read(entriesRepositoryProvider)
+              .createLedger(companyId, name)
           : await ref
               .read(entriesRepositoryProvider)
               .createStockItem(companyId, name);
@@ -232,6 +254,35 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
     await _save();
   }
 
+  /// The ledgers the account field offers for this kind of entry.
+  List<String> _accountOptions(String companyId) {
+    final AutoDisposeFutureProvider<List<String>> source = switch (_kind) {
+      EntryKind.receipt || EntryKind.payment => cashBankNamesProvider(companyId),
+      EntryKind.purchaseOrder => purchaseLedgerNamesProvider(companyId),
+      EntryKind.sales || EntryKind.salesOrder =>
+        salesLedgerNamesProvider(companyId),
+    };
+    final List<String> options =
+        ref.watch(source).valueOrNull ?? const <String>[];
+
+    // "Sales" and "Purchase" are only guesses, and a GST-registered company
+    // usually has neither -- it has "Gst Sales". When the guess is not in the
+    // company's own list, take the company's first ledger instead, once, and
+    // never over something the person chose.
+    if (!_accountSettled && options.isNotEmpty) {
+      _accountSettled = true;
+      if (_account.text == _kind.defaultAccount &&
+          !options.contains(_account.text)) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted && _account.text == _kind.defaultAccount) {
+            _account.text = options.first;
+          }
+        });
+      }
+    }
+    return options;
+  }
+
   void _say(String message, {VoidCallback? retry}) {
     ScaffoldMessenger.of(context)
       ..hideCurrentSnackBar()
@@ -252,6 +303,12 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
+    if (_kind.takesLines) {
+      // Loaded now, so the item and tax lists are already there when their
+      // sheets open rather than arriving after somebody has started typing.
+      ref.watch(itemOptionsProvider(companyId ?? ''));
+      ref.watch(taxLedgerNamesProvider(companyId ?? ''));
+    }
 
     return Scaffold(
       appBar: AppBar(title: Text(_kind.label)),
@@ -274,13 +331,17 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                 // minutes ago will not be in the snapshot yet, and refusing to
                 // let somebody type the name would be worse than a stale list.
                 options: ref
-                    .watch(partyNamesProvider(companyId ?? ''))
-                    .valueOrNull ??
+                        .watch(partyNamesProvider(companyId ?? ''))
+                        .valueOrNull ??
                     const <String>[],
                 validator: _required,
               ),
               const SizedBox(height: 12),
-              if (!_kind.takesLines || _lines.isEmpty)
+              // An order is its list of goods, so it has no amount of its own.
+              // A sale can be either: one figure with no stock behind it, or
+              // items -- and once there are items the total is theirs, so the
+              // typed figure goes away rather than disagreeing with them.
+              if (!_kind.needsLines && _lines.isEmpty)
                 TextFormField(
                   controller: _amount,
                   keyboardType:
@@ -288,9 +349,12 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                   inputFormatters: <TextInputFormatter>[
                     FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
                   ],
-                  decoration: const InputDecoration(
+                  decoration: InputDecoration(
                     labelText: 'Amount',
                     prefixText: '₹ ',
+                    helperText: _kind.takesLines
+                        ? 'For a sale without items. Adding items replaces it.'
+                        : null,
                   ),
                   onChanged: (_) => setState(() {}),
                   validator: _positiveAmount,
@@ -302,13 +366,19 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                   onAdd: _addLine,
                   onRemove: (int i) => setState(() => _lines.removeAt(i)),
                 ),
+                _Taxes(
+                  taxes: _taxes,
+                  taxable: _total,
+                  onAdd: _addTax,
+                  onRemove: (int i) => setState(() => _taxes.removeAt(i)),
+                ),
               ],
               if (_kind.hasAccount) ...<Widget>[
                 const SizedBox(height: 12),
-                TextFormField(
+                _NamePicker(
                   controller: _account,
-                  textCapitalization: TextCapitalization.words,
-                  decoration: InputDecoration(labelText: _kind.accountLabel),
+                  label: _kind.accountLabel,
+                  options: _accountOptions(companyId ?? ''),
                   validator: _required,
                 ),
               ],
@@ -323,14 +393,22 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
               const Divider(),
               TextFormField(
                 controller: _reference,
-                decoration: const InputDecoration(labelText: 'Reference (optional)'),
+                // On an order the reference is the order number TallyPrime
+                // writes on every line, and one is made up when it is blank.
+                decoration: _kind.isOrder
+                    ? const InputDecoration(
+                        labelText: 'Order no. (optional)',
+                        helperText: 'Left blank, one is made for you',
+                      )
+                    : const InputDecoration(labelText: 'Reference (optional)'),
               ),
               const SizedBox(height: 12),
               TextFormField(
                 controller: _narration,
                 maxLines: 2,
                 textCapitalization: TextCapitalization.sentences,
-                decoration: const InputDecoration(labelText: 'Narration (optional)'),
+                decoration:
+                    const InputDecoration(labelText: 'Narration (optional)'),
               ),
               const SizedBox(height: 20),
               _ApprovalNote(scheme: scheme),
@@ -349,7 +427,9 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                     width: 16,
                     child: CircularProgressIndicator(strokeWidth: 2),
                   )
-                : Text('Send to TallyPrime  ·  ₹${_total.toStringAsFixed(2)}'),
+                : Text(
+                    'Send to TallyPrime  ·  ₹${_grandTotal.toStringAsFixed(2)}',
+                  ),
           ),
         ),
       ),
@@ -371,8 +451,12 @@ String? _positiveAmount(String? value) {
   return null;
 }
 
-String _pretty(DateTime date) =>
-    '${date.day.toString().padLeft(2, '0')}/'
+/// A rate as somebody would type it: "80", not "80.0".
+String _plain(double value) => value == value.roundToDouble()
+    ? value.toStringAsFixed(0)
+    : value.toString();
+
+String _pretty(DateTime date) => '${date.day.toString().padLeft(2, '0')}/'
     '${date.month.toString().padLeft(2, '0')}/${date.year}';
 
 class _Lines extends StatelessWidget {
@@ -424,6 +508,57 @@ class _Lines extends StatelessWidget {
   }
 }
 
+/// Taxes on a sale or an order, each worked out on the current taxable value.
+class _Taxes extends StatelessWidget {
+  const _Taxes({
+    required this.taxes,
+    required this.taxable,
+    required this.onAdd,
+    required this.onRemove,
+  });
+
+  final List<EntryTax> taxes;
+  final double taxable;
+  final VoidCallback onAdd;
+  final ValueChanged<int> onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
+      children: <Widget>[
+        for (int i = 0; i < taxes.length; i++)
+          ListTile(
+            dense: true,
+            contentPadding: EdgeInsets.zero,
+            title: Text(taxes[i].ledger),
+            subtitle: Text(
+              '${_plain(taxes[i].rate)}% of ₹${taxable.toStringAsFixed(2)}',
+              style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: <Widget>[
+                Text('₹${taxes[i].amountOn(taxable).toStringAsFixed(2)}'),
+                IconButton(
+                  icon: const Icon(Icons.close, size: 16),
+                  onPressed: () => onRemove(i),
+                ),
+              ],
+            ),
+          ),
+        TextButton.icon(
+          onPressed: onAdd,
+          icon: const Icon(Icons.add, size: 16),
+          label: const Text('Add tax'),
+        ),
+      ],
+    );
+  }
+}
+
 /// Said before the save, not after it.
 class _ApprovalNote extends StatelessWidget {
   const _ApprovalNote({required this.scheme});
@@ -454,16 +589,16 @@ class _ApprovalNote extends StatelessWidget {
 
 /// One stock line. A sheet rather than inline fields, so the main form stays
 /// short on a phone held in one hand at a counter.
-class _LineSheet extends StatefulWidget {
-  const _LineSheet({required this.items});
+class _LineSheet extends ConsumerStatefulWidget {
+  const _LineSheet({required this.companyId});
 
-  final List<String> items;
+  final String companyId;
 
   @override
-  State<_LineSheet> createState() => _LineSheetState();
+  ConsumerState<_LineSheet> createState() => _LineSheetState();
 }
 
-class _LineSheetState extends State<_LineSheet> {
+class _LineSheetState extends ConsumerState<_LineSheet> {
   final TextEditingController _item = TextEditingController();
   final TextEditingController _quantity = TextEditingController();
   final TextEditingController _rate = TextEditingController();
@@ -497,8 +632,30 @@ class _LineSheetState extends State<_LineSheet> {
     );
   }
 
+  /// Fill the unit and rate from the item master, so a pick leaves only the
+  /// quantity to type. Both stay editable: the rate is a starting point.
+  void _picked(String name, List<ItemOption> items) {
+    for (final ItemOption item in items) {
+      if (item.name != name) {
+        continue;
+      }
+      setState(() {
+        _unit.text = item.unit ?? '';
+        _rate.text = item.rate == null ? '' : _plain(item.rate!);
+      });
+      return;
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
+    // Watched here rather than read by the form that opens this sheet. A
+    // one-off read of a list nobody had loaded yet came back empty every
+    // time, which is why the item field used to offer nothing.
+    final List<ItemOption> items =
+        ref.watch(itemOptionsProvider(widget.companyId)).valueOrNull ??
+            const <ItemOption>[];
+
     return Padding(
       padding: EdgeInsets.fromLTRB(
         16,
@@ -513,8 +670,8 @@ class _LineSheetState extends State<_LineSheet> {
           _NamePicker(
             controller: _item,
             label: 'Item',
-            options: widget.items,
-            autofocus: true,
+            options: <String>[for (final ItemOption i in items) i.name],
+            onSelected: (String name) => _picked(name, items),
           ),
           const SizedBox(height: 12),
           Row(
@@ -557,6 +714,87 @@ class _LineSheetState extends State<_LineSheet> {
   }
 }
 
+/// One tax ledger and its rate.
+class _TaxSheet extends ConsumerStatefulWidget {
+  const _TaxSheet({required this.companyId});
+
+  final String companyId;
+
+  @override
+  ConsumerState<_TaxSheet> createState() => _TaxSheetState();
+}
+
+class _TaxSheetState extends ConsumerState<_TaxSheet> {
+  final TextEditingController _ledger = TextEditingController();
+  final TextEditingController _rate = TextEditingController();
+
+  @override
+  void dispose() {
+    _ledger.dispose();
+    _rate.dispose();
+    super.dispose();
+  }
+
+  /// "Output CGST 9%" fills 9. A name with no rate in it leaves the field for
+  /// somebody to type.
+  void _picked(String name) {
+    final double? rate = rateInName(name);
+    if (rate != null) {
+      setState(() => _rate.text = _plain(rate));
+    }
+  }
+
+  void _done() {
+    final double? rate = double.tryParse(_rate.text.trim());
+    if (_ledger.text.trim().isEmpty ||
+        rate == null ||
+        rate <= 0 ||
+        rate > 100) {
+      return;
+    }
+    Navigator.of(context)
+        .pop(EntryTax(ledger: _ledger.text.trim(), rate: rate));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final List<String> ledgers =
+        ref.watch(taxLedgerNamesProvider(widget.companyId)).valueOrNull ??
+            const <String>[];
+
+    return Padding(
+      padding: EdgeInsets.fromLTRB(
+        16,
+        16,
+        16,
+        MediaQuery.of(context).viewInsets.bottom + 16,
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          _NamePicker(
+            controller: _ledger,
+            label: 'Tax ledger',
+            options: ledgers,
+            onSelected: _picked,
+          ),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _rate,
+            keyboardType: const TextInputType.numberWithOptions(decimal: true),
+            decoration: const InputDecoration(
+              labelText: 'Rate',
+              suffixText: '%',
+            ),
+          ),
+          const SizedBox(height: 16),
+          FilledButton(onPressed: _done, child: const Text('Add')),
+        ],
+      ),
+    );
+  }
+}
 
 /// A name field that suggests what is already in TallyPrime.
 ///
@@ -570,23 +808,28 @@ class _NamePicker extends StatelessWidget {
     required this.label,
     required this.options,
     this.validator,
-    this.autofocus = false,
+    this.onSelected,
   });
 
   final TextEditingController controller;
   final String label;
   final List<String> options;
   final String? Function(String?)? validator;
-  final bool autofocus;
+  final ValueChanged<String>? onSelected;
 
   @override
   Widget build(BuildContext context) {
     return RawAutocomplete<String>(
       textEditingController: controller,
       focusNode: FocusNode(),
+      onSelected: onSelected,
       optionsBuilder: (TextEditingValue value) {
         final String typed = value.text.trim().toLowerCase();
-        if (typed.isEmpty) {
+        // A field already holding a full name -- "Cash", filled in by default
+        // -- offers the whole list, so switching to a bank is a tap rather
+        // than deleting the word first.
+        if (typed.isEmpty ||
+            options.any((String o) => o.toLowerCase() == typed)) {
           // Everything, capped. An empty field that offers nothing looks
           // broken; an empty field that offers two thousand rows is worse.
           return options.take(8);
@@ -604,7 +847,6 @@ class _NamePicker extends StatelessWidget {
         return TextFormField(
           controller: fieldController,
           focusNode: node,
-          autofocus: autofocus,
           textCapitalization: TextCapitalization.words,
           decoration: InputDecoration(
             labelText: label,
@@ -620,25 +862,34 @@ class _NamePicker extends StatelessWidget {
         void Function(String) onSelected,
         Iterable<String> found,
       ) {
-        return Align(
-          alignment: Alignment.topLeft,
-          child: Material(
-            elevation: 3,
-            borderRadius: BorderRadius.circular(10),
-            child: ConstrainedBox(
-              constraints: const BoxConstraints(maxHeight: 260, maxWidth: 420),
-              child: ListView.builder(
-                shrinkWrap: true,
-                padding: EdgeInsets.zero,
-                itemCount: found.length,
-                itemBuilder: (BuildContext context, int i) {
-                  final String option = found.elementAt(i);
-                  return ListTile(
-                    dense: true,
-                    title: Text(option, style: const TextStyle(fontSize: 13)),
-                    onTap: () => onSelected(option),
-                  );
-                },
+        // Laid out against the overlay the list is drawn in, never wider than
+        // it less the page gutters. A fixed 420 ran off the right edge of
+        // every phone narrower than that, and MediaQuery is no help here: in
+        // an overlay it can report a different box from the one being drawn.
+        return LayoutBuilder(
+          builder: (BuildContext context, BoxConstraints room) => Align(
+            alignment: Alignment.topLeft,
+            child: Material(
+              elevation: 3,
+              borderRadius: BorderRadius.circular(10),
+              child: ConstrainedBox(
+                constraints: BoxConstraints(
+                  maxHeight: 260,
+                  maxWidth: room.maxWidth - 32,
+                ),
+                child: ListView.builder(
+                  shrinkWrap: true,
+                  padding: EdgeInsets.zero,
+                  itemCount: found.length,
+                  itemBuilder: (BuildContext context, int i) {
+                    final String option = found.elementAt(i);
+                    return ListTile(
+                      dense: true,
+                      title: Text(option, style: const TextStyle(fontSize: 13)),
+                      onTap: () => onSelected(option),
+                    );
+                  },
+                ),
               ),
             ),
           ),

@@ -17,6 +17,7 @@ into the double entry TallyPrime needs. Two reasons it is not the client's job:
 
 from __future__ import annotations
 
+import secrets
 from datetime import date, datetime
 from decimal import Decimal
 
@@ -36,6 +37,7 @@ from tally_core.domain.writes import (
 
 from ...core.errors import AppError, NotFound
 from ...db.models import Company, PendingVoucher, PendingVoucherState, utc_now
+from ...services import analytics as an
 from ...services.audit import record
 from ...services.reads import FetchMode, NoDataYet
 from ..deps import (
@@ -78,6 +80,25 @@ class LineRequest(BaseModel):
     godown: str | None = Field(default=None, max_length=300)
 
 
+class TaxRequest(BaseModel):
+    """One duty or tax ledger on a sale or an order -- CGST, SGST, IGST.
+
+    The amount, not a rate. The phone works it out from the rate somebody
+    chose, so what reaches TallyPrime is the figure they saw on screen before
+    pressing send rather than one recomputed here with different rounding.
+    """
+
+    ledger: str = Field(min_length=1, max_length=300)
+    amount: Decimal = Field(gt=0)
+
+    @field_validator("ledger")
+    @classmethod
+    def _named(cls, value: str) -> str:
+        if not value.strip():
+            raise ValueError("ledger must not be blank")
+        return value.strip()
+
+
 class BillRequest(BaseModel):
     """An invoice a receipt or payment settles."""
 
@@ -101,6 +122,9 @@ class CreateVoucherRequest(BaseModel):
     voucher_type: str | None = Field(default=None, max_length=300)
     lines: list[LineRequest] = Field(default_factory=list, max_length=200)
     bills: list[BillRequest] = Field(default_factory=list, max_length=100)
+    #: Added on top of ``amount``, which stays the taxable value: the items'
+    #: total, or the figure typed for a sale with no items.
+    taxes: list[TaxRequest] = Field(default_factory=list, max_length=10)
 
     @field_validator("kind")
     @classmethod
@@ -143,7 +167,30 @@ _DEFAULT_ACCOUNT: dict[VoucherTypeKind, str] = {
     VoucherTypeKind.RECEIPT: "Cash",
     VoucherTypeKind.PAYMENT: "Cash",
     VoucherTypeKind.SALES: "Sales",
+    VoucherTypeKind.SALES_ORDER: "Sales",
+    VoucherTypeKind.PURCHASE_ORDER: "Purchase",
 }
+
+_ORDER_PREFIX = {
+    VoucherTypeKind.SALES_ORDER: "SO",
+    VoucherTypeKind.PURCHASE_ORDER: "PO",
+}
+
+
+def _order_number(kind: VoucherTypeKind, on: date) -> str:
+    """An order number for somebody who did not type one: ``SO-31Mar26-4F2A``.
+
+    Tally refuses an order without a number, and the voucher number cannot be
+    used because Tally only allocates it after saving. Readable enough to say
+    over the phone, and random at the end so two orders taken at one counter in
+    the same minute do not share one.
+    """
+    stamp = f"{on:%d}{_MONTHS[on.month - 1]}{on:%y}"
+    return f"{_ORDER_PREFIX[kind]}-{stamp}-{secrets.token_hex(2).upper()}"
+
+
+_MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
+           "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
 
 
 def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
@@ -157,6 +204,13 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
     """
     kind = _KINDS[body.kind]
     account = body.account or _DEFAULT_ACCOUNT.get(kind)
+
+    if body.taxes and kind in {VoucherTypeKind.RECEIPT, VoucherTypeKind.PAYMENT}:
+        raise BadDraft(
+            f"taxes on a {kind}",
+            user_message="Taxes go on a sale or an order, not on a receipt or payment.",
+        )
+    tax_total = sum((t.amount for t in body.taxes), Decimal("0"))
 
     bills = [
         BillAllocation(name=b.bill, method="Agst Ref", amount=b.amount) for b in body.bills
@@ -175,10 +229,11 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
             amount=line.amount,
             unit=line.unit,
             godown=line.godown,
-            # Every stock line's value posts to the sale ledger. A shop that
-            # splits taxed and exempt goods across two ledgers is a case this
-            # deliberately does not try to guess at.
-            ledger_name=account if kind is VoucherTypeKind.SALES else None,
+            # Every stock line's value posts to the sales or purchase ledger --
+            # on an order too, which is how Tally's own orders are shaped. A
+            # shop that splits taxed and exempt goods across two ledgers is a
+            # case this deliberately does not try to guess at.
+            ledger_name=account,
         )
         for line in body.lines
     ]
@@ -202,7 +257,41 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
                 "an order with no lines",
                 user_message="Add at least one item to the order.",
             )
-        return VoucherDraft(**common, inventory_entries=lines)
+        if sum(line.amount for line in lines) != body.amount:
+            raise BadDraft(
+                "stock lines do not sum to the order amount",
+                user_message="The items do not add up to the order total.",
+            )
+        # Shaped like an order entered by hand in TallyPrime and exported:
+        # the party at the full value, each line's value on the sales or
+        # purchase ledger, each tax on its own ledger. A sales order has the
+        # customer on the debit side; a purchase order is the mirror of it.
+        sale = kind is VoucherTypeKind.SALES_ORDER
+        gross = body.amount + tax_total
+        order_entries = [
+            DraftLedgerEntry(
+                ledger_name=body.party,
+                amount=-gross if sale else gross,
+                is_deemed_positive=sale,
+            ),
+            *(
+                DraftLedgerEntry(
+                    ledger_name=t.ledger,
+                    amount=t.amount if sale else -t.amount,
+                    is_deemed_positive=not sale,
+                )
+                for t in body.taxes
+            ),
+        ]
+        # The reference is the order number, as on Tally's own orders.
+        number = (body.reference or "").strip() or _order_number(kind, body.date)
+        return VoucherDraft(
+            **{**common, "reference": number},
+            ledger_entries=order_entries,
+            inventory_entries=lines,
+            order_number=number,
+            order_due_date=body.date,
+        )
 
     if account is None:
         raise BadDraft(
@@ -211,16 +300,18 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
         )
 
     if kind is VoucherTypeKind.RECEIPT:
-        # Money in: the cash or bank ledger is debited, the customer credited.
+        # Money in: the customer credited, the cash or bank ledger debited.
+        # Credit first, because that is the order a TallyPrime receipt is
+        # entered and read in -- a payment starts with its debit instead.
         entries = [
-            DraftLedgerEntry(
-                ledger_name=account, amount=-body.amount, is_deemed_positive=True
-            ),
             DraftLedgerEntry(
                 ledger_name=body.party,
                 amount=body.amount,
                 is_deemed_positive=False,
                 bill_references=bills,
+            ),
+            DraftLedgerEntry(
+                ledger_name=account, amount=-body.amount, is_deemed_positive=True
             ),
         ]
     elif kind is VoucherTypeKind.PAYMENT:
@@ -246,7 +337,8 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
         entries = [
             DraftLedgerEntry(
                 ledger_name=body.party,
-                amount=-body.amount,
+                # The customer owes for the goods and the tax on them.
+                amount=-(body.amount + tax_total),
                 is_deemed_positive=True,
                 # A sale creates the debt rather than settling one, so its bill
                 # reference is a New Ref. Using Agst Ref here would try to
@@ -268,6 +360,12 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
                     ledger_name=account, amount=body.amount, is_deemed_positive=False
                 )
             )
+        # Each tax is credited to its own duty ledger. GST collected is owed
+        # onward, not earned, so it must never land in the sales ledger.
+        entries.extend(
+            DraftLedgerEntry(ledger_name=t.ledger, amount=t.amount, is_deemed_positive=False)
+            for t in body.taxes
+        )
 
     return VoucherDraft(**common, ledger_entries=entries, inventory_entries=lines)
 
@@ -297,6 +395,13 @@ async def create_voucher(
         request=request,
     )
 
+    # Only the party is offered for creation. A missing cash, bank, sales or
+    # tax ledger is a mistyped name, and offering to add it would file "CGST"
+    # under Sundry Debtors as a customer.
+    missing_kind, missing_name = posted.missing_kind, posted.missing_name
+    if missing_kind == "ledger" and missing_name != body.party:
+        missing_kind = missing_name = None
+
     return VoucherCreatedResponse(
         ok=posted.ok,
         awaiting_approval=posted.ok and posted.optional,
@@ -305,8 +410,8 @@ async def create_voucher(
         can_retry=posted.can_retry,
         queued=posted.queued,
         pending_id=posted.pending_id,
-        missing_kind=posted.missing_kind,
-        missing_name=posted.missing_name,
+        missing_kind=missing_kind,
+        missing_name=missing_name,
     )
 
 
@@ -528,6 +633,9 @@ async def create_stock_item(
 #: would bury the three names somebody actually wants under Duties & Taxes.
 _PARTY_GROUPS = {"sundry debtors", "sundry creditors"}
 
+#: Tally's own group for GST, TDS and every other duty ledger.
+_TAX_GROUPS = {"duties & taxes", "duties and taxes"}
+
 
 class NameResponse(BaseModel):
     """One suggestion. A name and where it sits -- never a balance.
@@ -540,6 +648,16 @@ class NameResponse(BaseModel):
 
     name: str
     group: str | None = None
+
+
+class ItemResponse(NameResponse):
+    """A stock item, with what the line sheet fills in when it is picked.
+
+    ``rate`` is a decimal string, like every other amount this API sends.
+    """
+
+    unit: str | None = None
+    rate: str | None = None
 
 
 def _matches(name: str, query: str | None) -> bool:
@@ -599,25 +717,34 @@ async def party_names(
     return out
 
 
-@router.get("/masters/items", response_model=list[NameResponse])
+@router.get("/masters/items", response_model=list[ItemResponse])
 async def item_names(
     company: CompanyDep,
     reads: ReadServiceDep,
     q: str | None = None,
     limit: int = 50,
-) -> list[NameResponse]:
-    """Stock items, for the line sheet. Names only, same as parties."""
+) -> list[ItemResponse]:
+    """Stock items, for the line sheet, with the unit and a starting rate.
+
+    Picking an item fills its unit and rate, so somebody at a counter types a
+    quantity and nothing else. The rate is the item's current stock rate from
+    TallyPrime -- what the stock summary shows -- and only a suggestion: the
+    field stays editable, because the price a customer is charged is agreed
+    at the counter, not read from a master.
+    """
     rows = await _snapshot_rows(reads, company, "stock_items.list")
 
-    out: list[NameResponse] = []
-    for row in rows:
-        name = (row or {}).get("name")
-        if not name or not _matches(name, q):
+    out: list[ItemResponse] = []
+    for item in an.parse_stock(rows):
+        if not _matches(item.name, q):
             continue
+        rate = item.closing_rate
         out.append(
-            NameResponse(
-                name=name,
-                group=(row or {}).get("parent_group") or (row or {}).get("parent"),
+            ItemResponse(
+                name=item.name,
+                group=item.parent_group,
+                unit=item.base_unit or None,
+                rate=str(rate.amount) if rate is not None and rate.amount > 0 else None,
             )
         )
         if len(out) >= limit:
@@ -625,3 +752,66 @@ async def item_names(
 
     out.sort(key=lambda n: n.name.lower())
     return out
+
+
+async def _ledgers_under(
+    reads: ReadServiceDep, company: Company, groups: set[str], q: str | None, limit: int
+) -> list[NameResponse]:
+    """Ledgers whose group is one of ``groups``, from the stored snapshot."""
+    rows = await _snapshot_rows(reads, company, "ledgers.list")
+
+    out: list[NameResponse] = []
+    for row in rows:
+        name = (row or {}).get("name")
+        parent = (row or {}).get("parent_group") or (row or {}).get("parent") or ""
+        if not name or parent.strip().lower() not in groups:
+            continue
+        if not _matches(name, q):
+            continue
+        out.append(NameResponse(name=name, group=parent))
+        if len(out) >= limit:
+            break
+
+    out.sort(key=lambda n: n.name.lower())
+    return out
+
+
+@router.get("/masters/taxes", response_model=list[NameResponse])
+async def tax_ledger_names(
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+) -> list[NameResponse]:
+    """Duty and tax ledgers -- CGST, SGST, IGST, cess -- for a sale or order."""
+    return await _ledgers_under(reads, company, _TAX_GROUPS, q, limit)
+
+
+@router.get("/masters/accounts", response_model=list[NameResponse])
+async def cash_and_bank_names(
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+) -> list[NameResponse]:
+    """Cash and bank ledgers, for the other side of a receipt or payment.
+
+    The same groups the dashboard counts as cash and bank, so the accounts
+    offered here are exactly the ones whose balances the home screen shows.
+    """
+    return await _ledgers_under(reads, company, an.CASH_GROUPS | an.BANK_GROUPS, q, limit)
+
+
+@router.get("/masters/sales-accounts", response_model=list[NameResponse])
+async def sales_ledger_names(
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+) -> list[NameResponse]:
+    """Sales ledgers, for the value of a sale's or sales order's goods.
+
+    Offered rather than assumed: a GST-registered shop's is usually "Gst Sales"
+    or "Sales @18%", and a default of plain "Sales" is refused by TallyPrime
+    in every company that never created one.
+    """
+    return await _ledgers_under(reads, company, {"sales accounts"}, q, limit)
+
+
+@router.get("/masters/purchase-accounts", response_model=list[NameResponse])
+async def purchase_ledger_names(
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+) -> list[NameResponse]:
+    """Purchase ledgers, for the value of a purchase order's goods."""
+    return await _ledgers_under(reads, company, {"purchase accounts"}, q, limit)

@@ -47,9 +47,31 @@ class EntriesRepository {
   Future<List<String>> parties(String companyId, {String? query}) =>
       _names('/v1/companies/$companyId/masters/parties', query);
 
-  /// Stock items, for the line sheet.
-  Future<List<String>> items(String companyId, {String? query}) =>
-      _names('/v1/companies/$companyId/masters/items', query);
+  /// Stock items, for the line sheet, with the unit and rate a pick fills in.
+  Future<List<ItemOption>> items(String companyId) async {
+    final List<Map<String, Object?>> rows =
+        await _api.getList('/v1/companies/$companyId/masters/items');
+    return <ItemOption>[
+      for (final Map<String, Object?> row in rows)
+        if (row['name'] is String) ItemOption.fromJson(row),
+    ];
+  }
+
+  /// Duty and tax ledgers -- CGST, SGST, IGST -- for a sale or an order.
+  Future<List<String>> taxes(String companyId) =>
+      _names('/v1/companies/$companyId/masters/taxes', null);
+
+  /// Sales ledgers, for a sale's or sales order's goods.
+  Future<List<String>> salesAccounts(String companyId) =>
+      _names('/v1/companies/$companyId/masters/sales-accounts', null);
+
+  /// Purchase ledgers, for a purchase order's goods.
+  Future<List<String>> purchaseAccounts(String companyId) =>
+      _names('/v1/companies/$companyId/masters/purchase-accounts', null);
+
+  /// Cash and bank ledgers, for the other side of a receipt or payment.
+  Future<List<String>> accounts(String companyId) =>
+      _names('/v1/companies/$companyId/masters/accounts', null);
 
   Future<List<String>> _names(String path, String? query) async {
     final List<Map<String, Object?>> rows = await _api.getList(

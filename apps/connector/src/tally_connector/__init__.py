@@ -6,4 +6,4 @@ returns typed results. It contains no product logic, and its one write path --
 creating a voucher -- goes through a separate, named mutation registry.
 """
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"

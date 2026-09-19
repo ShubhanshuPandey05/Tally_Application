@@ -120,8 +120,8 @@ class _PairConnectorScreenState extends ConsumerState<PairConnectorScreen> {
                   'The connector runs on your PC and calls out to TallyFlow. '
                   'Nothing is opened up on your computer, and TallyPrime is '
                   'never exposed to the internet.\n\n'
-                  'TallyFlow only reads. It cannot create, edit or delete '
-                  'anything in your books.',
+                  'TallyFlow can add new entries you make in the app, but it '
+                  'cannot edit or delete anything already in your books.',
                   style: theme.textTheme.bodyMedium
                       ?.copyWith(color: context.mutedColor),
                 ),

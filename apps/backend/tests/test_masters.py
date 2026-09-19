@@ -425,3 +425,77 @@ async def test_a_picker_does_not_reach_tally_for_every_keystroke(
         await names(client, linked_company, "parties", typed)
 
     assert fake_connector.call_count("ledgers.list") == before
+
+
+async def test_picking_an_item_brings_its_unit_and_rate(
+    client, linked_company, fake_connector, samples
+):
+    """So somebody at a counter types a quantity and nothing else."""
+    fake_connector.set("stock_items.list", samples.stock())
+    await warm(client, linked_company, "stock")
+
+    rows = {r["name"]: r for r in await names(client, linked_company, "items")}
+    first = samples.stock()[0]
+
+    assert rows[first["name"]]["unit"] == "KG"
+    # A decimal string, never a float -- this becomes a rate on an invoice.
+    assert rows[first["name"]]["rate"] == "80.00"
+
+
+async def test_the_account_picker_offers_only_cash_and_bank(
+    client, linked_company, fake_connector
+):
+    fake_connector.set(
+        "ledgers.list",
+        [
+            {"name": "Cash", "parent_group": "Cash-in-Hand"},
+            {"name": "HDFC Bank", "parent_group": "Bank Accounts"},
+            {"name": "SBI OD", "parent": "Bank OD A/c"},
+            {"name": "Ram Traders", "parent_group": "Sundry Debtors"},
+            {"name": "Sales", "parent_group": "Sales Accounts"},
+        ],
+    )
+    await warm(client, linked_company, "ledgers")
+
+    found = {r["name"] for r in await names(client, linked_company, "accounts")}
+
+    assert found == {"Cash", "HDFC Bank", "SBI OD"}
+
+
+async def test_the_tax_picker_offers_only_duties_and_taxes(
+    client, linked_company, fake_connector
+):
+    fake_connector.set(
+        "ledgers.list",
+        [
+            {"name": "Output CGST 9%", "parent_group": "Duties & Taxes"},
+            {"name": "Output IGST 18%", "parent": "Duties & Taxes"},
+            {"name": "Cash", "parent_group": "Cash-in-Hand"},
+            {"name": "Ram Traders", "parent_group": "Sundry Debtors"},
+        ],
+    )
+    await warm(client, linked_company, "ledgers")
+
+    found = {r["name"] for r in await names(client, linked_company, "taxes")}
+
+    assert found == {"Output CGST 9%", "Output IGST 18%"}
+
+
+async def test_sales_and_purchase_ledgers_are_offered_separately(
+    client, linked_company, fake_connector
+):
+    fake_connector.set(
+        "ledgers.list",
+        [
+            {"name": "Gst Sales", "parent_group": "Sales Accounts"},
+            {"name": "Gst Purchase", "parent_group": "Purchase Accounts"},
+            {"name": "Cash", "parent_group": "Cash-in-Hand"},
+        ],
+    )
+    await warm(client, linked_company, "ledgers")
+
+    sales = {r["name"] for r in await names(client, linked_company, "sales-accounts")}
+    purchase = {r["name"] for r in await names(client, linked_company, "purchase-accounts")}
+
+    assert sales == {"Gst Sales"}
+    assert purchase == {"Gst Purchase"}

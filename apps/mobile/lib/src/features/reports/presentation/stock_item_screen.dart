@@ -114,7 +114,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen>
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 2, 16, 10),
                     child: DonutBreakdown(
-                      centreLabel: 'net',
+                      centreLabel: 'Net',
                       centreValue: MoneyFormat.quantity(
                         report.netQuantity,
                         report.unit,

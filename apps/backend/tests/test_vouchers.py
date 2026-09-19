@@ -165,26 +165,56 @@ async def test_a_sale_carries_its_stock_lines(client, linked_company, fake_conne
     assert lines[0]["ledger_name"] == "Sales"
 
 
-async def test_an_order_carries_lines_and_no_accounting_entries(
+async def test_an_order_is_shaped_like_one_entered_in_tally(
     client, linked_company, fake_connector
 ):
+    """Copied from a purchase order entered by hand in TallyPrime and exported
+    (live, 2026-09-19): the party at the full value, each line on the purchase
+    ledger, and an order number on every line."""
     response = await post(
         client,
         linked_company,
         receipt(
             kind="purchase_order",
             party="Wholesaler",
+            account="Gst Purchase",
             amount="1000.00",
+            reference="PO-17",
             lines=[{"item": "Sugar 1kg", "quantity": "10", "amount": "1000.00"}],
         ),
     )
 
     assert response.status_code == 200, response.text
     draft = sent(fake_connector)
-    # An order moves no money, so an empty ledger side is correct rather than
-    # an entry that failed to balance.
-    assert draft["ledger_entries"] == []
-    assert len(draft["inventory_entries"]) == 1
+    assert [(e["ledger_name"], e["amount"]) for e in draft["ledger_entries"]] == [
+        ("Wholesaler", "1000.00")
+    ]
+    assert draft["inventory_entries"][0]["ledger_name"] == "Gst Purchase"
+    # The reference the person typed is the order number, as on Tally's own.
+    assert draft["order_number"] == "PO-17"
+    assert draft["reference"] == "PO-17"
+    assert draft["order_due_date"] == TODAY
+
+
+async def test_an_order_with_no_reference_gets_a_number(
+    client, linked_company, fake_connector
+):
+    """Tally refuses an order without one, and cannot tell us the voucher
+    number until after it has saved the order."""
+    await post(
+        client,
+        linked_company,
+        receipt(
+            kind="sales_order",
+            account="Gst Sales",
+            amount="1000.00",
+            lines=[{"item": "Sugar 1kg", "quantity": "10", "amount": "1000.00"}],
+        ),
+    )
+
+    number = sent(fake_connector)["order_number"]
+    assert number.startswith("SO-")
+    assert sent(fake_connector)["reference"] == number
 
 
 # --------------------------------------------------------------------------
@@ -511,3 +541,113 @@ async def test_a_successful_write_offers_no_retry(client, linked_company, fake_c
 
     assert body["ok"] is True
     assert body["can_retry"] is False
+
+
+# --------------------------------------------------------------------------
+# Entry order and taxes
+# --------------------------------------------------------------------------
+
+
+async def test_a_receipt_starts_with_its_credit(client, linked_company, fake_connector):
+    """A TallyPrime receipt is entered Cr first; a payment Dr first."""
+    await post(client, linked_company, receipt())
+    names = [e["ledger_name"] for e in sent(fake_connector)["ledger_entries"]]
+    assert names == ["Ram & Sons", "Cash"]
+
+    await post(client, linked_company, receipt(kind="payment", party="Wholesaler"))
+    names = [e["ledger_name"] for e in sent(fake_connector)["ledger_entries"]]
+    assert names == ["Wholesaler", "Cash"]
+
+
+GST = [
+    {"ledger": "Output CGST 9%", "amount": "450.00"},
+    {"ledger": "Output SGST 9%", "amount": "450.00"},
+]
+
+
+async def test_a_sale_charges_the_customer_the_tax_and_credits_the_duty_ledgers(
+    client, linked_company, fake_connector
+):
+    response = await post(
+        client, linked_company, receipt(kind="sales", account="Sales", taxes=GST)
+    )
+    assert response.status_code == 200, response.text
+
+    entries = {e["ledger_name"]: e for e in sent(fake_connector)["ledger_entries"]}
+    assert entries["Ram & Sons"]["amount"] == "-5900.00"
+    # The tax is owed onward, so it never lands in Sales.
+    assert entries["Sales"]["amount"] == "5000.00"
+    assert entries["Output CGST 9%"]["amount"] == "450.00"
+    assert entries["Output CGST 9%"]["is_deemed_positive"] is False
+    assert entries["Output SGST 9%"]["amount"] == "450.00"
+
+
+async def test_an_invoice_with_items_and_tax_still_balances(
+    client, linked_company, fake_connector
+):
+    response = await post(
+        client,
+        linked_company,
+        receipt(
+            kind="sales",
+            account="Sales",
+            lines=[{"item": "Rice", "quantity": "50", "rate": "100", "amount": "5000.00"}],
+            taxes=GST,
+        ),
+    )
+    assert response.status_code == 200, response.text
+
+    draft = sent(fake_connector)
+    entries = {e["ledger_name"]: e["amount"] for e in draft["ledger_entries"]}
+    assert entries == {
+        "Ram & Sons": "-5900.00",
+        "Output CGST 9%": "450.00",
+        "Output SGST 9%": "450.00",
+    }
+
+
+async def test_a_purchase_order_takes_the_tax_on_the_other_side(
+    client, linked_company, fake_connector
+):
+    response = await post(
+        client,
+        linked_company,
+        receipt(
+            kind="purchase_order",
+            party="Wholesaler",
+            account=None,
+            lines=[{"item": "Rice", "quantity": "50", "rate": "100", "amount": "5000.00"}],
+            taxes=[{"ledger": "Input IGST 18%", "amount": "900.00"}],
+        ),
+    )
+    assert response.status_code == 200, response.text
+
+    entries = {e["ledger_name"]: e for e in sent(fake_connector)["ledger_entries"]}
+    assert entries["Wholesaler"]["amount"] == "5900.00"
+    assert entries["Input IGST 18%"]["amount"] == "-900.00"
+    assert entries["Input IGST 18%"]["is_deemed_positive"] is True
+
+
+async def test_taxes_are_refused_on_a_receipt(client, linked_company, fake_connector):
+    response = await post(client, linked_company, receipt(taxes=GST))
+
+    assert response.status_code == 422
+    assert fake_connector.writes == []
+
+
+async def test_a_missing_tax_ledger_is_not_offered_as_a_new_customer(
+    client, linked_company, fake_connector
+):
+    """Tally names whichever ledger it could not find. Only the party may be
+    created from the app; offering "Output CGST 9%" would file a tax ledger
+    under Sundry Debtors."""
+    fake_connector.write_fails_with = "tally_error"
+    fake_connector.write_error_message = "Ledger 'Output CGST 9%' does not exist!"
+
+    body = (
+        await post(client, linked_company, receipt(kind="sales", account="Sales", taxes=GST))
+    ).json()
+
+    assert body["ok"] is False
+    assert body["missing_kind"] is None
+    assert "Output CGST 9%" in body["message"]

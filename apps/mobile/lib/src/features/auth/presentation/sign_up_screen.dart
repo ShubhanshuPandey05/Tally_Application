@@ -161,8 +161,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'TallyFlow only reads from TallyPrime. It never creates, '
-                      'edits or deletes anything in your books.',
+                      'TallyFlow can add new entries you make in the app, but it '
+                      'never edits or deletes anything already in your books.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: context.mutedColor),

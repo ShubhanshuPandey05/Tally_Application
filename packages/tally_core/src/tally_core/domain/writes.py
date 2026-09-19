@@ -121,6 +121,13 @@ class VoucherDraft(BaseModel):
     reference: str | None = None
     ledger_entries: list[DraftLedgerEntry] = Field(default_factory=list)
     inventory_entries: list[DraftInventoryEntry] = Field(default_factory=list)
+    #: An order's number, written onto every stock line. Tally refuses an order
+    #: without one. It is the order's reference -- Tally's own orders carry the
+    #: same value in both -- because the voucher number is only known after
+    #: Tally has saved the voucher.
+    order_number: str | None = None
+    #: When the goods are due. The voucher date when not given.
+    order_due_date: date | None = None
     #: Recorded but kept out of the books until approved inside TallyPrime.
     optional: bool = True
 

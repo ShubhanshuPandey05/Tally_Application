@@ -33,8 +33,37 @@ final AutoDisposeFutureProviderFamily<List<String>, String> partyNamesProvider =
       ref.watch(entriesRepositoryProvider).parties(companyId),
 );
 
-final AutoDisposeFutureProviderFamily<List<String>, String> itemNamesProvider =
-    FutureProvider.autoDispose.family<List<String>, String>(
+final AutoDisposeFutureProviderFamily<List<ItemOption>, String>
+    itemOptionsProvider =
+    FutureProvider.autoDispose.family<List<ItemOption>, String>(
   (Ref ref, String companyId) =>
       ref.watch(entriesRepositoryProvider).items(companyId),
+);
+
+final AutoDisposeFutureProviderFamily<List<String>, String>
+    taxLedgerNamesProvider =
+    FutureProvider.autoDispose.family<List<String>, String>(
+  (Ref ref, String companyId) =>
+      ref.watch(entriesRepositoryProvider).taxes(companyId),
+);
+
+final AutoDisposeFutureProviderFamily<List<String>, String>
+    salesLedgerNamesProvider =
+    FutureProvider.autoDispose.family<List<String>, String>(
+  (Ref ref, String companyId) =>
+      ref.watch(entriesRepositoryProvider).salesAccounts(companyId),
+);
+
+final AutoDisposeFutureProviderFamily<List<String>, String>
+    purchaseLedgerNamesProvider =
+    FutureProvider.autoDispose.family<List<String>, String>(
+  (Ref ref, String companyId) =>
+      ref.watch(entriesRepositoryProvider).purchaseAccounts(companyId),
+);
+
+final AutoDisposeFutureProviderFamily<List<String>, String>
+    cashBankNamesProvider =
+    FutureProvider.autoDispose.family<List<String>, String>(
+  (Ref ref, String companyId) =>
+      ref.watch(entriesRepositoryProvider).accounts(companyId),
 );

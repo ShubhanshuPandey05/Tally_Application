@@ -148,7 +148,7 @@ class SettingsScreen extends ConsumerWidget {
                         colour: AppTheme.tileViolet,
                         size: 40,
                       ),
-                      title: const Text('People'),
+                      title: const Text('Users'),
                       subtitle: const Text('Who can see which companies'),
                       trailing: const Icon(Icons.chevron_right),
                       onTap: () => context.push(Routes.team),
@@ -172,14 +172,18 @@ class SettingsScreen extends ConsumerWidget {
                       children: <Widget>[
                         Icon(Icons.lock_outline, size: 18, color: context.positiveColor),
                         const SizedBox(width: 8),
-                        Text('Read-only', style: theme.textTheme.titleSmall),
+                        Text(
+                          'What TallyFlow can change',
+                          style: theme.textTheme.titleSmall,
+                        ),
                       ],
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'TallyFlow can only read from TallyPrime. It cannot create, '
-                      'change or delete vouchers, ledgers or stock. Nothing you do '
-                      'in this app can alter your books.',
+                      'It can only add new entries. By default each one arrives in '
+                      'TallyPrime as an optional voucher and changes nothing until '
+                      'someone approves it there. It cannot edit or delete anything '
+                      'already in your books.',
                       style:
                           theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
                     ),
@@ -303,21 +307,47 @@ class _UpdateCard extends ConsumerWidget {
             );
           }
 
-          return ListTile(
-            leading: Icon(
-              Icons.system_update_rounded,
-              color: theme.colorScheme.primary,
-            ),
-            title: Text('Version ${release.version} available'),
-            subtitle: Text(
-              release.notes.isEmpty
-                  ? 'You have ${value.currentVersion} · ${release.sizeLabel}'
-                  : '${release.notes}\nYou have ${value.currentVersion} · ${release.sizeLabel}',
-            ),
-            isThreeLine: release.notes.isNotEmpty,
-            trailing: FilledButton(
-              onPressed: () => ref.read(startUpdateProvider)(release),
-              child: const Text('Update'),
+          // The button sits under the text, not beside it. This app's buttons
+          // are full width, and as a ListTile's trailing widget one took the
+          // whole row and squeezed the release notes into a column one letter
+          // wide.
+          return Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                Row(
+                  children: <Widget>[
+                    Icon(
+                      Icons.system_update_rounded,
+                      size: 20,
+                      color: theme.colorScheme.primary,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Text(
+                        'Version ${release.version} available',
+                        style: theme.textTheme.titleSmall,
+                      ),
+                    ),
+                  ],
+                ),
+                if (release.notes.isNotEmpty) ...<Widget>[
+                  const SizedBox(height: 8),
+                  Text(release.notes, style: theme.textTheme.bodyMedium),
+                ],
+                const SizedBox(height: 6),
+                Text(
+                  'You have ${value.currentVersion} · ${release.sizeLabel}',
+                  style: theme.textTheme.bodySmall
+                      ?.copyWith(color: context.mutedColor),
+                ),
+                const SizedBox(height: 12),
+                FilledButton(
+                  onPressed: () => ref.read(startUpdateProvider)(release),
+                  child: const Text('Update'),
+                ),
+              ],
             ),
           );
         },

@@ -31,7 +31,7 @@ class TeamScreen extends ConsumerWidget {
     final bool canAdd = me?.canManageTeam ?? false;
 
     return Scaffold(
-      appBar: AppBar(title: const Text('People')),
+      appBar: AppBar(title: const Text('Users')),
       floatingActionButton: canAdd
           ? FloatingActionButton.extended(
               onPressed: () => _addMember(context, ref),

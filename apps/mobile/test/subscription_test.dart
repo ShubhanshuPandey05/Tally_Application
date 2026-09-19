@@ -215,7 +215,7 @@ void main() {
       expect(find.text('Companies'), findsNothing);
     });
 
-    testWidgets('an unapproved account reads as "not set yet", not "0 of 0"',
+    testWidgets('an unapproved account reads as "Not set yet", not "0 of 0"',
         (WidgetTester tester) async {
       // A full red bar over "0 of 0" would say "you have used everything up".
       // Nothing has been agreed yet, which is a different statement.
@@ -225,7 +225,7 @@ void main() {
             status: 'pending', allowsChanges: false,
             maxUsers: 0, maxCompanies: 0, usersUsed: 1, companiesUsed: 0)),
       );
-      expect(find.text('not set yet'), findsNWidgets(2));
+      expect(find.text('Not set yet'), findsNWidgets(2));
       expect(find.text('0 of 0'), findsNothing);
     });
   });

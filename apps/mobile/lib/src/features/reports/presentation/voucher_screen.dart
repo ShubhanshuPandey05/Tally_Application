@@ -225,7 +225,7 @@ class _VoucherBody extends StatelessWidget {
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
             child: SectionCard(
               title: 'Items',
-              subtitle: 'not kept for a voucher this old',
+              subtitle: 'Not kept for a voucher this old',
               icon: Icons.inventory_2_outlined,
               tint: AppTheme.tileAmber,
               child: Padding(
@@ -458,10 +458,9 @@ class _NoteRow extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: <Widget>[
           Text(
-            label.toUpperCase(),
+            label,
             style: theme.textTheme.labelSmall?.copyWith(
               color: context.mutedColor,
-              letterSpacing: 0.7,
               fontWeight: FontWeight.w700,
             ),
           ),

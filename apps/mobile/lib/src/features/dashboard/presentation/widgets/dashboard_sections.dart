@@ -170,7 +170,7 @@ class OutstandingSection extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
             child: DonutBreakdown(
-              centreLabel: 'total',
+              centreLabel: 'Total',
               centreValue: MoneyFormat.compact(summary.total),
               slices: <DonutSlice>[
                 for (final String bucket in ageingOrder)
@@ -196,7 +196,7 @@ class OutstandingSection extends StatelessWidget {
                 label: 'Overdue share',
                 value: anythingOverdue
                     ? '${(summary.overdueShare * 100).round()}%'
-                    : 'none',
+                    : 'None',
                 colour: anythingOverdue ? context.negativeColor : null,
               ),
             ],
@@ -212,7 +212,7 @@ class OutstandingSection extends StatelessWidget {
                     amount: party.amount,
                     subtitle: party.daysOverdue > 0
                         ? '${party.daysOverdue}d late'
-                        : 'not due',
+                        : 'Not due',
                     // Overdue parties borrow the ageing scale's own red, so a
                     // late row here and a late wedge above are the same colour.
                     colour: party.daysOverdue > 0 ? ageingColours['91_180'] : null,
@@ -514,7 +514,7 @@ class FundsSection extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 2, 16, 8),
               child: DonutBreakdown(
-                centreLabel: 'available',
+                centreLabel: 'Available',
                 centreValue: MoneyFormat.compact(summary.total),
                 slices: <DonutSlice>[
                   DonutSlice(
@@ -672,10 +672,9 @@ class _SubHeading extends StatelessWidget {
       child: Row(
         children: <Widget>[
           Text(
-            label.toUpperCase(),
+            label,
             style: theme.textTheme.labelSmall?.copyWith(
               color: context.mutedColor,
-              letterSpacing: 0.7,
               fontWeight: FontWeight.w700,
             ),
           ),

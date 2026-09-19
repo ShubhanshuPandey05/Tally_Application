@@ -153,7 +153,7 @@ class SubscriptionCard extends ConsumerWidget {
             ),
             const SizedBox(height: 10),
             _Allowance(
-              label: 'People',
+              label: 'Users',
               used: subscription.usersUsed,
               cap: subscription.maxUsers,
             ),
@@ -209,7 +209,7 @@ class _Allowance extends StatelessWidget {
             Text(label, style: theme.textTheme.bodyMedium),
             const Spacer(),
             Text(
-              agreed ? '$used of $cap' : 'not set yet',
+              agreed ? '$used of $cap' : 'Not set yet',
               style: theme.textTheme.bodyMedium?.copyWith(
                 color: atLimit ? context.cautionColor : context.mutedColor,
                 fontFeatures: const <FontFeature>[FontFeature.tabularFigures()],

@@ -11,16 +11,16 @@ enum EntryKind {
     wire: 'receipt',
     label: 'Receipt',
     blurb: 'Money received from a customer',
-    partyLabel: 'Received from',
-    accountLabel: 'Into',
+    partyLabel: 'Cr: Party',
+    accountLabel: 'Dr: Cash/Bank',
     defaultAccount: 'Cash',
   ),
   payment(
     wire: 'payment',
     label: 'Payment',
     blurb: 'Money paid to a supplier',
-    partyLabel: 'Paid to',
-    accountLabel: 'Out of',
+    partyLabel: 'Dr: Party',
+    accountLabel: 'Cr: Cash/Bank',
     defaultAccount: 'Cash',
   ),
   sales(
@@ -37,8 +37,8 @@ enum EntryKind {
     label: 'Sales order',
     blurb: 'An order a customer has placed',
     partyLabel: 'Customer',
-    accountLabel: '',
-    defaultAccount: '',
+    accountLabel: 'Sales ledger',
+    defaultAccount: 'Sales',
     takesLines: true,
     needsLines: true,
   ),
@@ -47,8 +47,8 @@ enum EntryKind {
     label: 'Purchase order',
     blurb: 'An order placed on a supplier',
     partyLabel: 'Supplier',
-    accountLabel: '',
-    defaultAccount: '',
+    accountLabel: 'Purchase ledger',
+    defaultAccount: 'Purchase',
     takesLines: true,
     needsLines: true,
   );
@@ -69,9 +69,10 @@ enum EntryKind {
   final String label;
   final String blurb;
 
-  /// The two sides of the entry, named the way the person filling it in thinks
-  /// of them. "Received from" and "Paid to" are the same field to the API and
-  /// opposite questions to a shopkeeper.
+  /// The two sides of the entry. On a receipt and a payment they carry Dr and
+  /// Cr, because the person filling them in keeps books in TallyPrime and reads
+  /// an entry that way -- and the prefix is what tells a receipt's party field
+  /// from a payment's, which are the same field to the API.
   final String partyLabel;
   final String accountLabel;
   final String defaultAccount;
@@ -83,8 +84,13 @@ enum EntryKind {
   /// goods; an invoice can be a single figure.
   final bool needsLines;
 
-  /// An order moves no money, so it has no cash or sales side to choose.
+  /// Every kind has a second ledger: cash or bank on a receipt or payment,
+  /// the sales or purchase ledger that an invoice's or order's goods post to.
   bool get hasAccount => accountLabel.isNotEmpty;
+
+  /// An order: its reference is its order number, written on every line.
+  bool get isOrder => this == salesOrder || this == purchaseOrder;
+
 }
 
 /// Resolve a kind from a URL, falling back rather than throwing.
@@ -128,6 +134,52 @@ class EntryLine {
       };
 }
 
+/// A duty or tax ledger on a sale or an order, at a rate.
+///
+/// The rate is kept rather than an amount, so the tax follows the items: add
+/// a line after choosing CGST and the tax on it is already counted.
+@immutable
+class EntryTax {
+  const EntryTax({required this.ledger, required this.rate});
+
+  final String ledger;
+
+  /// Percent, as somebody reads it off the ledger: 9 for "CGST 9%".
+  final double rate;
+
+  /// The tax on [taxable], to the paisa. Rounded here, once, so the figure on
+  /// the send button is exactly the figure TallyPrime receives.
+  double amountOn(double taxable) => (taxable * rate).round() / 100;
+}
+
+/// The rate written into a tax ledger's name -- "Output CGST 9%" gives 9 --
+/// or null when the name carries none. Only ever a starting value: the field
+/// it fills stays editable.
+double? rateInName(String name) {
+  final RegExpMatch? match =
+      RegExp(r'(\d+(?:\.\d+)?)\s*%').firstMatch(name);
+  return match == null ? null : double.tryParse(match.group(1)!);
+}
+
+/// A stock item as the line sheet offers it.
+///
+/// [rate] is the item's current stock rate in TallyPrime, offered as a
+/// starting point only -- the price actually charged is agreed at the counter.
+@immutable
+class ItemOption {
+  const ItemOption({required this.name, this.unit, this.rate});
+
+  factory ItemOption.fromJson(Map<String, Object?> json) => ItemOption(
+        name: json['name']! as String,
+        unit: json['unit'] as String?,
+        rate: double.tryParse(json['rate'] as String? ?? ''),
+      );
+
+  final String name;
+  final String? unit;
+  final double? rate;
+}
+
 @immutable
 class EntryDraft {
   const EntryDraft({
@@ -139,6 +191,7 @@ class EntryDraft {
     this.narration,
     this.reference,
     this.lines = const <EntryLine>[],
+    this.taxes = const <EntryTax>[],
   });
 
   final EntryKind kind;
@@ -149,6 +202,13 @@ class EntryDraft {
   final String? narration;
   final String? reference;
   final List<EntryLine> lines;
+  final List<EntryTax> taxes;
+
+  /// What the party is charged: the taxable [amount] plus every tax on it.
+  double get grandTotal => taxes.fold<double>(
+        amount,
+        (double sum, EntryTax t) => sum + t.amountOn(amount),
+      );
 
   Map<String, Object?> toJson() => <String, Object?>{
         'kind': kind.wire,
@@ -164,6 +224,15 @@ class EntryDraft {
         if (lines.isNotEmpty)
           'lines': <Map<String, Object?>>[
             for (final EntryLine line in lines) line.toJson(),
+          ],
+        // Amounts, not rates: the server posts exactly what was on screen.
+        if (taxes.isNotEmpty)
+          'taxes': <Map<String, Object?>>[
+            for (final EntryTax tax in taxes)
+              <String, Object?>{
+                'ledger': tax.ledger,
+                'amount': tax.amountOn(amount).toStringAsFixed(2),
+              },
           ],
       };
 }

@@ -959,7 +959,7 @@ class _NoCompaniesScreen extends ConsumerWidget {
           icon: Icons.folder_off_outlined,
           title: 'No companies yet',
           message: 'You have not been given access to any company. An admin of '
-              'this business can grant it from the People screen.',
+              'this business can grant it from the Users screen.',
         ),
       );
     }

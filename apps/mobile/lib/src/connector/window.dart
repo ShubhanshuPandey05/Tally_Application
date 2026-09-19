@@ -1096,11 +1096,10 @@ class _StatusCard extends StatelessWidget {
                 Icon(icon, size: 15, color: scheme.onSurfaceVariant),
                 const SizedBox(width: 6),
                 Text(
-                  label.toUpperCase(),
+                  label,
                   style: TextStyle(
                     fontSize: 10.5,
                     fontWeight: FontWeight.w700,
-                    letterSpacing: 0.6,
                     color: scheme.onSurfaceVariant,
                   ),
                 ),
@@ -1356,11 +1355,10 @@ class _Section extends StatelessWidget {
         Row(
           children: <Widget>[
             Text(
-              title.toUpperCase(),
+              title,
               style: TextStyle(
                 fontSize: 10.5,
                 fontWeight: FontWeight.w700,
-                letterSpacing: 0.6,
                 color: scheme.onSurfaceVariant,
               ),
             ),

@@ -78,12 +78,12 @@ void main() {
   });
 
   group('entry kinds', () {
-    test('orders have no cash or sales side to choose', () {
-      // An order moves no money, so showing an account field would be asking
-      // for something that does not apply to it.
-      expect(EntryKind.salesOrder.hasAccount, isFalse);
-      expect(EntryKind.purchaseOrder.hasAccount, isFalse);
-      expect(EntryKind.receipt.hasAccount, isTrue);
+    test('an order names the ledger its goods post to', () {
+      // TallyPrime's own orders carry it on every line, like an invoice.
+      expect(EntryKind.salesOrder.accountLabel, 'Sales ledger');
+      expect(EntryKind.purchaseOrder.accountLabel, 'Purchase ledger');
+      expect(EntryKind.salesOrder.isOrder, isTrue);
+      expect(EntryKind.sales.isOrder, isFalse);
     });
 
     test('an order is meaningless without lines', () {
@@ -94,8 +94,10 @@ void main() {
     });
 
     test('the two sides are named the way the person thinks of them', () {
-      expect(EntryKind.receipt.partyLabel, 'Received from');
-      expect(EntryKind.payment.partyLabel, 'Paid to');
+      expect(EntryKind.receipt.partyLabel, 'Cr: Party');
+      expect(EntryKind.receipt.accountLabel, 'Dr: Cash/Bank');
+      expect(EntryKind.payment.partyLabel, 'Dr: Party');
+      expect(EntryKind.payment.accountLabel, 'Cr: Cash/Bank');
     });
 
     test('an unknown kind in a link lands on the form, not a crash', () {
@@ -274,6 +276,37 @@ void main() {
       // create something with no name.
       expect(missing('ledger', null).canCreateMissing, isFalse);
       expect(missing(null, 'Ram Traders').canCreateMissing, isFalse);
+    });
+  });
+
+  group('taxes', () {
+    test('a rate is read out of the ledger name when it is there', () {
+      expect(rateInName('Output CGST 9%'), 9);
+      expect(rateInName('IGST @ 18 %'), 18);
+      expect(rateInName('CGST 2.5%'), 2.5);
+      expect(rateInName('Cess'), isNull);
+    });
+
+    test('a tax is sent as the amount shown, on top of the taxable value', () {
+      final EntryDraft draft = EntryDraft(
+        kind: EntryKind.sales,
+        date: DateTime(2026, 9, 19),
+        party: 'Ram Traders',
+        amount: 1234.5,
+        taxes: const <EntryTax>[
+          EntryTax(ledger: 'Output CGST 9%', rate: 9),
+          EntryTax(ledger: 'Output SGST 9%', rate: 9),
+        ],
+      );
+
+      final Map<String, Object?> json = draft.toJson();
+      // The taxable value stays the amount; tax is on top, to the paisa.
+      expect(json['amount'], '1234.50');
+      expect(json['taxes'], <Map<String, Object?>>[
+        <String, Object?>{'ledger': 'Output CGST 9%', 'amount': '111.11'},
+        <String, Object?>{'ledger': 'Output SGST 9%', 'amount': '111.11'},
+      ]);
+      expect(draft.grandTotal, closeTo(1456.72, 0.001));
     });
   });
 }

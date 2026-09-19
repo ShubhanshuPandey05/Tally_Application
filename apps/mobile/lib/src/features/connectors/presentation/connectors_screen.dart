@@ -154,7 +154,7 @@ class ConnectorCard extends StatelessWidget {
                   if (connector.lastSeenAt != null)
                     _Meta(
                       icon: Icons.schedule,
-                      label: 'seen ${Freshness.relativeTime(connector.lastSeenAt!)}',
+                      label: 'Seen ${Freshness.relativeTime(connector.lastSeenAt!)}',
                     ),
                   if (connector.version != null)
                     _Meta(icon: Icons.tag, label: 'v${connector.version!}'),
