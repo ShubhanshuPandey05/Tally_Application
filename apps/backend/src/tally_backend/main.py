@@ -31,6 +31,7 @@ from .services.public_stats import PublicStatsService
 from .services.refresher import SnapshotRefresher
 from .services.releases import build_catalogue
 from .services.sync import SyncCoordinator
+from .services.voucher_queue import VoucherQueue
 
 logger = logging.getLogger(__name__)
 
@@ -109,6 +110,15 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.refresher = refresher
         await refresher.start()
 
+        # Entries somebody made while their PC was unreachable. Drained on
+        # every reconnect; the worker here is the backstop for one queued
+        # while the PC was already connected -- TallyPrime closed and
+        # reopened without the socket ever dropping.
+        queue = VoucherQueue(app.state.session_factory, hub, settings)
+        app.state.voucher_queue = queue
+        hub.on_attach = queue.drain
+        await queue.start()
+
         # Both drain buffers that were already filling before the loop existed,
         # so nothing logged during construction or startup is lost.
         log_writer = LogWriter(
@@ -142,6 +152,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             # Logs are stopped last, so the shutdown of everything below is
             # itself recorded rather than lost to the shutdown of the recorder.
             await refresher.stop()
+            await queue.stop()
             # Stopped after the refresher so a sweep cannot spawn a backfill
             # into a coordinator that has already shut down.
             await sync.stop()

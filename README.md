@@ -1,7 +1,9 @@
 # TallyFlow
 
-AI-powered mobile dashboard for TallyPrime. **Read-only** — see `CLAUDE.md` for
-the product vision and the rules this codebase is held to.
+AI-powered mobile dashboard for TallyPrime. Reads are the product; the one
+write path lets a person create a voucher from their phone, and it arrives in
+TallyPrime awaiting approval by default. See `CLAUDE.md` for the product
+vision and the rules this codebase is held to.
 
 ## Layout
 
@@ -285,6 +287,91 @@ including the failure that is otherwise silent: if `$AlterID` is accepted but
 ignored, every "fetch only what changed" read quietly returns the entire history
 instead, and nothing else in the system would notice.
 
+### Creating an entry from the phone
+
+`POST /v1/companies/{id}/vouchers` is the only endpoint that changes anything
+in a customer's books. Five kinds: receipt, payment, sale, sales order and
+purchase order.
+
+**The approval step is TallyPrime's.** The entry is written as a Tally
+*optional* voucher — it appears in the Day Book immediately and counts towards
+no balance, no stock figure and no report until somebody opens it in TallyPrime
+and un-marks it. The accountant approves on a screen they already use, so there
+is no second inbox and no pending-voucher table of ours to keep consistent.
+
+Our own reads agree with Tally about this for free: `Voucher.is_effective` has
+always excluded optional vouchers, so an entry awaiting approval is stored,
+visible and absent from every total, on both sides.
+
+Whether entries arrive optional is chosen on the shop's PC, in the connector
+window's **Entries** tab. `optional` is the default, and the connector may only
+ever make an entry *more* cautious than the request asked for — a phone asking
+for a regular entry on a machine set to optional gets an optional one.
+
+**The client sends a business request, not a double entry.** A party, an amount
+and some lines; the backend builds both sides. Tally's sign convention is
+inverted from the usual one and encoding it in every client is how one of them
+eventually posts backwards — and a client that could name both sides would be a
+general journal API wearing a receipt's clothes.
+
+**Nothing about a write is retried, cached or coalesced.** Two identical reads
+are one read; two identical receipts are two receipts. A write that times out
+is reported as *"the entry may still have been saved — check the Day Book"*,
+because Tally can finish an import and lose the reply, and this side cannot
+tell that apart from a write that never arrived.
+
+Old connectors are never sent one: the handshake carries a separate `mutations`
+capability list, empty on any build from before write-back, and the backend
+refuses locally rather than sending a frame that would be correctly ignored.
+
+**An entry that cannot get there is held, not lost.** When the PC is off, or
+TallyPrime is closed, or the company is not open, the entry is queued on the
+server and delivered when the connector next reconnects. Only *provably
+unsent* entries are queued — a write that timed out may already be in the books
+and is never held for a second attempt.
+
+The queue is on the server and **only** on the server (decided 2026-09-17). An
+outbox on the shop's own PC — which is what BizAnalyst ships, as a local SQLite
+table with `tallyInsertSuccess` and `tallyErrorMessage` columns — cannot accept
+anything while that machine is off, and the machine being off is the case the
+queue exists for. The connector stays the thin translator it is meant to be.
+
+Three rules keep it from becoming a duplicate generator:
+
+1. **A row is claimed before it is sent**, by a compare-and-swap on its state,
+   so two drains cannot pick up the same entry. `SELECT ... FOR UPDATE` would
+   have been the obvious shape and is a no-op on SQLite — concurrency control
+   that passes its own tests.
+2. **A claimed row that fails ambiguously never waits again.** It settles as
+   failed with Tally's own words on it, and a person decides.
+3. **A drain stops the moment the PC proves unreachable.** Whatever stopped one
+   entry stops the rest, and walking the queue anyway would re-claim the same
+   row on the next iteration.
+
+**Nothing about it is invisible.** The count is a badge on the dashboard and
+the list is a screen, because the real danger of a queue is somebody recording
+a receipt, seeing it accepted, and walking away from a PC that never comes
+back. Entries expire after seven days rather than posting silently into a
+period nobody is looking at any more.
+
+### Adding a customer or an item
+
+The most common way an entry fails is that something it names is not in the
+books: *"Ledger 'Ram Traders' does not exist!"*. The backend parses that into a
+kind and a name, and the app offers to create exactly that — `POST
+/v1/companies/{id}/ledgers` or `/stock-items`.
+
+**Offered, never automatic.** A ledger created on every unrecognised spelling
+turns a chart of accounts into "Ram Traders", "Ram traders" and "Ram Trader",
+with one customer's outstanding split across all three and nothing afterwards
+able to say which is which. The confirmation dialog is the feature.
+
+Only a party and a stock item can be created. A stock *group* or a unit of
+measure is a decision about how a business classifies things, so those are
+reported and never invented. And nothing created from a phone carries a figure:
+no opening balance, no opening quantity, no rate — each would move a trial
+balance or a stock valuation on the strength of a typo.
+
 ### Scaling past one instance
 
 A connector holds one WebSocket to one backend instance, but a phone's request
@@ -339,8 +426,8 @@ and belongs to someone running a shop:
 - Roles are re-read from the database on every request rather than trusted from
   the access token, so revoking an accountant takes effect immediately instead of
   after the token's 15-minute life.
-- Reads are audited, not just writes. In a read-only accounting product the
-  sensitive act *is* the read.
+- Reads are audited, not just writes. Nearly every screen a customer opens is
+  a read, so in this product the read is a sensitive act in its own right.
 
 ## Mobile app
 
@@ -473,14 +560,21 @@ calls Tally, and returns typed domain objects. Consequences worth knowing:
 - A broken TDL query is fixed by shipping a connector update, not an app update.
 - Connectors advertise their query manifest at handshake, so the backend can
   detect version skew instead of failing mysteriously.
-- Write support (Phase 5) is a `TallyMutation` class alongside `TallyQuery`,
-  using the same registry. No redesign.
+- Write support is a `TallyMutation` class alongside `TallyQuery`, with the
+  same registry mechanics and a *separate* registry. No redesign was needed.
 
-### Read-only is enforced, not just intended
+### A read cannot become a write by accident
 
-`tally_core.tally.envelope` can only emit `TALLYREQUEST=Export`. A test asserts
-that every registered query produces an envelope containing no `Import` and no
-`ISMODIFY="Yes"`, so a write path cannot be added by accident.
+`build_export_envelope` cannot emit `TALLYREQUEST=Import` whatever it is
+passed; reaching Tally's writer means calling `build_import_envelope` by name.
+The two registries are separate dictionaries, so `get_query` cannot return a
+mutation however it is addressed. Tests assert both: that every registered
+*query* produces an envelope with no `Import` and no `ISMODIFY="Yes"`, and
+that a read job naming `voucher.create` is refused without reaching Tally.
+
+A write is also never retried on a timeout, never cached, and never collapsed
+with an identical concurrent write — each of those would book a voucher twice
+or silently drop a real second payment.
 
 ### Tally's XML is not well-formed
 

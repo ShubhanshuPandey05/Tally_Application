@@ -61,8 +61,72 @@ class CompanyMarkers(BaseModel):
 
     @property
     def supports_incremental(self) -> bool:
-        """Whether this Tally told us enough to sync by change id."""
-        return self.voucher_alter_id is not None
+        """Whether this Tally told us enough to sync by change id.
+
+        A **negative** counter reads as "did not tell us". Live TallyPrime
+        installs do report negative AlterIDs in some states, and the value is
+        interpolated straight into a TDL filter: ``$AlterID > -5`` matches every
+        voucher in the company, so the delta that is supposed to cost one tiny
+        request silently becomes a full re-export on every single sweep -- with
+        correct figures and no error anywhere to explain the load.
+
+        Falling back to the date-window read is both cheaper and correct. The
+        closest shipping competitor carries an explicit
+        ``isCompanyAlterIdNegative`` flag for the same Tally behaviour, which is
+        what prompted checking ours.
+        """
+        return self.voucher_alter_id is not None and self.voucher_alter_id >= 0
+
+
+class TallyLicence(BaseModel):
+    """What TallyPrime says about its own licence and the operator's rights.
+
+    Both fields here describe conditions that otherwise fail *silently*, which
+    is the only reason they are worth a round trip. A Tally running in
+    educational mode answers every request cheerfully and returns a fraction of
+    the books; a Tally whose logged-in user is not an administrator refuses
+    exports it has no rights to. In both cases the customer sees an empty or
+    short report and concludes the product is broken.
+
+    Every field is optional because older builds do not recognise every
+    ``$$LicenseInfo`` name and drop it silently -- the same rule as
+    :class:`CompanyMarkers`. "Tally did not say" must never be rendered as
+    "No", which would raise a warning on a perfectly healthy install.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: Verified live 2026-09-15 against ``$$LicenseInfo:IsEducationalMode``.
+    is_educational: bool | None = None
+    #: ``$$LicenseInfo:IsLicensedMode``.
+    is_licensed: bool | None = None
+    #: ``$$LicenseInfo:IsAdmin``. A non-admin Tally user is a real support
+    #: case: exports come back empty with no error to point at.
+    is_admin: bool | None = None
+    serial_number: str | None = None
+    #: "Gold" or "Silver" where Tally reports it; multi-user vs single-user.
+    edition: str | None = None
+
+    @property
+    def warnings(self) -> list[str]:
+        """Plain-language reasons this Tally will under-serve the product.
+
+        Returned rather than raised: none of these is a failure of the request
+        in front of us, and refusing to answer would replace a short report
+        with no report at all. The app shows them beside the data.
+        """
+        notes: list[str] = []
+        if self.is_educational:
+            notes.append(
+                "TallyPrime is running in educational mode, so it only returns "
+                "a limited set of vouchers. Figures here will be incomplete."
+            )
+        if self.is_admin is False:
+            notes.append(
+                "The TallyPrime user signed in on this computer is not an "
+                "administrator, so some reports cannot be exported."
+            )
+        return notes
 
 
 class LedgerGroup(BaseModel):
@@ -164,6 +228,8 @@ class VoucherTypeKind(StrEnum):
     RECEIPT_NOTE = "receipt_note"
     STOCK_JOURNAL = "stock_journal"
     PHYSICAL_STOCK = "physical_stock"
+    SALES_ORDER = "sales_order"
+    PURCHASE_ORDER = "purchase_order"
     OTHER = "other"
 
     @classmethod
@@ -184,6 +250,8 @@ class VoucherTypeKind(StrEnum):
             "receipt_note": cls.RECEIPT_NOTE,
             "stock_journal": cls.STOCK_JOURNAL,
             "physical_stock": cls.PHYSICAL_STOCK,
+            "sales_order": cls.SALES_ORDER,
+            "purchase_order": cls.PURCHASE_ORDER,
         }
         return aliases.get(key, cls.OTHER)
 

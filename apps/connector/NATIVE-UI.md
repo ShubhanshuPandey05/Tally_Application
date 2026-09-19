@@ -59,7 +59,7 @@ it is the screen that pairs the machine in the first place.
 - who in the business can see them, and whether each person actually has access
 - the Tally port, the server address, and where the logs are
 
-**It can do exactly four things:**
+**It can do exactly six things:**
 
 | Action | Effect |
 |---|---|
@@ -67,6 +67,51 @@ it is the screen that pairs the machine in the first place.
 | `refresh` | Ask the backend to re-send the roster |
 | `port` | Save a new Tally port, then restart |
 | `new-code` | Abandon the current pairing claim and draw a fresh one |
+| `sync-speed` | Save Gentle/Normal/Fast, then restart so the backend is told |
+| `entry-mode` | Save whether entries from a phone arrive optional or regular |
+
+`sync-speed` was added 2026-09-17 and is the first of these that changes what
+the *backend* does rather than what this machine does. It earns the exception
+because the person who can see TallyPrime stuttering is standing at this PC,
+not holding the phone. The connector stores the chosen word and nothing else;
+what each level means is `services.sync.pace_for` on the backend, so a better
+preset ships with a server deploy rather than a new connector on every
+customer's machine. The restart is the mechanism, not housekeeping -- the
+choice travels in `HostInfo` on the handshake.
+
+`entry-mode` was added alongside write-back and is the second setting here
+that shapes the product rather than this machine. It decides whether a voucher
+created on somebody's phone arrives in TallyPrime as an **optional** entry --
+recorded in full, counting towards no balance, no stock figure and no report
+until somebody opens it in TallyPrime and un-marks it -- or posts straight into
+the books.
+
+That is the approval step for write-back, and it is deliberately Tally's own
+rather than a queue of ours. The accountant approves the entry on the Day Book
+screen they already use; an approval inbox in the mobile app would ask the
+person who does the books to watch a second one, and would leave us
+reconciling, expiring and auditing a pending-voucher table that Tally already
+maintains correctly.
+
+Two things about it differ from `sync-speed`, and both follow from where the
+setting is read:
+
+- **It does not restart the session.** The connector applies it when it builds
+  each import rather than reporting it on a handshake, so it takes effect on
+  the next entry. Dropping a socket to change a bookkeeping policy would
+  interrupt a sync for nothing.
+- **It can only ever make an entry more cautious.** A phone asking for a
+  regular entry on a machine set to optional gets an optional one. There is no
+  payload that reverses this, which is what makes the choice a policy rather
+  than a default a client can talk its way past.
+
+`optional` is the default, so a shop that never opens this window gets entries
+that cannot affect its books until somebody says so.
+
+**The window is tabbed:** Companies, People, TallyPrime, Sync speed, Entries.
+The connection and TallyPrime cards sit *above* the tabs and never scroll away,
+because "is it working?" is what this window is opened to answer and must not
+be a click away.
 
 ### What it must never be able to do
 
@@ -319,7 +364,9 @@ imports.
 
 ## 7. Non-negotiables carried from CLAUDE.md
 
-- **Read-only.** Nothing here may grow a write path to Tally.
+- **No write path but the named one.** Creating a voucher goes through
+  `voucher.create` and nothing else here may reach Tally's importer. This
+  window chooses the *policy* for those entries; it never sends one.
 - **No inbound port on a customer's machine.** Loopback or named pipe only.
 - **The service is independent of the window.** Closing the window must not stop
   the connector.

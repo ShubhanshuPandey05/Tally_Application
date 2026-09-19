@@ -74,6 +74,23 @@ class Settings(BaseSettings):
     #: jobs per connector just queues inside Tally and freezes the shop's UI.
     max_jobs_per_connector: int = 2
     default_job_timeout_seconds: float = 60.0
+    #: Shorter than a read's, because a person is standing there waiting
+    #: for the entry they just made. Past this the answer they need is
+    #: "go and look in TallyPrime", not a longer spinner.
+    default_write_timeout_seconds: float = 45.0
+
+    # --- Entries waiting for a PC that was not there --------------------
+    pending_voucher_queue_enabled: bool = True
+    #: How long a queued entry keeps trying before it gives up and says so.
+    #:
+    #: Not optional and not generous. An entry that has waited a week must
+    #: not post silently into a period nobody is looking at any more, and a
+    #: queue with no expiry is one that eventually delivers a surprise.
+    pending_voucher_expiry_days: int = 7
+    #: The backstop sweep. A reconnect drains immediately; this catches an
+    #: entry queued while the PC was already connected -- TallyPrime closed
+    #: and reopened without the socket ever dropping.
+    pending_voucher_drain_interval_seconds: float = 120.0
     heavy_job_timeout_seconds: float = 180.0
 
     # --- Freshness ------------------------------------------------------
@@ -103,6 +120,21 @@ class Settings(BaseSettings):
     #: six months), which is more headroom than halving this could buy and does
     #: not double the number of exports a shop has to sit through.
     sync_chunk_months: int = 6
+    #: The *first* slice, in days, and deliberately far smaller than
+    #: ``sync_chunk_months``. The opening export is the one a shop owner is
+    #: standing over, and a six-month collection build freezes the till for
+    #: minutes with nothing on screen to explain it -- which is exactly the
+    #: complaint that reached us from live installs.
+    #:
+    #: A short probe answers the only thing the planner genuinely lacks: how
+    #: many vouchers a day this shop writes. ``_resize_remaining`` then cuts
+    #: every later slice to the span that density implies. Starting small is
+    #: only safe because that resize now *widens* as readily as it narrows --
+    #: without it a quiet shop would pay 49 round trips for four years.
+    sync_chunk_probe_days: int = 30
+    #: Ceiling on an adaptive slice, so a quiet shop cannot talk the planner
+    #: into one enormous export. Deliberately about ``sync_chunk_months``.
+    sync_chunk_max_days: int = 186
     #: Ceiling on how far back a backfill reaches, even when the books start
     #: earlier. Nobody opens a phone to read a six-year-old day book, and every
     #: extra year is another multi-minute export against a live shop.
@@ -128,6 +160,13 @@ class Settings(BaseSettings):
     #: Breather between slices. TallyPrime is single-threaded and shares a CPU
     #: with whoever is billing at the counter; back-to-back exports are felt.
     sync_chunk_pause_seconds: float = 3.0
+    #: The breather scales with the export that just finished, floored at
+    #: ``sync_chunk_pause_seconds`` and capped at ``sync_chunk_pause_max_seconds``.
+    #: A fixed pause is the wrong shape: three seconds after a four-second export
+    #: is a real rest, and three seconds after a ninety-second one is nothing --
+    #: while the till is sharing a CPU with it either way.
+    sync_chunk_pause_ratio: float = 0.25
+    sync_chunk_pause_max_seconds: float = 30.0
     #: Per-slice budget. Generous because it is bounded work on a slow machine,
     #: and a slice that times out is retried rather than abandoned.
     sync_chunk_timeout_seconds: float = 300.0
@@ -140,8 +179,19 @@ class Settings(BaseSettings):
     sync_delta_interval_seconds: int = 300
     #: An AlterID delta reports what changed, never what was deleted, so a
     #: recent window is re-read in full on this cadence and reconciled.
-    sync_reconcile_days: int = 90
+    #: Wide because this sweep is *identity only* -- no ledger or inventory
+    #: lines -- which measured 13.2x cheaper on live books (2026-08-29). At 90
+    #: days a voucher deleted six months back stayed in our figures forever,
+    #: with no error anywhere to point at it. 300 days costs roughly what the
+    #: old 90-day window did precisely because the lines are not carried.
+    sync_reconcile_days: int = 300
     sync_reconcile_interval_seconds: int = 24 * 3600
+    #: The window the *non-incremental* fallback re-reads in full, for a Tally
+    #: that reports no usable AlterID cursor. Deliberately NOT
+    #: ``sync_reconcile_days``: that path carries every ledger and inventory
+    #: line, so widening it in step would have tripled the cost of the one read
+    #: that was already the expensive one.
+    sync_fallback_window_days: int = 90
     #: A run whose heartbeat is older than this had its backend instance killed
     #: mid-sync. Past it the row stops being a lock and becomes resumable work.
     sync_run_stale_after_seconds: float = 600.0

@@ -65,9 +65,13 @@ def make_executor(make_pipeline) -> Callable[..., JobExecutor]:
         *,
         cache: ResponseCache | None = None,
         loaded: LoadedCompanies | None = None,
+        voucher_entry_mode: str = "optional",
     ) -> JobExecutor:
         return JobExecutor(
-            make_pipeline(handler), cache or ResponseCache(), loaded or NeverRefuses()
+            make_pipeline(handler),
+            cache or ResponseCache(),
+            loaded or NeverRefuses(),
+            voucher_entry_mode=voucher_entry_mode,
         )
 
     return _make

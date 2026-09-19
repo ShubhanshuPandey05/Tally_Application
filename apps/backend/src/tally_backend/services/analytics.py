@@ -24,7 +24,13 @@ from datetime import date, timedelta
 from decimal import Decimal
 from typing import Any
 
-from tally_core.domain.masters import Ledger, StockItem, VoucherType, VoucherTypeKind
+from tally_core.domain.masters import (
+    Ledger,
+    LedgerGroup,
+    StockItem,
+    VoucherType,
+    VoucherTypeKind,
+)
 from tally_core.domain.money import Money, Side
 from tally_core.domain.transactions import (
     InventoryEntry,
@@ -106,6 +112,10 @@ def parse_vouchers(payload: Any) -> list[Voucher]:
 
 def parse_ledgers(payload: Any) -> list[Ledger]:
     return [Ledger.model_validate(item) for item in payload or []]
+
+
+def parse_groups(payload: Any) -> list[LedgerGroup]:
+    return [LedgerGroup.model_validate(item) for item in payload or []]
 
 
 def parse_bills(payload: Any) -> list[OutstandingBill]:
@@ -419,6 +429,32 @@ def party_group_index(ledgers: list[Ledger]) -> dict[str, str]:
     }
 
 
+def sub_groups(groups: list[LedgerGroup], root: str) -> list[LedgerGroup]:
+    """Every group below ``root``, at any depth, parents before children.
+
+    Walked breadth-first from the root rather than by following each group's
+    parent chain upwards, so a malformed tree -- a cycle, a parent that is not
+    in the read -- ends the walk instead of looping or claiming a stray group.
+    """
+    children: dict[str, list[LedgerGroup]] = defaultdict(list)
+    for grp in groups:
+        if grp.parent:
+            children[_norm(grp.parent)].append(grp)
+
+    found: list[LedgerGroup] = []
+    seen = {_norm(root)}
+    queue = [_norm(root)]
+    while queue:
+        for child in children.get(queue.pop(0), []):
+            key = _norm(child.name)
+            if key in seen:
+                continue
+            seen.add(key)
+            found.append(child)
+            queue.append(key)
+    return found
+
+
 def group_outstanding(
     bills: list[OutstandingBill],
     ledgers: list[Ledger],
@@ -426,6 +462,7 @@ def group_outstanding(
     group: str,
     kind: OutstandingKind,
     as_of: date,
+    groups: list[LedgerGroup] | None = None,
 ) -> dict[str, Any]:
     """Outstanding for every party filed under one ledger group.
 
@@ -441,25 +478,31 @@ def group_outstanding(
     prepayment; folding them into the total would understate the debt that is
     actually chaseable. Both numbers are published, and ``net`` is their sum.
 
-    Membership uses the ledger's **direct** parent group. A party filed under a
-    home-made sub-group is counted as ungrouped rather than quietly claimed for
-    its ancestor, and the count of those is returned so the app can say the
+    With the group tree (``groups``), a party filed under a home-made sub-group
+    -- "Electronics Supplier" under Sundry Creditors -- belongs to the group,
+    and each party row names the group it actually sits in so the app can show
+    the tree. Without the tree, membership falls back to the ledger's **direct**
+    parent only: guessing that an unknown group is a sub-group would be
+    guessing. Parties with no ledger row are counted, so the app can say the
     report is incomplete instead of silently under-reporting.
     """
-    wanted = _norm(group)
+    below = sub_groups(groups or [], group)
+    wanted = {_norm(group)} | {_norm(grp.name) for grp in below}
     index = party_group_index(ledgers)
     #: The side this group's bills are expected to close on. Anything else is
     #: an advance or a contra entry.
     expected = Side.DEBIT if kind is OutstandingKind.RECEIVABLE else Side.CREDIT
 
     members: dict[str, list[OutstandingBill]] = defaultdict(list)
+    placed: dict[str, str] = {}
     ungrouped: set[str] = set()
     for bill in bills:
         parent = index.get(_norm(bill.party_name))
         if parent is None:
             ungrouped.add(bill.party_name)
-        elif _norm(parent) == wanted:
+        elif _norm(parent) in wanted:
             members[bill.party_name].append(bill)
+            placed[bill.party_name] = parent
 
     total = Money.zero()
     advances = Money.zero()
@@ -501,7 +544,7 @@ def group_outstanding(
                 party_total.amount,
                 {
                     "party": party,
-                    "group": group,
+                    "group": placed[party],
                     "total": money_out(party_total),
                     "advances": money_out(party_advances),
                     "net": money_out(party_net),
@@ -531,6 +574,9 @@ def group_outstanding(
             },
         },
         "parties": [row[2] for row in rows],
+        # The tree under the group, so the app can nest sub-groups without
+        # knowing the chart of accounts. Empty when the tree was not read.
+        "sub_groups": [{"name": grp.name, "parent": grp.parent} for grp in below],
         # Parties with bills but no ledger row in this read. Not an error, but
         # the difference between "you have no other debtors" and "we could not
         # tell", which an owner deserves to see.

@@ -3,6 +3,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/layout/adaptive.dart';
 import '../core/widgets/primitives.dart';
+import '../features/entries/presentation/create_entry_button.dart';
 import 'router.dart';
 import 'theme.dart';
 
@@ -60,6 +61,9 @@ class HomeShell extends StatelessWidget {
             Expanded(child: child),
           ],
         ),
+        // No bar to clear on a rail layout, so it sits where a desktop app
+        // puts it rather than floating 72px above nothing.
+        floatingActionButton: _index == 2 ? null : const CreateEntryButton(),
       );
     }
 
@@ -68,6 +72,11 @@ class HomeShell extends StatelessWidget {
       // with `HomeShell.contentInset`.
       extendBody: true,
       body: child,
+      // Above the bar rather than in the app bar: this is the action somebody
+      // takes with a customer in front of them, and a thumb reaches the bottom
+      // right corner without the hand moving. Hidden on Profile, where there
+      // is nothing to record.
+      floatingActionButton: _index == 2 ? null : const CreateEntryButton(),
       bottomNavigationBar: _FloatingBar(
         index: _index,
         destinations: _destinations,

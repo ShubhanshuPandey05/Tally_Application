@@ -154,6 +154,7 @@ class GroupOutstandingReport {
     required this.ageing,
     required this.parties,
     required this.ungroupedPartyCount,
+    this.subGroups = const <SubGroup>[],
   });
 
   final String group;
@@ -180,6 +181,10 @@ class GroupOutstandingReport {
   /// is the difference between a total an owner can trust and one they cannot.
   final int ungroupedPartyCount;
 
+  /// Every group below [group], at any depth. Empty when the backend had no
+  /// group tree to read, in which case every party sits directly under [group].
+  final List<SubGroup> subGroups;
+
   bool get hasAdvances => !advances.isZero;
 
   factory GroupOutstandingReport.fromJson(Map<String, Object?> json) {
@@ -204,8 +209,22 @@ class GroupOutstandingReport {
       ageing: ageing,
       parties: _list(json['parties'], GroupParty.fromJson),
       ungroupedPartyCount: (json['ungrouped_party_count'] as num?)?.toInt() ?? 0,
+      subGroups: _list(json['sub_groups'], SubGroup.fromJson),
     );
   }
+}
+
+/// One group in the tree under a [GroupOutstandingReport]'s group.
+class SubGroup {
+  const SubGroup({required this.name, this.parent});
+
+  final String name;
+  final String? parent;
+
+  factory SubGroup.fromJson(Map<String, Object?> json) => SubGroup(
+        name: json['name'] as String? ?? '',
+        parent: json['parent'] as String?,
+      );
 }
 
 /// One party's position within a group. Grouped by the backend, which is the
@@ -219,9 +238,14 @@ class GroupParty {
     required this.billCount,
     required this.daysOverdue,
     required this.bills,
+    this.group,
   });
 
   final String party;
+
+  /// The group this party's ledger is filed in -- the report's group itself,
+  /// or one of its sub-groups.
+  final String? group;
   final Money total;
   final Money advances;
   final Money net;
@@ -234,6 +258,7 @@ class GroupParty {
 
   factory GroupParty.fromJson(Map<String, Object?> json) => GroupParty(
         party: json['party'] as String? ?? '',
+        group: json['group'] as String?,
         total: Money.fromJson(json['total']),
         advances: Money.fromJson(json['advances']),
         net: Money.fromJson(json['net']),

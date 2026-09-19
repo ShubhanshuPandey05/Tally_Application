@@ -8,13 +8,31 @@ dashboard.
 
 > ## The one rule
 >
-> **The MVP is READ ONLY.** No create, update, or delete APIs reach Tally.
-> Users view reports, dashboards, stock, receivables and analytics. They cannot
-> modify anything in their books.
+> **Reads are the product. Writes are a narrow, named exception.**
 >
-> The *architecture* must nonetheless be ready for writes, AI and automation
-> without redesign. Read the [Future-proofing](#future-proofing) rules before
-> adding a module.
+> Everything a customer sees is a read: reports, dashboards, stock, receivables
+> and analytics. On top of that sits exactly one write path — a person creating
+> a voucher from their phone — and it is reachable only through code that says
+> so by name. There is no general mutation API, and nothing else in the product
+> may grow one without the same treatment.
+>
+> Three constraints make the exception safe, and none of them is optional:
+>
+> 1. **Writes have their own registry.** `get_query` cannot return a mutation
+>    and `get_mutation` cannot return a query. A read that names a write is
+>    refused rather than dispatched, so no read path reaches Tally's importer.
+> 2. **A write is never retried.** Tally can finish an import and lose the
+>    reply. Repeating it books the voucher twice and nothing afterwards can say
+>    which attempt landed, so a timed-out write is reported as "go and look",
+>    never as "try again".
+> 3. **Entries wait for approval by default.** A voucher sent from a phone
+>    arrives as a Tally *optional* entry — recorded in full, counting towards no
+>    balance, no stock figure and no report until somebody un-marks it inside
+>    TallyPrime. The approval is Tally's own step on a screen the accountant
+>    already uses, not an inbox of ours.
+>
+> Read [Writing back](#writing-back) before touching any of it, and
+> [Future-proofing](#future-proofing) before adding a module.
 
 ---
 
@@ -92,9 +110,17 @@ a blank page with nothing in any log to explain it.
 
 ## 3. Non-negotiables
 
-**Read-only.** No mutation path to Tally. A read-only product grows an accidental
-write path by misparsing a request, so unknown message types are refused or
-ignored, never guessed at.
+**One write path, and it is named.** Creating a voucher from the app is the
+only thing that mutates a customer's books, and it travels through its own
+frame, its own registry and its own builder. Everything else is a read. A
+product grows an *accidental* write path by misparsing a request, so unknown
+message types are still refused or ignored, never guessed at — that rule did
+not relax when writes arrived, it got more important.
+
+**A write must never be repeated on its own.** No retry on timeout, no cache,
+no single-flight collapsing two identical requests into one. Two identical
+receipts are two receipts; treating them as one silently drops a real second
+payment, and retrying one books a voucher twice.
 
 **Never expose Tally.** The connector is the only component that speaks to it,
 over `localhost`. No port forwarding, ever.
@@ -256,6 +282,79 @@ re-read in full and reconciled. Slices older than `sync_inventory_days` omit
 inventory lines — line items are what make a voucher export large, and no report
 reads the lines on a three-year-old invoice.
 
+### Writing back
+
+A person can create a **receipt, payment, sale, sales order or purchase order**
+from the app. That list is the whole of it, held in `WRITEABLE_KINDS` and
+refused by name rather than by omission, so adding a sixth kind is a deliberate
+act somebody reviewed.
+
+**The approval step is Tally's, not ours.** An entry arrives as a Tally
+*optional* voucher: recorded in full and visible in the Day Book, counting
+towards no balance, no stock figure and no report until somebody opens it in
+TallyPrime and un-marks it. `ISOPTIONAL` is a first-class voucher field —
+verified against a live export, where every existing voucher carries
+`<ISOPTIONAL>No</ISOPTIONAL>`.
+
+An approval queue of our own was designed and thrown away. It would have made
+the person who does the books watch a second inbox, and it would have left us
+reconciling, expiring and auditing a pending-voucher table that Tally already
+maintains correctly. The accountant approves on the screen they already use.
+
+**Whether entries arrive optional is chosen on the shop's own PC**, in the
+connector window's Entries tab, because it is a bookkeeping policy for that
+business. `optional` is the default, so a shop that never opens the window gets
+entries that cannot touch its books. The connector may only ever make an entry
+*more* cautious than the request asked for — a phone asking for a regular entry
+on a machine set to optional gets an optional one, and there is no payload that
+reverses it. That asymmetry is what makes the setting a policy rather than a
+default a client can talk its way past.
+
+**An entry that cannot reach Tally is queued on the server.** Not on the shop's
+PC: an outbox there — BizAnalyst's shape, a local SQLite table — cannot accept
+anything while the machine is off, which is the case the queue exists for. Only
+provably-unsent entries are held; a timeout is never queued. Rows are claimed by
+compare-and-swap before sending, expire after seven days, and the pending count
+is a badge on the dashboard, because a queue nobody can see is how a receipt
+goes missing. See `services/voucher_queue.py`.
+
+**A missing party or item can be created, after somebody confirms it.** Tally's
+*"Ledger 'X' does not exist!"* is parsed on the server into a kind and a name,
+and the app offers to add exactly that. Never automatic: a ledger per
+unrecognised spelling gives a chart of accounts three spellings of one customer.
+Groups and units are reported, never invented, and nothing created this way
+carries an opening balance or quantity.
+
+**Three things a read does that a write must not.** Each is a way a voucher
+gets booked twice or vanishes:
+
+| | Read | Write |
+|---|---|---|
+| Retry on timeout | yes | **never** — Tally can finish an import and lose the reply |
+| Cache the answer | yes | **never** — a cached receipt lets a retry report the first attempt's success |
+| Collapse identical concurrent calls | yes | **never** — two identical receipts are two receipts |
+
+A timed-out write is reported as *"the entry may still have been saved — check
+the Day Book"*, never as something to try again.
+
+**The envelope is built before the request is queued.** An entry that does not
+balance is refused immediately rather than after waiting behind a five-minute
+export, and the builder's own error reaches the person instead of being wrapped
+by the pipeline worker.
+
+**Tally's own words are the error.** A refused voucher comes back in-band with
+HTTP 200 as `<LINEERROR>Ledger 'Ram Traders' does not exist!</LINEERROR>`, which
+`parse_xml` raises on. That sentence is what the person sees, because it is
+something they can act on and "something went wrong" is not. Note that Tally
+counts such a refusal under `EXCEPTIONS`, *not* `ERRORS` — verified live — so
+both are checked wherever success is decided.
+
+**Old connectors are never sent a write.** The handshake carries a separate
+`mutations` capability list, defaulted empty. A connector built before
+write-back handshakes exactly as it did and is simply never asked; without the
+list it would ignore the unknown frame, correctly and silently, and the phone
+would wait out the whole deadline for a reply that was never coming.
+
 ### One interface, three skins and two shapes
 
 The app ships **Light, Dim and Dark**, chosen by the customer in Profile and
@@ -361,6 +460,30 @@ What it shows about the account is pushed down as a **roster** — names, roles
 and sync times, never a figure. A shop PC that could be asked for a balance over
 its own loopback socket would be a read path into the books outside every check
 in `deps.get_company`.
+
+**It now carries one setting that changes what the backend does** (decided
+2026-09-17). Until then the window could only describe this machine and restart
+its own session; every choice that shaped the product was made on the phone.
+**Sync speed** — Gentle, Normal, Fast — breaks that deliberately, because the
+person who can see the till stuttering is the one standing at it, not the owner
+holding a phone somewhere else. The window is tabbed for it — Companies,
+People, TallyPrime, Sync speed — with the connection and TallyPrime cards
+pinned *above* the tabs, since "is it working?" must never be a click away.
+
+A fifth tab, **Entries**, followed it for the same reason: whether a voucher
+sent from somebody's phone arrives as a Tally *optional* entry or posts
+straight into the books is a decision about this shop's bookkeeping, and the
+person responsible for it is the one at this machine. See
+`apps/connector/NATIVE-UI.md`; the approval itself happens inside TallyPrime,
+not in our app.
+
+The older rules are unchanged and still bind: the window still cannot unlink,
+unpair or stop anything, it still shows no figure, and the connector still runs
+whether or not it is open. A speed is neither an account decision nor a balance;
+it is this machine saying how hard it is willing to be worked. The connector
+stores only the chosen word and reports it in `HostInfo` on every handshake —
+what each level *means* lives in `services.sync.pace_for`, so a better preset
+ships with a backend deploy instead of a new connector on every customer's PC.
 
 ### Re-pairing cuts the PC off first
 
@@ -524,8 +647,8 @@ connector was removed must not go with it.
 **Diagnostics are kept for two days.** `LogWriter` prunes four tables on a time
 window, not two: the kept server log, the fleet's connector logs, the audit
 trail and `job_stats`. All four grow with *traffic* rather than with customers —
-the audit trail fastest of all, since it is a row per request and in a read-only
-product every screen a customer opens is a request — and a diagnostic
+the audit trail fastest of all, since it is a row per request and nearly every
+screen a customer opens is a read — and a diagnostic
 side-channel that outgrows the books it sits beside has stopped being
 diagnostic. Retention is not the only lever: the portal can clear any of them on
 demand, per connector, per account or entirely. Clearing the audit trail is
@@ -577,9 +700,13 @@ must be rebuilt after changing them.
 
 **In:** authentication · company connection · dashboard · reports · analytics ·
 charts · inventory · outstanding · ledger summary · sales summary · purchase
-summary.
+summary · creating receipts, payments, sales, sales orders and purchase orders
+from the app.
 
-**Out:** any create, update or delete API.
+**Out:** editing or deleting anything that already exists in Tally, and
+creating any voucher kind not in that list. Both are refused by name — see
+`WRITEABLE_KINDS` — so adding one is a deliberate act rather than an omission
+somebody notices later.
 
 **Dashboard widgets.** Today's and monthly sales/purchase, cash and bank balance,
 receivables and payables, inventory value, top customers/products, sales and
@@ -598,18 +725,20 @@ companion for TallyPrime.
 
 ## 8. Future-proofing
 
-Every module must be able to grow from READ to WRITE without redesign:
-`DashboardService` today; `VoucherService`, `LedgerService`, `StockService`
-tomorrow. Adding write support means adding new `type` values to the wire
-protocol — existing readers ignore unknown types by design, so old connectors
-degrade rather than crash.
+The growth path from READ to WRITE was designed before it was used, and voucher
+creation proved it: writes arrived as a new `type` value on the wire, and
+existing readers ignore unknown types by design, so connectors in the field
+degraded rather than crashed. Anything added next — ledger creation, stock
+adjustments — follows the same shape rather than inventing another.
 
-Planned, not built: voucher/ledger/stock creation, an LLM tool-selection layer
-(`User → LLM → tool → Backend → Connector → Tally`), notifications, workflow
-automation, voice commands, a web dashboard, public APIs, and a marketplace.
+Planned, not built: ledger and stock-item creation, editing an entry already in
+Tally, an LLM tool-selection layer (`User → LLM → tool → Backend → Connector →
+Tally`), notifications, workflow automation, voice commands, a web dashboard,
+public APIs, and a marketplace.
 
-**Roadmap:** ① read-only dashboards → ② advanced analytics → ③ notifications →
-④ AI chat → ⑤ write APIs → ⑥ automation → ⑦ voice → ⑧ marketplace.
+**Roadmap:** ① dashboards → ② advanced analytics → ③ notifications → ④ AI chat →
+⑤ wider write APIs → ⑥ automation → ⑦ voice → ⑧ marketplace. Steps ① and the
+first slice of ⑤ are built.
 
 Before implementing anything, answer: *can this scale to 100,000 companies, and
 can it support AI, write APIs, plugins and automation later?* If no, redesign

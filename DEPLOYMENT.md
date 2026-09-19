@@ -578,7 +578,8 @@ curl -sI https://tallyflow.app/downloads/TallyFlowConnector-Setup-0.1.0.exe | he
 Then open the site and check, in order: the download button hits a real file of
 the size stated on the page; the checksum on the page matches the file; pricing
 is the agreed pricing; and every claim in the copy is still true of the shipped
-backend (read-only enforcement, outbound-only connections, freshness stamps).
+backend (separate read and write registries, outbound-only connections,
+freshness stamps).
 That last one is a real maintenance obligation — the copy is specific on purpose.
 
 ---
@@ -830,6 +831,7 @@ until a release signing config exists.
 
 Watch, at minimum: `/v1/ready` per instance, connector count from `/v1/fleet`
 across instances, Postgres connection pool saturation, and the auth rate-limit
-rejection rate. In a read-only accounting product the sensitive act is the read,
+rejection rate. Nearly every screen a customer opens is a read, so the read is
+a sensitive act in its own right,
 and reads are already audited server-side — make sure those logs are retained
 somewhere you can query.

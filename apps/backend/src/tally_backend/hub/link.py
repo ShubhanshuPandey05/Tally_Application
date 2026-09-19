@@ -30,6 +30,7 @@ from tally_core.protocol import (
     JobResult,
     LogBatch,
     Message,
+    MutationRequest,
     Ping,
     Pong,
     ServerMessage,
@@ -127,6 +128,11 @@ class ConnectorLink:
         self.tally_online: bool = False
         self.companies_open: list[str] = []
         self.capabilities: list[dict[str, Any]] = []
+        #: Writes this build can perform. Empty for every connector built
+        #: before write-back existed, which is what lets the backend refuse
+        #: a write locally instead of waiting out a deadline for a frame
+        #: the connector correctly ignored.
+        self.mutations: list[dict[str, Any]] = []
         self.host: dict[str, Any] = {}
         self.last_seen: float = time.time()
         #: Set once the connector answers a ping; before that we know it is
@@ -169,6 +175,18 @@ class ConnectorLink:
         if not self.capabilities:
             return True
         return any(entry.get("name") == query for entry in self.capabilities)
+
+    def can_write(self, mutation: str) -> bool:
+        """Whether this connector build knows how to perform this write.
+
+        Note the asymmetry with :meth:`supports`, which assumes an empty list
+        means an old connector that predates capability reporting and lets the
+        read through. An empty list here means the opposite -- a connector that
+        cannot write at all -- and guessing the generous way would send a frame
+        that gets silently ignored, leaving somebody watching a spinner until
+        the deadline expires.
+        """
+        return any(entry.get("name") == mutation for entry in self.mutations)
 
     # -- sending ---------------------------------------------------------
 
@@ -252,6 +270,106 @@ class ConnectorLink:
             )
         finally:
             self._slots.release()
+
+    async def run_write(
+        self,
+        *,
+        mutation: str,
+        params: dict[str, Any],
+        timeout_seconds: float,
+        job_id: str | None = None,
+    ) -> JobResult:
+        """Dispatch one write and wait for its result.
+
+        Mirrors :meth:`run_job` except where a write must differ, and the
+        differences are the point:
+
+        * **A write that cannot get a slot is not retryable.** A busy read is
+          worth trying again in a moment; telling somebody to re-send a voucher
+          is how one gets entered twice. It fails as ``connector_busy`` with
+          ``retryable=False`` so nothing upstream re-sends it automatically.
+        * **A timeout is never reported as retryable either.** By the time we
+          give up the connector may already have posted it, and this side
+          cannot tell.
+        """
+        job_id = job_id or uuid.uuid4().hex
+        deadline = time.monotonic() + timeout_seconds
+
+        try:
+            await asyncio.wait_for(self._slots.acquire(), timeout=timeout_seconds)
+        except TimeoutError:
+            return JobResult.failure(
+                job_id,
+                JobError(
+                    code="connector_busy",
+                    message=f"no free slot on connector {self.connector_id}",
+                    user_message=(
+                        "Your Tally PC is busy, so the entry was not sent. "
+                        "Nothing was saved -- please try again in a moment."
+                    ),
+                    # Safe, and the message already says so: the write never
+                    # got a slot, so it never reached Tally.
+                    retryable=True,
+                ),
+            )
+
+        try:
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return JobResult.failure(job_id, _write_timeout_error(job_id, timeout_seconds))
+            return await self._await_write(
+                job_id=job_id,
+                mutation=mutation,
+                params=params,
+                remaining=remaining,
+            )
+        finally:
+            self._slots.release()
+
+    async def _await_write(
+        self,
+        *,
+        job_id: str,
+        mutation: str,
+        params: dict[str, Any],
+        remaining: float,
+    ) -> JobResult:
+        loop = asyncio.get_running_loop()
+        future: asyncio.Future[JobResult] = loop.create_future()
+        self._pending[job_id] = future
+
+        try:
+            await self.send(
+                MutationRequest(
+                    job_id=job_id,
+                    mutation=mutation,
+                    params=params,
+                    deadline_seconds=remaining,
+                )
+            )
+            return await asyncio.wait_for(future, timeout=remaining)
+
+        except TimeoutError:
+            return JobResult.failure(job_id, _write_timeout_error(job_id, remaining))
+
+        except LinkClosed:
+            # Deliberately different words from the read case. The socket died
+            # after the frame went out, so the entry may be in Tally already and
+            # "your PC went offline" would read as "nothing happened".
+            return JobResult.failure(
+                job_id,
+                JobError(
+                    code="connector_offline",
+                    message=f"connector {self.connector_id} disconnected",
+                    user_message=(
+                        "Your Tally PC went offline before it could confirm. "
+                        "Check the Day Book in TallyPrime before entering this again."
+                    ),
+                    retryable=False,
+                ),
+            )
+        finally:
+            self._pending.pop(job_id, None)
 
     async def _await_result(
         self,
@@ -506,6 +624,25 @@ class ConnectorLink:
 
         with contextlib.suppress(Exception):
             await self._socket.close(code=code, reason=reason)
+
+
+def _write_timeout_error(job_id: str, seconds: float) -> JobError:
+    """A write that ran out of time, which is not the same as one that failed.
+
+    The connector may have posted the voucher and lost the reply, or the frame
+    may never have reached Tally at all. This side cannot tell, so the message
+    sends the person to look rather than inviting them to try again -- and
+    ``retryable`` is False so nothing upstream re-sends it for them.
+    """
+    return JobError(
+        code="write_timeout",
+        message=f"write {job_id} timed out after {seconds:.0f}s",
+        user_message=(
+            "TallyPrime did not confirm in time. The entry may still have been "
+            "saved -- check the Day Book in TallyPrime before entering it again."
+        ),
+        retryable=False,
+    )
 
 
 def _timeout_error(job_id: str, seconds: float) -> JobError:

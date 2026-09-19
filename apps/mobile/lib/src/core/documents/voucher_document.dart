@@ -6,6 +6,7 @@ import '../money/money.dart';
 import '../money/money_format.dart';
 import 'amount_in_words.dart';
 import 'document_style.dart';
+import 'tax_invoice_document.dart';
 
 /// One voucher, drawn as the document a business actually sends.
 ///
@@ -96,6 +97,17 @@ class VoucherDocument {
       .any((VoucherStockLine line) => (line.hsnCode ?? '').trim().isNotEmpty);
 
   Future<List<int>> build() async {
+    // A sale goes out as the Tax Invoice Tally prints; every other voucher
+    // keeps the ledger-first layout below, which is what a receipt or a
+    // journal actually is.
+    if (detail.kind == 'sales') {
+      return TaxInvoiceDocument(
+        detail: detail,
+        companyName: companyName,
+        companyGstin: companyGstin,
+      ).build();
+    }
+
     final pw.Document document = pw.Document(
       title: '$title ${detail.voucherNumber ?? ''}'.trim(),
       author: companyName,

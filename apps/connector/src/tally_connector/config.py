@@ -61,6 +61,29 @@ def install_dir() -> Path:
     return Path(__file__).resolve().parents[3]
 
 
+#: How hard this PC lets the backend work its TallyPrime. Chosen on the machine
+#: itself, because the person who can see the till stuttering is standing at it.
+#:
+#: The connector only stores the choice; what each level *means* is decided by
+#: the backend, which is what plans the sync. Keeping the numbers there means a
+#: better-tuned preset ships with a backend deploy rather than needing a new
+#: connector on every customer's PC.
+SYNC_SPEEDS = ("gentle", "normal", "fast")
+
+#: How an entry sent from somebody's phone arrives in TallyPrime.
+#:
+#: ``optional`` writes it as a Tally *optional* voucher: recorded in full,
+#: excluded from every balance, stock figure and report until somebody opens
+#: it in TallyPrime and un-marks it. That is the approval step, and it is
+#: Tally's own rather than a queue of ours -- the accountant approves it on
+#: the screen they already use, and nothing a phone sends can move a figure
+#: before they do.
+#:
+#: ``regular`` writes it straight into the books, for a shop where the person
+#: holding the phone is the person who would have typed it in anyway.
+VOUCHER_ENTRY_MODES = ("optional", "regular")
+
+
 class ConnectorSettings(BaseSettings):
     """Everything the connector needs to run."""
 
@@ -82,6 +105,44 @@ class ConnectorSettings(BaseSettings):
     reconnect_initial_seconds: float = 1.0
     reconnect_max_seconds: float = 60.0
     heartbeat_timeout_seconds: float = 90.0
+    #: Outbound proxy for everything this connector dials. Most shops need
+    #: nothing here; a machine on a managed network -- a unit inside a mall, a
+    #: franchise on head office's LAN -- often cannot reach the internet any
+    #: other way, and the failure looks like "connector offline" while Tally and
+    #: the internet are both plainly working.
+    #:
+    #: Applied by exporting the standard proxy variables rather than plumbed
+    #: through three constructors: ``websockets.connect`` already defaults to
+    #: ``proxy=True`` (read the environment) and ``httpx`` to ``trust_env=True``,
+    #: so one assignment reaches the socket, the pairing client and the updater
+    #: alike -- and an operator who already set HTTPS_PROXY system-wide keeps
+    #: working with no setting here at all.
+    proxy_url: str | None = None
+    #: A CA bundle trusted *in addition to* the system store. Required on a
+    #: network whose proxy intercepts TLS and re-signs it with a private root,
+    #: where every dial-out otherwise fails certificate verification. The wrong
+    #: fix for that is ``verify_tls=False``, which would expose a customer's
+    #: books to anyone on the path.
+    tls_ca_bundle: Path | None = None
+
+    # --- Sync load ------------------------------------------------------
+    #: One of :data:`SYNC_SPEEDS`. Sent to the backend on every handshake; the
+    #: backend maps it to slice sizes and pauses. "normal" is what every
+    #: existing install reports without being changed.
+    sync_speed: str = "normal"
+
+    # --- Writing back ---------------------------------------------------
+    #: One of :data:`VOUCHER_ENTRY_MODES`. The default the connector applies to
+    #: every voucher a phone asks it to create.
+    #:
+    #: ``optional`` is the default, and deliberately the *cautious* one: a shop
+    #: that installs this and never opens the window gets entries that cannot
+    #: affect its books until somebody in Tally says so. Choosing ``regular``
+    #: is an explicit decision made at the machine next to the till.
+    #:
+    #: The connector may only ever make an entry more cautious than the phone
+    #: asked for, never less -- see ``CreateVoucherMutation.build``.
+    voucher_entry_mode: str = "optional"
 
     # --- Tally ----------------------------------------------------------
     tally_host: str = "127.0.0.1"
@@ -205,6 +266,24 @@ class ConnectorSettings(BaseSettings):
             raise ValueError("backend_url must be a ws:// or wss:// URL")
         return value
 
+    @field_validator("sync_speed")
+    @classmethod
+    def _valid_sync_speed(cls, value: str) -> str:
+        speed = value.strip().lower()
+        if speed not in SYNC_SPEEDS:
+            raise ValueError(f"sync_speed must be one of {', '.join(SYNC_SPEEDS)}")
+        return speed
+
+    @field_validator("voucher_entry_mode")
+    @classmethod
+    def _valid_entry_mode(cls, value: str) -> str:
+        mode = value.strip().lower()
+        if mode not in VOUCHER_ENTRY_MODES:
+            raise ValueError(
+                f"voucher_entry_mode must be one of {', '.join(VOUCHER_ENTRY_MODES)}"
+            )
+        return mode
+
     @field_validator("log_level", "remote_log_level")
     @classmethod
     def _valid_level(cls, value: str) -> str:
@@ -216,6 +295,26 @@ class ConnectorSettings(BaseSettings):
     @property
     def is_paired(self) -> bool:
         return bool(self.connector_id and self.connector_secret)
+
+    def apply_network_environment(self) -> None:
+        """Publish proxy and CA settings into the process environment.
+
+        Called from :func:`load_settings`, so every entrypoint gets it. The
+        WebSocket, the pairing client and the updater are built in three
+        different modules and none of them should have to know what a proxy is.
+
+        ``setdefault``, never overwrite: a value already exported by the
+        operator or by the service wrapper is this machine's real network
+        configuration and outranks anything written to connector.json.
+        """
+        if self.proxy_url:
+            for name in ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY"):
+                os.environ.setdefault(name, self.proxy_url)
+        if self.tls_ca_bundle is not None:
+            # httpx picks this up through its default SSL context. The
+            # WebSocket loads the same file explicitly, in
+            # ConnectorSession._ssl_context, because it builds its own.
+            os.environ.setdefault("SSL_CERT_FILE", str(self.tls_ca_bundle))
 
     def tally_config(self) -> TallyConfig:
         return TallyConfig(
@@ -231,6 +330,7 @@ class ConnectorSettings(BaseSettings):
             os=f"{platform.system()} {platform.release()}",
             connector_version=connector_version,
             python_version=platform.python_version(),
+            sync_speed=self.sync_speed,
         )
 
     def redacted(self) -> dict[str, object]:
@@ -289,7 +389,9 @@ def load_settings(config_path: Path | None = None) -> ConnectorSettings:
     # BaseSettings already layers env over these, so passing file values as
     # explicit kwargs gives file < env precedence for free.
     known = set(ConnectorSettings.model_fields)
-    return ConnectorSettings(**{k: v for k, v in file_values.items() if k in known})
+    settings = ConnectorSettings(**{k: v for k, v in file_values.items() if k in known})
+    settings.apply_network_environment()
+    return settings
 
 
 def save_settings(values: Mapping[str, object], config_path: Path | None = None) -> Path:

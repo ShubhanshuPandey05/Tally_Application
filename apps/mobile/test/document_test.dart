@@ -105,6 +105,63 @@ void main() {
       expect(name, 'Purchase-3-15-Mar-2026');
     });
 
+    test('builds a sale as a tax invoice, with and without stock lines', () async {
+      Map<String, Object?> money(String amount, String side) => <String, Object?>{
+            'amount': amount,
+            'currency': 'INR',
+            'side': side,
+            'signed': side == 'debit' ? amount : '-$amount',
+          };
+      Map<String, Object?> sale({required bool items}) => <String, Object?>{
+            'key': 'k',
+            'date': '2026-04-16',
+            'voucher_type': 'Sales',
+            'kind': 'sales',
+            'voucher_number': 'S-101',
+            'party': 'Sample Buyer',
+            'amount': money('2360.00', 'debit'),
+            'debit_total': money('2360.00', 'debit'),
+            'credit_total': money('2360.00', 'credit'),
+            'party_details': <String, Object?>{
+              'name': 'Sample Buyer',
+              'gstin': '24AAAAA0000A1Z5',
+              'state': 'Gujarat',
+              'address': <String>['12 Market Road', 'Surat'],
+            },
+            'inventory_entries': <Object?>[
+              if (items)
+                <String, Object?>{
+                  'item': 'Sample Item',
+                  'quantity': 1,
+                  'unit': 'Nos',
+                  'rate': money('2000.00', 'credit'),
+                  'amount': money('2000.00', 'credit'),
+                  'hsn_code': '1234',
+                  'gst_rate': 18,
+                },
+            ],
+            'ledger_entries': <Object?>[
+              <String, Object?>{
+                'ledger': 'Sample Buyer',
+                'is_party': true,
+                'amount': money('2360.00', 'debit'),
+              },
+              <String, Object?>{'ledger': 'Sales', 'amount': money('2000.00', 'credit')},
+              <String, Object?>{'ledger': 'CGST', 'amount': money('180.00', 'credit')},
+              <String, Object?>{'ledger': 'SGST', 'amount': money('180.00', 'credit')},
+            ],
+          };
+
+      for (final bool items in <bool>[true, false]) {
+        final List<int> bytes = await VoucherDocument(
+          detail: VoucherDetail.fromJson(sale(items: items)),
+          companyName: 'JSR Prime Solution',
+          companyGstin: '24BBBBB1111B1Z5',
+        ).build();
+        expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+      }
+    });
+
     test('folds a party name a filesystem would refuse', () {
       // "M/s. Sharma & Co." is an entirely ordinary ledger name and carries a
       // directory separator.

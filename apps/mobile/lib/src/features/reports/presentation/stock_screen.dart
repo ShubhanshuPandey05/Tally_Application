@@ -6,6 +6,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
@@ -154,6 +155,13 @@ class _StockScreenState extends ConsumerState<StockScreen> {
         if (_group != null) {
           items = items.where((StockLine item) => (item.group ?? 'Other') == _group).toList();
         }
+        // The summary's totals are the whole company's; a card sitting under
+        // "Running low" or a group chip has to describe the rows it heads, or it
+        // reads as the value of the selection. Totalled before the search box,
+        // which narrows the list to find an item, not to change the question.
+        final Money filteredValue =
+            items.fold(Money.zero, (Money total, StockLine item) => total + item.value);
+        final int filteredCount = items.length;
         final String needle = _search.trim().toLowerCase();
         if (needle.isNotEmpty) {
           items = items
@@ -181,12 +189,12 @@ class _StockScreenState extends ConsumerState<StockScreen> {
                     Expanded(
                       child: _Stat(
                         label: 'Stock value',
-                        value: MoneyFormat.full(report.value),
+                        value: MoneyFormat.full(filteredValue),
                         emphasis: true,
                       ),
                     ),
                     Expanded(
-                      child: _Stat(label: 'Items', value: '${report.itemCount}'),
+                      child: _Stat(label: 'Items', value: '$filteredCount'),
                     ),
                   ],
                 ),

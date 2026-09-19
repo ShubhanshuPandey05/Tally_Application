@@ -230,6 +230,10 @@ class _ConnectorWindowState extends State<ConnectorWindow> {
       onRefresh: () => _press('refresh'),
       onRestart: () => _press('restart'),
       onChangePort: () => _changePort(state.tally.port),
+      onSyncSpeed: (String speed) =>
+          _press('sync-speed', payload: <String, Object?>{'speed': speed}),
+      onEntryMode: (String mode) =>
+          _press('entry-mode', payload: <String, Object?>{'mode': mode}),
     );
   }
 }
@@ -519,6 +523,8 @@ class StatusPanel extends StatelessWidget {
     required this.onRefresh,
     required this.onRestart,
     required this.onChangePort,
+    required this.onSyncSpeed,
+    required this.onEntryMode,
   });
 
   final ConnectorState state;
@@ -532,106 +538,469 @@ class StatusPanel extends StatelessWidget {
   final VoidCallback onRefresh;
   final VoidCallback onRestart;
   final VoidCallback onChangePort;
+  final ValueChanged<String> onSyncSpeed;
+  final ValueChanged<String> onEntryMode;
 
   @override
   Widget build(BuildContext context) {
-    final ColorScheme scheme = Theme.of(context).colorScheme;
-    final AccountState account = state.account;
+    return DefaultTabController(
+      length: 5,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: <Widget>[
+          // "Is it working?" is the question this window gets opened to answer,
+          // so both status cards stay on screen whichever tab is showing.
+          // Behind a tab they would make somebody click to find out whether
+          // anything is wrong, which is the one thing this window must never
+          // ask of the person standing at the till.
+          _Centred(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 0),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: <Widget>[
+                if (stale)
+                  const Padding(
+                    padding: EdgeInsets.only(bottom: 12),
+                    child: _Notice(
+                      'This window lost touch with the connector a moment ago. '
+                      'What is below is the last thing it said.',
+                    ),
+                  ),
+                // IntrinsicHeight, and not `stretch` on its own. The two cards
+                // should end up the same height whichever has more to say, and
+                // inside a scroll view the incoming height is unbounded -- so
+                // stretching to it asks both cards to be infinitely tall, which
+                // in a release build is not an error, just a ruined screen.
+                IntrinsicHeight(
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.stretch,
+                    children: <Widget>[
+                      Expanded(child: _BackendCard(state.backend)),
+                      const SizedBox(width: 12),
+                      Expanded(child: _TallyCard(state.tally)),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 16),
+          const _Centred(
+            padding: EdgeInsets.symmetric(horizontal: 20),
+            child: TabBar(
+              tabs: <Widget>[
+                Tab(text: 'Companies'),
+                Tab(text: 'People'),
+                Tab(text: 'TallyPrime'),
+                Tab(text: 'Sync speed'),
+                Tab(text: 'Entries'),
+              ],
+            ),
+          ),
+          const Divider(height: 1),
+          Expanded(
+            child: TabBarView(
+              children: <Widget>[
+                _CompaniesTab(
+                  account: state.account,
+                  busy: busy,
+                  onRefresh: onRefresh,
+                ),
+                _PeopleTab(account: state.account),
+                _TallyTab(
+                  state: state,
+                  busy: busy,
+                  onChangePort: onChangePort,
+                  onRestart: onRestart,
+                ),
+                _SyncSpeedTab(
+                  current: state.syncSpeed,
+                  busy: busy,
+                  onChoose: onSyncSpeed,
+                ),
+                _EntriesTab(
+                  current: state.voucherEntryMode,
+                  busy: busy,
+                  onChoose: onEntryMode,
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
 
+/// The window's one column measure, shared by the header and every tab so a
+/// wide monitor does not stretch a list of names across half a metre.
+class _Centred extends StatelessWidget {
+  const _Centred({required this.child, this.padding = EdgeInsets.zero});
+
+  final Widget child;
+  final EdgeInsets padding;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: padding,
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 760),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+/// A tab's contents. Each tab scrolls on its own, so a long roster is never
+/// clipped on a short window while the status cards above it stay put.
+class _TabBody extends StatelessWidget {
+  const _TabBody({required this.children});
+
+  final List<Widget> children;
+
+  @override
+  Widget build(BuildContext context) {
     return SingleChildScrollView(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
       child: Center(
         child: ConstrainedBox(
           constraints: const BoxConstraints(maxWidth: 760),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: <Widget>[
-              if (stale)
-                const Padding(
-                  padding: EdgeInsets.only(bottom: 12),
-                  child: _Notice(
-                    'This window lost touch with the connector a moment ago. '
-                    'What is below is the last thing it said.',
-                  ),
-                ),
-              // IntrinsicHeight, and not `stretch` on its own. The two cards
-              // should end up the same height whichever has more to say, and
-              // inside a scroll view the incoming height is unbounded -- so
-              // stretching to it asks both cards to be infinitely tall, which
-              // in a release build is not an error, just a ruined screen.
-              IntrinsicHeight(
-                child: Row(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: <Widget>[
-                    Expanded(child: _BackendCard(state.backend)),
-                    const SizedBox(width: 12),
-                    Expanded(child: _TallyCard(state.tally)),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 20),
-              _Section(
-                title: 'Companies this computer feeds',
-                trailing: TextButton.icon(
-                  onPressed: busy ? null : onRefresh,
-                  icon: const Icon(Icons.refresh, size: 15),
-                  label: const Text('Refresh'),
-                ),
-                child: account.companies.isEmpty
-                    ? _Empty(
-                        account.isEmpty
-                            ? 'Waiting for TallyFlow to say which companies this '
-                                'computer is for.'
-                            : 'No company on the account is set to read from this '
-                                'computer yet. Add one in the app.',
-                      )
-                    : Column(
-                        children: <Widget>[
-                          for (final FedCompany company in account.companies)
-                            _CompanyRow(company),
-                        ],
-                      ),
-              ),
-              const SizedBox(height: 18),
-              _Section(
-                title: 'Who can see them',
-                trailing: account.asOf == null
-                    ? null
-                    : Text(
-                        'as of ${_ago(account.asOf!)}',
-                        style: TextStyle(
-                          fontSize: 11.5,
-                          color: scheme.onSurfaceVariant,
-                        ),
-                      ),
-                child: account.users.isEmpty
-                    ? const _Empty('Waiting for TallyFlow to send the list.')
-                    : Column(
-                        children: <Widget>[
-                          for (final RosterUser user in account.users) _UserRow(user),
-                        ],
-                      ),
-              ),
-              const SizedBox(height: 18),
-              _MachineFacts(
-                state: state,
-                onChangePort: busy ? null : onChangePort,
-                onRestart: busy ? null : onRestart,
-              ),
-              const SizedBox(height: 8),
-              Text(
-                // The one sentence that answers the question this window most
-                // often gets opened for.
-                'Only people on your TallyFlow account can see these companies, '
-                'and only through the app. This computer answers nothing else.',
-                style: TextStyle(fontSize: 11.5, height: 1.4, color: scheme.onSurfaceVariant),
-              ),
-            ],
+            children: children,
           ),
         ),
       ),
     );
   }
+}
+
+class _CompaniesTab extends StatelessWidget {
+  const _CompaniesTab({
+    required this.account,
+    required this.busy,
+    required this.onRefresh,
+  });
+
+  final AccountState account;
+  final bool busy;
+  final VoidCallback onRefresh;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return _TabBody(
+      children: <Widget>[
+        _Section(
+          title: 'Companies this computer feeds',
+          trailing: TextButton.icon(
+            onPressed: busy ? null : onRefresh,
+            icon: const Icon(Icons.refresh, size: 15),
+            label: const Text('Refresh'),
+          ),
+          child: account.companies.isEmpty
+              ? _Empty(
+                  account.isEmpty
+                      ? 'Waiting for TallyFlow to say which companies this '
+                          'computer is for.'
+                      : 'No company on the account is set to read from this '
+                          'computer yet. Add one in the app.',
+                )
+              : Column(
+                  children: <Widget>[
+                    for (final FedCompany company in account.companies)
+                      _CompanyRow(company),
+                  ],
+                ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          // The one sentence that answers the question this window most often
+          // gets opened for.
+          'Only people on your TallyFlow account can see these companies, and '
+          'only through the app. This computer answers nothing else.',
+          style: TextStyle(
+            fontSize: 11.5,
+            height: 1.4,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _PeopleTab extends StatelessWidget {
+  const _PeopleTab({required this.account});
+
+  final AccountState account;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return _TabBody(
+      children: <Widget>[
+        _Section(
+          title: 'Who can see them',
+          trailing: account.asOf == null
+              ? null
+              : Text(
+                  'as of ${_ago(account.asOf!)}',
+                  style: TextStyle(
+                    fontSize: 11.5,
+                    color: scheme.onSurfaceVariant,
+                  ),
+                ),
+          child: account.users.isEmpty
+              ? const _Empty('Waiting for TallyFlow to send the list.')
+              : Column(
+                  children: <Widget>[
+                    for (final RosterUser user in account.users) _UserRow(user),
+                  ],
+                ),
+        ),
+      ],
+    );
+  }
+}
+
+class _TallyTab extends StatelessWidget {
+  const _TallyTab({
+    required this.state,
+    required this.busy,
+    required this.onChangePort,
+    required this.onRestart,
+  });
+
+  final ConnectorState state;
+  final bool busy;
+  final VoidCallback onChangePort;
+  final VoidCallback onRestart;
+
+  @override
+  Widget build(BuildContext context) {
+    return _TabBody(
+      children: <Widget>[
+        _MachineFacts(
+          state: state,
+          onChangePort: busy ? null : onChangePort,
+          onRestart: busy ? null : onRestart,
+        ),
+      ],
+    );
+  }
+}
+
+/// How hard this computer lets TallyFlow work its TallyPrime.
+///
+/// The choice lives on the machine rather than in the app because the person
+/// who can see the till stuttering is the one standing at it. What each level
+/// *means* is decided by the backend, so a better-tuned preset arrives with a
+/// server deploy instead of needing a new connector on every customer's PC.
+class _SyncSpeedTab extends StatelessWidget {
+  const _SyncSpeedTab({
+    required this.current,
+    required this.busy,
+    required this.onChoose,
+  });
+
+  final String current;
+  final bool busy;
+  final ValueChanged<String> onChoose;
+
+  static const List<_SpeedLevel> _levels = <_SpeedLevel>[
+    _SpeedLevel(
+      name: 'gentle',
+      title: 'Gentle',
+      detail: 'Smallest reads, and the longest rests between them. Choose this '
+          'if TallyPrime feels slow while TallyFlow is catching up.',
+    ),
+    _SpeedLevel(
+      name: 'normal',
+      title: 'Normal',
+      detail: 'The default, and right for most shops.',
+    ),
+    _SpeedLevel(
+      name: 'fast',
+      title: 'Fast',
+      detail: 'Larger reads with short rests, so history fills in sooner. Best '
+          'on a computer that is not also your billing counter.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return _TabBody(
+      children: <Widget>[
+        _Section(
+          title: 'How hard to work TallyPrime',
+          child: Column(
+            children: <Widget>[
+              for (final _SpeedLevel level in _levels)
+                RadioListTile<String>(
+                  value: level.name,
+                  groupValue: current,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: busy
+                      ? null
+                      : (String? picked) {
+                          if (picked != null && picked != current) {
+                            onChoose(picked);
+                          }
+                        },
+                  title: Text(level.title),
+                  subtitle: Text(
+                    level.detail,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          'TallyPrime answers one request at a time and pauses its own screen '
+          'while it works, so this is what decides whether anyone at the '
+          'counter notices TallyFlow reading. Changing it reconnects, because '
+          'the setting travels with the connection.',
+          style: TextStyle(
+            fontSize: 11.5,
+            height: 1.4,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// How an entry made on somebody's phone arrives in TallyPrime.
+///
+/// The choice lives on this machine for the same reason the sync speed does:
+/// it is a decision about this shop's bookkeeping, made by whoever is
+/// responsible for the books, not by whoever is holding a phone.
+///
+/// Unlike the sync speed, changing it does not reconnect. The connector reads
+/// it when it builds each entry rather than reporting it to the backend on a
+/// handshake, so it applies to the very next voucher.
+class _EntriesTab extends StatelessWidget {
+  const _EntriesTab({
+    required this.current,
+    required this.busy,
+    required this.onChoose,
+  });
+
+  final String current;
+  final bool busy;
+  final ValueChanged<String> onChoose;
+
+  static const List<_EntryMode> _modes = <_EntryMode>[
+    _EntryMode(
+      name: 'optional',
+      title: 'Wait for approval in TallyPrime',
+      detail: 'Entries arrive as optional vouchers. They are saved in full and '
+          'show in the Day Book, but they change no balance, no stock and no '
+          'report until you open one in TallyPrime and approve it.',
+    ),
+    _EntryMode(
+      name: 'regular',
+      title: 'Post straight into the books',
+      detail: 'Entries count the moment they arrive, exactly as if they had '
+          'been typed in here. Choose this only where the people sending them '
+          'are the people who would have entered them anyway.',
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+
+    return _TabBody(
+      children: <Widget>[
+        _Section(
+          title: 'Entries sent from a phone',
+          child: Column(
+            children: <Widget>[
+              for (final _EntryMode mode in _modes)
+                RadioListTile<String>(
+                  value: mode.name,
+                  groupValue: current,
+                  dense: true,
+                  contentPadding: EdgeInsets.zero,
+                  onChanged: busy
+                      ? null
+                      : (String? picked) {
+                          if (picked != null && picked != current) {
+                            onChoose(picked);
+                          }
+                        },
+                  title: Text(mode.title),
+                  subtitle: Text(
+                    mode.detail,
+                    style: TextStyle(
+                      fontSize: 11.5,
+                      height: 1.35,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
+        Text(
+          // Says where the approval happens, because that is the question this
+          // tab raises and the answer is a screen in a different program.
+          'To approve an entry: open TallyPrime, go to the Day Book, open the '
+          'voucher and un-mark it as optional. This setting applies to the '
+          'next entry sent, and does not affect anything already saved.',
+          style: TextStyle(
+            fontSize: 11.5,
+            height: 1.4,
+            color: scheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _EntryMode {
+  const _EntryMode({
+    required this.name,
+    required this.title,
+    required this.detail,
+  });
+
+  /// What the connector stores; never shown to anyone.
+  final String name;
+  final String title;
+  final String detail;
+}
+
+class _SpeedLevel {
+  const _SpeedLevel({
+    required this.name,
+    required this.title,
+    required this.detail,
+  });
+
+  /// What the connector stores and reports; never shown to anyone.
+  final String name;
+  final String title;
+  final String detail;
 }
 
 class _BackendCard extends StatelessWidget {

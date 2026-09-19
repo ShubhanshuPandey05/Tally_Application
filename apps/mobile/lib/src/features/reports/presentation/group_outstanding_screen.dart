@@ -1,3 +1,4 @@
+import 'package:decimal/decimal.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
@@ -6,6 +7,7 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
 import '../../../core/model/freshness.dart';
+import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
@@ -35,8 +37,20 @@ class GroupOutstandingScreen extends ConsumerStatefulWidget {
   ConsumerState<GroupOutstandingScreen> createState() => _GroupOutstandingScreenState();
 }
 
-class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen> {
+class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
+    with SingleTickerProviderStateMixin {
   DateTime? _asOf;
+
+  /// Ledgers: every party, worst overdue first. Group: the same parties under
+  /// the sub-groups they are filed in, as Tally's own group view shows them.
+  late final TabController _tabs = TabController(length: 2, vsync: this)
+    ..addListener(() => setState(() {}));
+
+  @override
+  void dispose() {
+    _tabs.dispose();
+    super.dispose();
+  }
 
   Future<void> _pickAsOf(BuildContext context) async {
     final DateTime now = DateTime.now();
@@ -118,10 +132,30 @@ class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
             child: _GroupSummaryCard(report: report),
           ),
-          for (final GroupParty party in report.parties)
+          // Under the summary, not in the app bar: the summary is the same in
+          // both views, and the switch belongs with the list it changes.
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+            child: TabBar(
+              controller: _tabs,
+              isScrollable: true,
+              tabAlignment: TabAlignment.start,
+              dividerColor: Colors.transparent,
+              tabs: const <Tab>[Tab(text: 'Ledgers'), Tab(text: 'Group')],
+            ),
+          ),
+          if (_tabs.index == 0)
+            ...<Widget>[
+              for (final GroupParty party in report.parties)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
+                  child: _GroupPartyCard(party: party, kind: report.kind),
+                ),
+            ]
+          else
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _GroupPartyCard(party: party, kind: report.kind),
+              child: _GroupTree(report: report),
             ),
           if (report.ungroupedPartyCount > 0)
             Padding(
@@ -324,6 +358,179 @@ class _GroupPartyCard extends StatelessWidget {
       return '$bills · oldest ${party.daysOverdue} days overdue';
     }
     return '$bills · not yet due';
+  }
+}
+
+/// The group, its sub-groups nested under it, and each party under the group
+/// it is actually filed in.
+///
+/// Built from the tree the backend sends rather than from names: nothing about
+/// "Electronics Supplier" says it is a group and not a party. Sub-groups with
+/// nothing outstanding are left out, because a row of ₹0 reads as a figure.
+class _GroupTree extends StatefulWidget {
+  const _GroupTree({required this.report});
+
+  final GroupOutstandingReport report;
+
+  @override
+  State<_GroupTree> createState() => _GroupTreeState();
+}
+
+class _GroupTreeState extends State<_GroupTree> {
+  /// The top group starts open and its sub-groups closed: the first thing seen
+  /// is the shape of the group, one tap from any party in it.
+  late final Set<String> _open = <String>{widget.report.group};
+
+  @override
+  Widget build(BuildContext context) {
+    return Card(
+      clipBehavior: Clip.antiAlias,
+      child: Column(children: _rows(_GroupNode.of(widget.report), 0)),
+    );
+  }
+
+  List<Widget> _rows(_GroupNode node, int depth) {
+    final bool open = _open.contains(node.name);
+    final List<_GroupNode> groups = node.groups
+        .where((_GroupNode group) => !group.isEmpty)
+        .toList()
+      ..sort((_GroupNode a, _GroupNode b) =>
+          a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+
+    return <Widget>[
+      _TreeRow(
+        depth: depth,
+        label: node.name,
+        amount: node.net,
+        expanded: open,
+        onTap: () => setState(() {
+          if (open) {
+            _open.remove(node.name);
+          } else {
+            _open.add(node.name);
+          }
+        }),
+      ),
+      if (open) ...<Widget>[
+        for (final GroupParty party in node.parties)
+          _TreeRow(
+            depth: depth + 1,
+            label: party.party,
+            amount: party.net,
+            onTap: () => context.push(
+              '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.party)}',
+            ),
+          ),
+        for (final _GroupNode group in groups) ..._rows(group, depth + 1),
+      ],
+    ];
+  }
+}
+
+class _GroupNode {
+  _GroupNode(this.name);
+
+  final String name;
+  final List<_GroupNode> groups = <_GroupNode>[];
+  final List<GroupParty> parties = <GroupParty>[];
+
+  bool get isEmpty => parties.isEmpty && groups.every((_GroupNode g) => g.isEmpty);
+
+  /// Summed on the signed value, because a group can hold a party in advance
+  /// beside parties who owe, and adding magnitudes would count both as debt.
+  Decimal get _signed =>
+      parties.fold(Decimal.zero, (Decimal sum, GroupParty p) => sum + p.net.signed) +
+      groups.fold(Decimal.zero, (Decimal sum, _GroupNode g) => sum + g._signed);
+
+  Money get net {
+    final Decimal signed = _signed;
+    return Money(
+      amount: signed.abs(),
+      side: signed < Decimal.zero ? MoneySide.credit : MoneySide.debit,
+      signed: signed,
+      currency: 'INR',
+    );
+  }
+
+  static _GroupNode of(GroupOutstandingReport report) {
+    // Folded the way the backend folds Tally names, which keep whatever
+    // spacing and case the shop typed.
+    String key(String? name) =>
+        (name ?? '').trim().split(RegExp(r'\s+')).join(' ').toLowerCase();
+
+    final _GroupNode root = _GroupNode(report.group);
+    final Map<String, _GroupNode> byName = <String, _GroupNode>{key(report.group): root};
+    for (final SubGroup sub in report.subGroups) {
+      byName.putIfAbsent(key(sub.name), () => _GroupNode(sub.name));
+    }
+    for (final SubGroup sub in report.subGroups) {
+      final _GroupNode node = byName[key(sub.name)]!;
+      final _GroupNode parent = byName[key(sub.parent)] ?? root;
+      if (!identical(node, parent)) parent.groups.add(node);
+    }
+    // A party whose group is not in the tree still belongs to this report, so
+    // it goes under the top group rather than out of the view.
+    for (final GroupParty party in report.parties) {
+      (byName[key(party.group)] ?? root).parties.add(party);
+    }
+    return root;
+  }
+}
+
+class _TreeRow extends StatelessWidget {
+  const _TreeRow({
+    required this.depth,
+    required this.label,
+    required this.amount,
+    required this.onTap,
+    this.expanded,
+  });
+
+  final int depth;
+  final String label;
+  final Money amount;
+  final VoidCallback onTap;
+
+  /// Null for a party, which has nothing to open.
+  final bool? expanded;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return InkWell(
+      onTap: onTap,
+      child: Padding(
+        padding: EdgeInsets.fromLTRB(8 + 16.0 * depth, 10, 16, 10),
+        child: Row(
+          children: <Widget>[
+            SizedBox(
+              width: 24,
+              child: expanded == null
+                  ? null
+                  : Icon(
+                      expanded! ? Icons.expand_less : Icons.expand_more,
+                      size: 18,
+                      color: context.mutedColor,
+                    ),
+            ),
+            const SizedBox(width: 4),
+            Expanded(
+              child: Text(
+                label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: depth == 0 ? theme.textTheme.titleSmall : theme.textTheme.bodyMedium,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Text(
+              MoneyFormat.full(amount),
+              style: theme.textTheme.bodyMedium?.merge(AppTheme.amount),
+            ),
+          ],
+        ),
+      ),
+    );
   }
 }
 

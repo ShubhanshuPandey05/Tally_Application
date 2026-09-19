@@ -307,6 +307,52 @@ def test_group_outstanding_counts_parties_it_could_not_place(samples) -> None:
     assert report["ungrouped_party_count"] == 1
 
 
+def test_group_outstanding_includes_parties_under_sub_groups(samples) -> None:
+    """A debtor filed under a home-made sub-group is still a debtor.
+
+    Each party names the group it sits in, and the tree is returned, so the
+    app can nest "Retail Customers" under Sundry Debtors.
+    """
+    ledgers = an.parse_ledgers(
+        [
+            {
+                "name": "Reliance Retail",
+                "parent_group": "Retail Customers",
+                "closing_balance": {"amount": "11800.00", "side": "debit"},
+            }
+        ]
+    )
+    groups = an.parse_groups(
+        [
+            {"name": "Sundry Debtors", "parent": "Current Assets"},
+            {"name": "Customers", "parent": "Sundry Debtors"},
+            {"name": "Retail Customers", "parent": "Customers"},
+            {"name": "Bank Accounts", "parent": "Current Assets"},
+        ]
+    )
+    bills = an.parse_bills(samples.bills(TODAY))
+
+    direct = an.group_outstanding(
+        bills, ledgers, group="Sundry Debtors", kind=OutstandingKind.RECEIVABLE, as_of=TODAY
+    )
+    assert direct["parties"] == [], "without the tree, a sub-group is not guessed at"
+
+    report = an.group_outstanding(
+        bills,
+        ledgers,
+        group="Sundry Debtors",
+        kind=OutstandingKind.RECEIVABLE,
+        as_of=TODAY,
+        groups=groups,
+    )
+    assert report["summary"]["total"]["amount"] == "11800.00"
+    assert report["parties"][0]["group"] == "Retail Customers"
+    assert report["sub_groups"] == [
+        {"name": "Customers", "parent": "Sundry Debtors"},
+        {"name": "Retail Customers", "parent": "Customers"},
+    ]
+
+
 def test_group_outstanding_matches_party_names_tally_spelled_differently(samples) -> None:
     """Tally keeps whatever was typed; the same party arrives spaced two ways."""
     ledgers = an.parse_ledgers(

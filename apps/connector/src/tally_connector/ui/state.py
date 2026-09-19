@@ -98,6 +98,10 @@ class UiState:
     roster_at: datetime | None = None
 
     log_dir: str = ""
+    #: Mirrors ConnectorSettings.sync_speed so the window can show which level
+    #: is currently in force without reading connector.json itself.
+    sync_speed: str = "normal"
+    voucher_entry_mode: str = "optional"
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -141,6 +145,8 @@ class UiState:
                 "as_of": _iso(self.roster_at),
             },
             "log_dir": self.log_dir,
+            "sync_speed": self.sync_speed,
+            "voucher_entry_mode": self.voucher_entry_mode,
         }
 
 

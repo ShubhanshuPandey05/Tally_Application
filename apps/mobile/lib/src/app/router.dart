@@ -12,6 +12,9 @@ import '../features/connectors/presentation/connector_detail_screen.dart';
 import '../features/connectors/presentation/connectors_screen.dart';
 import '../features/connectors/presentation/pair_connector_screen.dart';
 import '../features/dashboard/presentation/dashboard_screen.dart';
+import '../features/entries/domain/entry_draft.dart';
+import '../features/entries/presentation/new_entry_screen.dart';
+import '../features/entries/presentation/pending_entries_screen.dart';
 import '../features/reports/presentation/daybook_screen.dart';
 import '../features/reports/presentation/group_outstanding_screen.dart';
 import '../features/reports/presentation/ledgers_screen.dart';
@@ -47,6 +50,16 @@ class Routes {
   static const String stock = '/reports/stock';
   static const String ledgers = '/reports/ledgers';
   static const String slowMoving = '/reports/slow-moving';
+
+  /// Creating something, rather than looking at it. Takes the kind as a
+  /// query parameter so a shortcut can open straight onto a receipt, which
+  /// is the one people reach for at a counter.
+  static const String newEntry = '/entries/new';
+
+  /// What has not reached TallyPrime yet. Reachable from the dashboard
+  /// badge, which is the only thing standing between a held entry and
+  /// somebody assuming it was recorded.
+  static const String pendingEntries = '/entries/pending';
 
   // Drill-downs. Each takes what it is about as a query parameter rather than a
   // path segment: a ledger or an item is named by a customer, and those names
@@ -162,6 +175,19 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
                 const NoTransitionPage<void>(child: SettingsScreen()),
           ),
         ],
+      ),
+      GoRoute(
+        path: Routes.pendingEntries,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const PendingEntriesScreen(),
+      ),
+      GoRoute(
+        path: Routes.newEntry,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => NewEntryScreen(
+          initialKind: entryKindFromWire(state.uri.queryParameters['kind']),
+        ),
       ),
       GoRoute(
         path: Routes.daybook,

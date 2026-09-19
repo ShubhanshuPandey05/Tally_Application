@@ -378,6 +378,14 @@ class Connector(Base, TimestampMixin):
 
     connector_version: Mapped[str | None] = mapped_column(String(50), nullable=True)
     hostname: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: How hard this PC is willing to let us work its TallyPrime, chosen in the
+    #: connector's own window and reported on every handshake. The planner turns
+    #: it into slice sizes and pauses -- see ``services.sync.pace_for``. Stored
+    #: rather than read live so a backfill can be planned for a PC that is not
+    #: connected at that moment.
+    sync_speed: Mapped[str] = mapped_column(
+        String(10), default="normal", server_default="normal"
+    )
     os: Mapped[str | None] = mapped_column(String(100), nullable=True)
     #: Query manifest from the last handshake, so the API can answer "your
     #: connector is too old for this report" instead of failing obscurely.
@@ -880,6 +888,114 @@ class SyncChunk(Base):
 # Audit
 # --------------------------------------------------------------------------
 
+
+
+class PendingVoucherState(StrEnum):
+    """Where a queued entry is.
+
+    Five states rather than a boolean, because "not yet in Tally" covers three
+    situations a shopkeeper needs told apart: still waiting, being sent right
+    now, and given up on.
+    """
+
+    #: Waiting for the PC to come back. The only state that is ever sent.
+    WAITING = "waiting"
+    #: Claimed by a drain and on its way. Set *before* the frame goes out, so a
+    #: second drain cannot pick up the same row and post the voucher twice.
+    SENDING = "sending"
+    #: In TallyPrime. Kept rather than deleted so the app can say what happened
+    #: to something somebody watched go into the queue.
+    SENT = "sent"
+    #: Tally refused it, or it ran out of time to try. Needs a person.
+    FAILED = "failed"
+    #: Withdrawn from the phone before it was sent.
+    CANCELLED = "cancelled"
+
+
+class PendingVoucher(Base):
+    """An entry somebody created that could not reach TallyPrime yet.
+
+    **This queue exists on the server and nowhere else** (decided 2026-09-17).
+    The obvious alternative -- a queue on the shop's PC, which is what
+    BizAnalyst does with a local SQLite outbox -- fails at exactly the moment it
+    is needed: the PC being switched off is the case the queue is for, and a
+    queue there cannot accept anything while it is off. The backend is the only
+    place the phone can always reach, it already has durable storage and
+    migrations, and the connector stays the thin translator CLAUDE.md requires.
+
+    **Only provably-unsent entries are queued.** A write that timed out, or
+    whose socket died mid-send, may already be in Tally and never lands here --
+    see ``JobError.retryable`` on the write path. A queue that retried those
+    would be a duplicate generator, and TallyPrime offers no way to tell
+    afterwards which attempt landed.
+
+    **Nothing here is invisible.** The app shows the count and the list, because
+    the real danger of a queue is somebody recording a receipt, seeing it
+    accepted, and walking away from a PC that never comes back.
+    """
+
+    __tablename__ = "pending_vouchers"
+    __table_args__ = (
+        # The drain's only query: everything waiting for one connector, oldest
+        # first, so entries reach Tally in the order they were made.
+        Index("ix_pending_vouchers_drain", "connector_id", "state", "created_at"),
+        # What the phone asks for.
+        Index("ix_pending_vouchers_company", "company_id", "state"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    org_id: Mapped[str] = mapped_column(
+        ForeignKey("organisations.id", ondelete="CASCADE"), index=True
+    )
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), index=True
+    )
+    #: Denormalised from the company so a drain can find every entry for a
+    #: connector that just reconnected without joining, and so the row survives
+    #: to explain itself if the company is relinked to a different PC.
+    connector_id: Mapped[str] = mapped_column(String(32), index=True)
+    #: Who made it. Shown in the list, because a shop with three people at the
+    #: counter needs to know whose entry is stuck.
+    created_by: Mapped[str | None] = mapped_column(String(32), nullable=True)
+
+    #: The serialised domain draft, exactly as it would have been sent live.
+    #: Stored whole rather than as columns so a new field on a draft does not
+    #: need a migration here -- this table is a courier, not a second model of
+    #: what a voucher is.
+    payload: Mapped[dict] = mapped_column(JSON)
+    #: Denormalised for the list screen, so it can show "Receipt, Ram & Sons"
+    #: without parsing every payload.
+    kind: Mapped[str] = mapped_column(String(32))
+    party_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+
+    state: Mapped[PendingVoucherState] = mapped_column(
+        String(16), default=PendingVoucherState.WAITING
+    )
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    #: Tally's own words from the last try. The most useful thing on the row.
+    last_error: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    #: Tally's id once it lands, so the app can point at the actual voucher.
+    tally_voucher_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+
+    #: When to stop trying. An entry that has waited a week must not post
+    #: silently into a period nobody is looking at any more, and a queue with no
+    #: expiry is one that eventually delivers a surprise.
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, onupdate=utc_now
+    )
+    #: When it reached Tally, or when we stopped trying.
+    settled_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    @property
+    def is_open(self) -> bool:
+        """Still on its way -- what the phone counts as "pending"."""
+        return self.state in (PendingVoucherState.WAITING, PendingVoucherState.SENDING)
 
 class AuditLog(Base):
     """Who read what, when.

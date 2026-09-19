@@ -54,6 +54,8 @@ class ConnectorState {
     required this.tally,
     required this.account,
     required this.logDir,
+    required this.syncSpeed,
+    required this.voucherEntryMode,
   });
 
   factory ConnectorState.fromJson(Map<String, Object?> json) => ConnectorState(
@@ -67,6 +69,18 @@ class ConnectorState {
         tally: TallyState.fromJson(_object(json['tally'])),
         account: AccountState.fromJson(_object(json['account'])),
         logDir: _text(json['log_dir']),
+        // Defaulted here rather than at the call sites: a connector older than
+        // this window does not send the field, and every install that has
+        // never touched the setting is running exactly what 'normal' means.
+        syncSpeed: _text(json['sync_speed']).isEmpty
+            ? 'normal'
+            : _text(json['sync_speed']),
+        // Defaulted to the cautious mode for the same reason the connector
+        // defaults to it: a window talking to a build that predates write-back
+        // must not imply that entries post straight into the books.
+        voucherEntryMode: _text(json['voucher_entry_mode']).isEmpty
+            ? 'optional'
+            : _text(json['voucher_entry_mode']),
       );
 
   final String version;
@@ -79,6 +93,21 @@ class ConnectorState {
   final TallyState tally;
   final AccountState account;
   final String logDir;
+
+  /// How hard this computer lets TallyFlow work its TallyPrime: `gentle`,
+  /// `normal` or `fast`. Chosen here, on the machine being protected, and sent
+  /// to the backend on the next handshake -- which is why changing it
+  /// reconnects.
+  final String syncSpeed;
+
+  /// How an entry made on somebody's phone arrives in TallyPrime: `optional`
+  /// or `regular`.
+  ///
+  /// `optional` is Tally's own approval step -- the voucher is recorded in
+  /// full but counts towards nothing until somebody un-marks it in TallyPrime.
+  /// Unlike [syncSpeed] this takes effect on the next entry rather than on the
+  /// next handshake, so changing it does not reconnect.
+  final String voucherEntryMode;
 
   /// What the window leads with: a code to scan, or this machine's status.
   ///

@@ -336,3 +336,59 @@ async def test_local_bus_reports_itself_as_single_instance(settings: Settings) -
 
     await bus.unregister("conn-1")
     assert await bus.locate("conn-1") is None
+
+
+# --------------------------------------------------------------------------
+# Telling the queue a PC came back
+# --------------------------------------------------------------------------
+
+
+async def test_a_reconnect_notifies_whoever_is_waiting_for_it() -> None:
+    """The hook the voucher queue drains on.
+
+    This went out untested once and broke every handshake on a live run: the
+    callback path only executes when ``on_attach`` is set, and nothing in this
+    suite set it, so an attribute that was never initialised was never touched.
+    A connector could authenticate and was then dropped immediately.
+    """
+    settings = Settings(database_url="sqlite+aiosqlite:///:memory:")
+    hub = ConnectorHub(settings, bus=LocalBus("instance-1"))
+    seen: list[str] = []
+    done = asyncio.Event()
+
+    async def on_attach(connector_id: str) -> None:
+        seen.append(connector_id)
+        done.set()
+
+    hub.on_attach = on_attach
+    link, _ = make_link()
+
+    await hub.attach(link)
+    await asyncio.wait_for(done.wait(), timeout=2)
+
+    assert seen == ["conn-1"]
+
+
+async def test_a_reconnect_survives_a_callback_that_fails() -> None:
+    """A drain that throws must not take the handshake down with it.
+
+    The socket a customer's reports come back on is more important than the
+    queue attached to it.
+    """
+    settings = Settings(database_url="sqlite+aiosqlite:///:memory:")
+    hub = ConnectorHub(settings, bus=LocalBus("instance-1"))
+    tried = asyncio.Event()
+
+    async def on_attach(connector_id: str) -> None:
+        tried.set()
+        raise RuntimeError("the queue blew up")
+
+    hub.on_attach = on_attach
+    link, _ = make_link()
+
+    await hub.attach(link)
+    await asyncio.wait_for(tried.wait(), timeout=2)
+    # Give the task a tick to finish raising into its done callback.
+    await asyncio.sleep(0)
+
+    assert hub.local_link("conn-1") is link

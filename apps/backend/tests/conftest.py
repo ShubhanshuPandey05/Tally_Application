@@ -40,6 +40,10 @@ def settings(tmp_path) -> Settings:
     return Settings(
         environment="dev",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
+        # Drains are driven explicitly in the queue tests. A background
+        # sweep firing partway through one would make every assertion
+        # about queue state a race.
+        pending_voucher_queue_enabled=False,
         jwt_secret="test-secret-that-is-long-enough-to-be-valid",
         secret_keys=["unit-test-encryption-key"],
         # Off by default: a background task that fires mid-test makes failures
@@ -70,6 +74,24 @@ class FakeConnector:
         self.calls: list[tuple[str, dict[str, Any]]] = []
         self.online = True
         self.fail_with: str | None = None
+        #: Writes, kept apart from ``calls`` on purpose. A test asserting that
+        #: nothing was written must not have to filter a mixed list, and the
+        #: count of writes is the assertion that matters most in this feature.
+        self.writes: list[tuple[str, dict[str, Any]]] = []
+        self.write_responses: dict[str, Any] = {}
+        #: Empty means a connector too old to write, which is a real state the
+        #: backend must handle -- so it is the default here rather than a case
+        #: a test has to remember to construct.
+        self.mutations: list[str] = [
+            "voucher.create",
+            "master.ledger",
+            "master.stock_item",
+        ]
+        self.write_fails_with: str | None = None
+        #: Tally's own words, when a test needs a specific complaint --
+        #: "Ledger 'Ram Traders' does not exist!" is what the backend
+        #: parses to decide whether to offer creating one.
+        self.write_error_message: str | None = None
 
     def set(self, query: str, payload: Any) -> None:
         """Canned answer for a query.
@@ -120,6 +142,60 @@ class FakeConnector:
             payload = payload(params)
         return JobResult.success("job", payload, duration_ms=5)
 
+    def set_write(self, mutation: str, payload: Any) -> None:
+        self.write_responses[mutation] = payload
+
+    async def write(
+        self,
+        *,
+        connector_id: str,
+        mutation: str,
+        params: dict[str, Any],
+        timeout_seconds: float | None = None,
+    ) -> JobResult:
+        """Mirrors ``ConnectorHub.write``, including what it refuses.
+
+        Note there is no ``coalesce`` argument to mirror: the real hub does not
+        offer one for writes, because two identical receipts are two receipts.
+        """
+        self.writes.append((mutation, params))
+
+        if not self.online:
+            return JobResult.failure(
+                "w",
+                _error(
+                    "connector_offline",
+                    "Your Tally PC is offline, so nothing was saved.",
+                    retryable=True,
+                ),
+            )
+        if mutation not in self.mutations:
+            return JobResult.failure(
+                "w",
+                _error(
+                    "connector_outdated",
+                    "The Tally Connector on your PC is too old to create entries.",
+                    retryable=False,
+                ),
+            )
+        if self.write_fails_with:
+            return JobResult.failure(
+                "w",
+                _error(
+                    self.write_fails_with,
+                    self.write_error_message or "Tally refused it.",
+                    retryable=False,
+                ),
+            )
+
+        payload = self.write_responses.get(mutation, _default_write_result(mutation))
+        if callable(payload):
+            payload = payload(params)
+        return JobResult.success("w", payload, duration_ms=5)
+
+    def write_count(self, mutation: str) -> int:
+        return sum(1 for name, _ in self.writes if name == mutation)
+
     async def is_online(self, connector_id: str) -> bool:
         """Mirrors the hub's reachability check.
 
@@ -133,14 +209,32 @@ class FakeConnector:
         return sum(1 for name, _ in self.calls if name == query)
 
 
-def _error(code: str, message: str, *, user_message: str | None = None):
+def _default_write_result(mutation: str) -> dict[str, Any]:
+    """What a connector answers when the write worked.
+
+    Shaped per mutation because a voucher comes back with an id and a master
+    comes back with a name, and a test asserting on one must not be handed the
+    other's fields.
+    """
+    if mutation.startswith("master."):
+        return {"created": 1, "altered": 0, "errors": 0, "exceptions": 0}
+    return {"created": 1, "voucher_id": 4821, "optional": True}
+
+
+def _error(
+    code: str,
+    message: str,
+    *,
+    user_message: str | None = None,
+    retryable: bool = True,
+):
     from tally_core.protocol import JobError
 
     return JobError(
         code=code,
         message=message,
         user_message=user_message or message,
-        retryable=True,
+        retryable=retryable,
     )
 
 
@@ -158,6 +252,7 @@ async def app(settings: Settings, fake_connector: FakeConnector):
         # hub's own bookkeeping stay under test.
         application.state.hub.run = fake_connector.run  # type: ignore[method-assign]
         application.state.hub.is_online = fake_connector.is_online  # type: ignore[method-assign]
+        application.state.hub.write = fake_connector.write  # type: ignore[method-assign]
         yield application
 
 

@@ -56,6 +56,7 @@ from ..core.errors import AppError, ConflictError, NotFound
 from ..db.models import (
     Company,
     CompanySyncState,
+    Connector,
     SyncChunk,
     SyncPhase,
     SyncRun,
@@ -184,6 +185,69 @@ def _label(from_date: date, to_date: date) -> str:
 #: is a far smaller risk than the stub windows it removes.
 _TAIL_ABSORB_DAYS = 31
 
+#: How much wider one resize may make a slice, as a multiple of the span that
+#: was actually measured. Widening is braked; narrowing is not.
+#:
+#: A slice measures only the window it covered, and a shop's trade is rarely
+#: spread evenly. Measured live on "D N Super Store" (2026-09-16): the newest
+#: 30 days held 303 vouchers, the surrounding 180 held 5,841. Trusting the
+#: quiet recent window and jumping straight to ``sync_chunk_max_days`` would
+#: have rebuilt precisely the 8.2 MB export the probe exists to avoid. Ramping
+#: costs a few extra round trips on a genuinely quiet shop; not ramping costs
+#: one frozen till on a seasonal one.
+_MAX_WIDEN_FACTOR = 2
+
+
+@dataclass(frozen=True)
+class SyncPace:
+    """The numbers one connector's chosen speed resolves to."""
+
+    probe_days: int
+    max_days: int
+    pause_ratio: float
+    pause_max_seconds: float
+
+
+def pace_for(speed: str | None, settings: Settings) -> SyncPace:
+    """Turn a PC's chosen level into the numbers the planner actually uses.
+
+    The levels are defined here rather than on the connector because this is
+    what plans the sync. A better-tuned preset then ships with a backend deploy
+    instead of needing a new connector on every customer's machine -- and the
+    connector stays a place that stores a choice, not one that holds policy.
+
+    An unknown value reads as "normal" rather than raising. This string arrives
+    from a customer's PC, and a connector newer than the backend may well offer
+    a level this build has never heard of; syncing at the default beats
+    refusing to sync at all.
+    """
+    normal = SyncPace(
+        probe_days=settings.sync_chunk_probe_days,
+        max_days=settings.sync_chunk_max_days,
+        pause_ratio=settings.sync_chunk_pause_ratio,
+        pause_max_seconds=settings.sync_chunk_pause_max_seconds,
+    )
+    if speed == "gentle":
+        # Half the opening export, a ceiling far under the 8.2 MB slice that
+        # froze a real shop's till, and a breather twice as long as the export
+        # that earned it. For the machine that is also the counter.
+        return SyncPace(
+            probe_days=max(7, normal.probe_days // 2),
+            max_days=90,
+            pause_ratio=0.5,
+            pause_max_seconds=60.0,
+        )
+    if speed == "fast":
+        # For a strong PC with years of books to get through. The ceiling is
+        # unchanged: "fast" may skip the ramp, never the safety limit.
+        return SyncPace(
+            probe_days=normal.probe_days * 2,
+            max_days=normal.max_days,
+            pause_ratio=0.1,
+            pause_max_seconds=10.0,
+        )
+    return normal
+
 
 def plan_backfill(
     *,
@@ -193,6 +257,7 @@ def plan_backfill(
     max_history_years: int,
     inventory_days: int,
     chunk_days: int | None = None,
+    probe_days: int | None = None,
 ) -> list[Window]:
     """Cut a company's history into readable slices, newest first.
 
@@ -204,6 +269,14 @@ def plan_backfill(
     slice has revealed how many vouchers a day this shop actually writes. Whole
     months are the right default when nothing is known yet; they are the wrong
     unit once something is.
+
+    ``probe_days`` sizes the **first** slice only, and exists because "nothing
+    is known yet" used to be paid for at six months a go. The opening export is
+    the one somebody is standing over while their till is frozen, so it is cut
+    short deliberately: it is the measurement that lets every later slice be
+    sized properly. This is only safe because ``_resize_remaining`` widens as
+    well as narrows -- otherwise a quiet shop would inherit the probe's span and
+    pay a round trip a month for four years.
     """
     floor = today.replace(year=today.year - max_history_years)
     if books_from is not None:
@@ -218,8 +291,11 @@ def plan_backfill(
     end = today
 
     while end >= floor:
-        if chunk_days is not None:
-            start = max(floor, end - timedelta(days=chunk_days - 1))
+        # The first slice is the probe when one was asked for; everything after
+        # it follows the ordinary plan.
+        span_days = probe_days if (not windows and probe_days is not None) else chunk_days
+        if span_days is not None:
+            start = max(floor, end - timedelta(days=span_days - 1))
         else:
             start = max(floor, _shift_months(end, -chunk_months) + timedelta(days=1))
         # Absorb a short tail into this slice rather than leaving it as its own.
@@ -231,7 +307,7 @@ def plan_backfill(
         # budget to read almost nothing. The cost of absorbing is a final slice
         # up to 1.5x the target, which is well inside what the count ceiling
         # was chosen to tolerate.
-        absorb = _TAIL_ABSORB_DAYS if chunk_days is None else max(1, chunk_days // 2)
+        absorb = _TAIL_ABSORB_DAYS if span_days is None else max(1, span_days // 2)
         if 0 < (start - floor).days <= absorb:
             start = floor
         windows.append(
@@ -376,12 +452,15 @@ class SyncService:
                 user_message="A sync is already running for this company.",
             )
 
+        connector = await self._session.get(Connector, company.connector_id)
+        pace = pace_for(connector.sync_speed if connector else None, self._settings)
         windows = plan_backfill(
             books_from=books_from,
             today=today,
             chunk_months=self._settings.sync_chunk_months,
             max_history_years=self._settings.sync_max_history_years,
             inventory_days=self._settings.sync_inventory_days,
+            probe_days=pace.probe_days,
         )
         run = SyncRun(
             company_id=company.id,
@@ -681,13 +760,14 @@ class SyncCoordinator:
 
     async def _execute_backfill(self, run_id: str, company_id: str) -> None:
         """Read every outstanding slice, in order, one at a time."""
+        pace = await self._pace(company_id)
         try:
             while not self._stopping.is_set():
                 chunk_id = await self._begin_next_chunk(run_id)
                 if chunk_id is None:
                     break
-                await self._run_chunk(run_id, company_id, chunk_id)
-                await asyncio.sleep(self._settings.sync_chunk_pause_seconds)
+                duration_ms = await self._run_chunk(run_id, company_id, chunk_id, pace)
+                await asyncio.sleep(self._chunk_pause(duration_ms, pace))
             await self._finish(run_id, company_id)
         except asyncio.CancelledError:
             # A shutdown, not a failure. The run stays resumable and the next
@@ -697,6 +777,34 @@ class SyncCoordinator:
         except Exception:
             logger.exception("backfill %s failed unexpectedly", run_id)
             await self._mark_interrupted(run_id, "an unexpected error")
+
+    async def _pace(self, company_id: str) -> SyncPace:
+        """The slice sizes and pauses this company's PC has asked for."""
+        async with self._session_factory() as session:
+            company = await session.get(Company, company_id)
+            connector = (
+                await session.get(Connector, company.connector_id)
+                if company is not None
+                else None
+            )
+            speed = connector.sync_speed if connector is not None else None
+        return pace_for(speed, self._settings)
+
+    def _chunk_pause(self, duration_ms: int | None, pace: SyncPace) -> float:
+        """How long to leave TallyPrime alone before asking for the next slice.
+
+        A fixed pause is the wrong shape. Three seconds after a four-second
+        export is a real breather; three seconds after a ninety-second one is
+        nothing, and it is the ninety-second export that a shop actually feels
+        -- Tally blocks its own UI while building a collection, and that UI is
+        the till. Scaling the rest to the work that just happened is what keeps
+        a slow machine usable between slices instead of merely surviving them.
+        """
+        floor = self._settings.sync_chunk_pause_seconds
+        if not duration_ms or duration_ms <= 0:
+            return floor
+        scaled = (duration_ms / 1000.0) * pace.pause_ratio
+        return max(floor, min(scaled, pace.pause_max_seconds))
 
     async def _begin_next_chunk(self, run_id: str) -> str | None:
         """Claim the next outstanding slice, or ``None`` when there are none."""
@@ -722,13 +830,16 @@ class SyncCoordinator:
             await session.commit()
             return chunk.id
 
-    async def _run_chunk(self, run_id: str, company_id: str, chunk_id: str) -> None:
+    async def _run_chunk(
+        self, run_id: str, company_id: str, chunk_id: str, pace: SyncPace
+    ) -> int | None:
+        """Read one slice. Returns how long Tally took, which sizes the pause."""
         async with self._session_factory() as session:
             company = await session.get(Company, company_id)
             chunk = await session.get(SyncChunk, chunk_id)
             run = await session.get(SyncRun, run_id)
             if company is None or chunk is None or run is None:
-                return
+                return None
 
             include_inventory = chunk.to_date >= date.today() - timedelta(
                 days=self._settings.sync_inventory_days
@@ -752,7 +863,7 @@ class SyncCoordinator:
             if not result.ok:
                 await self._fail_chunk(session, run, chunk, result)
                 await session.commit()
-                return
+                return None
 
             payload = result.data() or []
             store = VoucherStore(session)
@@ -778,7 +889,7 @@ class SyncCoordinator:
             # justified it land in one transaction. A crash between them would
             # leave a run whose remaining slices were sized by a measurement
             # nothing records.
-            await self._narrow_remaining(session, run, chunk, len(payload))
+            await self._resize_remaining(session, run, chunk, len(payload), pace)
             await session.commit()
 
             logger.info(
@@ -791,38 +902,53 @@ class SyncCoordinator:
                 ingest.deleted,
             )
 
-    async def _narrow_remaining(
+            return result.duration_ms
+
+    async def _resize_remaining(
         self,
         session: AsyncSession,
         run: SyncRun,
         chunk: SyncChunk,
         vouchers: int,
+        pace: SyncPace,
     ) -> None:
         """Re-cut the slices still to be read, using what this one measured.
 
         Calendar spans are a guess about a shop's size. This is the correction:
-        a slice that came back over ``sync_chunk_max_vouchers`` proves the guess
-        was wrong for *this* shop, and every slice still pending is re-cut to
-        the span that density implies.
+        the slice that just ran measured how many vouchers a day this shop
+        actually writes, and every slice still pending is re-cut to the span
+        that density implies.
 
-        Only ever narrows. Widening on a quiet slice would let one empty stretch
-        of the books talk the planner into a huge window over a busy one, and
-        the whole point is to bound the largest export rather than optimise the
-        smallest.
+        It resizes in **both** directions, which it did not always do. Narrowing
+        alone was right while the plan opened with a six-month slice, because
+        the only interesting news was "this shop is busier than assumed". The
+        plan now opens with ``sync_chunk_probe_days``, so the common case is the
+        opposite -- a quiet shop whose probe came back nearly empty, which under
+        narrow-only would have paid one round trip per month for four years.
+
+        ``sync_chunk_max_days`` is what replaces the old refusal to widen: it
+        stops one empty stretch of the books talking the planner into a single
+        enormous export, which is the failure narrow-only existed to prevent.
         """
         limit = self._settings.sync_chunk_max_vouchers
-        if limit <= 0 or vouchers <= limit:
+        if limit <= 0:
             return
 
         span_days = max((chunk.to_date - chunk.from_date).days + 1, 1)
         per_day = vouchers / span_days
-        target = max(
-            self._settings.sync_chunk_min_days, int(limit / per_day) if per_day else span_days
+        # An empty window takes the widest step allowed, rather than letting one
+        # quiet month talk the planner into concluding the company is empty.
+        target = (
+            int(limit / per_day) if per_day > 0 else pace.max_days
         )
-        if target >= span_days:
-            # Already at or below what the measurement implies -- narrowing to a
-            # wider slice would be worse than leaving it alone.
-            return
+        if target > span_days:
+            # Only ever ramp up. See _MAX_WIDEN_FACTOR: a quiet probe is not
+            # evidence that the months behind it are quiet too.
+            target = min(target, span_days * _MAX_WIDEN_FACTOR)
+        target = max(
+            self._settings.sync_chunk_min_days,
+            min(pace.max_days, target),
+        )
 
         pending = (
             await session.execute(
@@ -832,6 +958,12 @@ class SyncCoordinator:
             )
         ).scalars().all()
         if not pending:
+            return
+
+        current = max((c.to_date - c.from_date).days + 1 for c in pending)
+        if abs(target - current) <= max(1, current // 4):
+            # Close enough to what is already queued. Re-cutting for a few days
+            # either way would churn the progress bar and buy nothing.
             return
 
         floor = min(c.from_date for c in pending)
@@ -844,11 +976,6 @@ class SyncCoordinator:
             inventory_days=self._settings.sync_inventory_days,
             chunk_days=target,
         )
-        if len(windows) <= len(pending):
-            # No finer than what is already queued; leave the plan alone rather
-            # than churn the progress bar for nothing.
-            return
-
         for old_chunk in pending:
             await session.delete(old_chunk)
         await session.flush()
@@ -872,7 +999,7 @@ class SyncCoordinator:
         await session.flush()
 
         logger.info(
-            "sync %s: %s returned %d voucher(s) over %d day(s); narrowing the "
+            "sync %s: %s returned %d voucher(s) over %d day(s); resizing the "
             "remaining %d slice(s) to %d day(s) -> %d slice(s)",
             run.id,
             chunk.label,
@@ -952,9 +1079,19 @@ class SyncCoordinator:
         state.backfilled_to = max(state.backfilled_to or newest, newest)
         state.backfilled_from = min(state.backfilled_from or oldest, oldest)
 
-        # The newest slice is itself an authoritative read of the recent window,
-        # so it already did the reconcile's job. Not recording that would send
-        # the very first delta off to re-read months the backfill just finished.
+        # The backfill's slices are authoritative reads, so between them they
+        # have already done the reconcile's job. Recording that is what stops
+        # the very first delta re-reading months the backfill just finished.
+        #
+        # Measured against the *contiguous covered range*, not the newest slice
+        # alone. This used to read `covered[0].from_date`, which worked only
+        # because the newest slice was a whole six months and the window was 90
+        # days -- one slice always swallowed it. Neither half of that holds now:
+        # the plan opens with a short `sync_chunk_probe_days` probe and the
+        # window is `sync_reconcile_days`, so the newest slice covers a fraction
+        # of it and the slices behind it cover the rest. `covered` stops at the
+        # first gap, so `oldest` is exactly how far back the books have been
+        # read without a hole -- which is the real question being asked.
         #
         # Measured against the day the *plan* was built for, never the wall
         # clock. `covered[0]` is always seq 0 -- the loop above starts at the
@@ -966,13 +1103,21 @@ class SyncCoordinator:
         # paid for a full re-read of the reconcile window.
         #
         # A run interrupted and resumed much later can still claim a reconcile
-        # its newest slice no longer covers. That is bounded by
+        # its slices no longer cover. That is bounded by
         # `sync_reconcile_interval_seconds` -- one skipped cycle, not a
         # permanent one -- and a run only stays resumable for
         # `sync_run_stale_after_seconds`, so the window is small.
+        # A company whose books are *shorter* than the reconcile window can
+        # never satisfy the date test on its own -- a shop trading for 200 days
+        # has nothing 300 days old to reconcile -- and would have paid for a
+        # pointless re-read on its first delta forever. So a run that finished
+        # counts by itself. `covered` is the contiguous successful prefix, so
+        # equality with `chunks` means every planned slice landed and the books
+        # have been read in full, back to the plan's floor.
+        complete = len(covered) == len(chunks)
         plan_today = covered[0].to_date
         reconcile_start = plan_today - timedelta(days=self._settings.sync_reconcile_days)
-        if covered[0].from_date <= reconcile_start:
+        if complete or oldest <= reconcile_start:
             state.last_reconcile_at = utc_now()
 
     async def _finish(self, run_id: str, company_id: str) -> None:
@@ -1145,7 +1290,7 @@ class SyncCoordinator:
             # export this module exists to avoid.
             start = min(
                 state.backfilled_to,
-                today - timedelta(days=self._settings.sync_reconcile_days),
+                today - timedelta(days=self._settings.sync_fallback_window_days),
             )
             params = {
                 "company": company.tally_name,

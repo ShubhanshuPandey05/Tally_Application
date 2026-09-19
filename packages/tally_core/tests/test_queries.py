@@ -51,6 +51,7 @@ def test_registry_exposes_expected_queries():
         "voucher_types.list",
         "vouchers.list",
         "outstanding.bills",
+        "tally.licence",
     }
 
 
@@ -130,6 +131,66 @@ def test_company_markers_absent_company_is_not_an_error(fixture_xml):
 
     assert markers.name == "Never Opened Ltd"
     assert markers.supports_incremental is False
+
+
+# --------------------------------------------------------------------------
+# Licence and operator rights
+#
+# Both conditions checked here fail *silently* on a live Tally: educational
+# mode serves a fraction of the vouchers and a non-admin user cannot export
+# some reports, and each looks exactly like "this shop has very little data".
+# --------------------------------------------------------------------------
+
+
+def test_tally_licence_reports_educational_mode_and_rights(fixture_xml):
+    """Recorded from a live TallyPrime on 2026-09-16."""
+    licence = run("tally.licence", fixture_xml("tally_licence"))
+
+    assert licence.is_educational is True
+    assert licence.is_licensed is False
+    assert licence.is_admin is False
+    assert licence.edition == "Gold"
+
+
+def test_tally_licence_warns_in_words_a_shopkeeper_can_act_on(fixture_xml):
+    licence = run("tally.licence", fixture_xml("tally_licence"))
+    joined = " ".join(licence.warnings)
+
+    assert "educational mode" in joined
+    assert "administrator" in joined
+
+
+def test_tally_licence_zero_serial_is_not_a_serial_number(fixture_xml):
+    """An unlicensed install reports 0. Rendering that as a serial is a lie."""
+    licence = run("tally.licence", fixture_xml("tally_licence"))
+    assert licence.serial_number is None
+
+
+def test_tally_licence_absent_fields_are_unknown_not_false(fixture_xml):
+    """An older build drops the $$LicenseInfo names it does not recognise.
+
+    "Tally did not say" must never become a warning on somebody's perfectly
+    healthy install -- the same rule CompanyMarkers follows for AltVchId.
+    """
+    licence = run("tally.licence", fixture_xml("tally_licence_legacy"))
+
+    assert licence.is_educational is None
+    assert licence.is_admin is None
+    assert licence.warnings == []
+
+
+def test_tally_licence_reads_through_compute_not_a_function_call():
+    """The Function form does not work, and the cost of finding that out again
+    is an afternoon: ``TYPE=Function`` with ``ID=$$ProdInfo`` answered
+    ``Function Execution Failed!`` for every parameter tried against a live
+    TallyPrime on 2026-09-16, while COMPUTE returned every value asked for.
+    """
+    query = get_query("tally.licence")
+    envelope = unescape(query.build(query.validate_params({"company": "Ram & Sons"})))
+
+    assert "<TYPE>Collection</TYPE>" in envelope
+    assert "$$LicenseInfo:IsEducationalMode" in envelope
+    assert "$$ProdInfo" not in envelope
 
 
 # --------------------------------------------------------------------------
@@ -612,13 +673,17 @@ def test_outstanding_from_date_defaults_wide_enough_for_old_bills():
 
 
 # --------------------------------------------------------------------------
-# Read-only guarantee
+# A read stays a read
 # --------------------------------------------------------------------------
 
 
 @pytest.mark.parametrize("entry", registry_manifest())
 def test_no_query_can_mutate_tally(entry):
-    """MVP is read-only; a stray Import envelope would be a silent write path."""
+    """A stray Import envelope in a *query* would be a silent write path.
+
+    Writes exist now, but they live in their own registry and their own builder.
+    Nothing reachable through ``get_query`` may mutate a book of accounts.
+    """
     query = get_query(entry["name"])
     params = {"company": "Acme"}
     if entry["name"] == "vouchers.list":

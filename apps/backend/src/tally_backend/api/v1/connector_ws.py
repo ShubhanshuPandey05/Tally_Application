@@ -127,6 +127,7 @@ async def connector_socket(websocket: WebSocket) -> None:
         connector.hostname = hello.host.hostname
         connector.os = hello.host.os
         connector.connector_version = hello.host.connector_version
+        connector.sync_speed = hello.host.sync_speed
         connector.capabilities = [c.model_dump() for c in hello.capabilities]
         org_id = connector.org_id
         await session.commit()
@@ -154,6 +155,10 @@ async def connector_socket(websocket: WebSocket) -> None:
         push_updates=settings.push_connector_updates,
     )
     link.capabilities = [c.model_dump() for c in hello.capabilities]
+    # Empty for any connector built before write-back, which is how the
+    # backend knows to refuse a write here rather than send a frame that
+    # machine would correctly ignore.
+    link.mutations = [m.model_dump() for m in hello.mutations]
     link.host = hello.host.model_dump()
 
     # Through `link.send`, not the raw socket, so the ack carries the published

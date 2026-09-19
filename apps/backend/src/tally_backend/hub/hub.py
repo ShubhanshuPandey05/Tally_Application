@@ -13,6 +13,7 @@ import hashlib
 import json
 import logging
 import uuid
+from collections.abc import Awaitable, Callable
 from typing import Any
 
 from tally_core.protocol import JobError, JobRequest, JobResult
@@ -39,12 +40,24 @@ def coalesce_key(connector_id: str, query: str, params: dict[str, Any]) -> str:
 class ConnectorHub:
     """Owns local connector links and routes jobs to them."""
 
+    #: Called with a connector id once it is registered and reachable.
+    #:
+    #: A plain attribute rather than a constructor argument because the thing
+    #: that wants it -- the voucher queue -- needs the hub to exist first. Kept
+    #: to one callback: this is a notification, not an extension point, and a
+    #: list of them would turn attach into a place where slow work accumulates
+    #: on the handshake path.
+    on_attach: Callable[[str], Awaitable[Any]] | None = None
+
     def __init__(self, settings: Settings, bus: JobBus | None = None) -> None:
         self._settings = settings
         self._bus = bus or build_bus(settings.redis_url, settings.instance_id)
         self._links: dict[str, ConnectorLink] = {}
         #: Identical concurrent reads share one trip to the shop's PC.
         self._in_flight: dict[str, asyncio.Task[JobResult]] = {}
+        #: Held so a drain scheduled on attach is not garbage collected
+        #: mid-flight, which is how a queued entry silently never goes.
+        self._attach_tasks: set[asyncio.Task[None]] = set()
 
     @property
     def bus(self) -> JobBus:
@@ -77,6 +90,22 @@ class ConnectorHub:
         self._links[link.connector_id] = link
         with contextlib.suppress(Exception):
             await self._bus.register(link.connector_id)
+
+        # Scheduled, never awaited. The handshake must finish and the socket
+        # start serving whatever else this does, and draining a queue means
+        # talking to a TallyPrime that may take a minute to answer.
+        if self.on_attach is not None:
+            task = asyncio.create_task(self._notify_attached(link.connector_id))
+            self._attach_tasks.add(task)
+            task.add_done_callback(self._attach_tasks.discard)
+
+    async def _notify_attached(self, connector_id: str) -> None:
+        try:
+            await self.on_attach(connector_id)  # type: ignore[misc]
+        except asyncio.CancelledError:
+            raise
+        except Exception:  # noqa: BLE001 - a reconnect must survive this
+            logger.exception("attach callback failed for %s", connector_id)
 
     async def detach(self, link: ConnectorLink) -> None:
         # Only if it is still the current one -- a reconnect may already have
@@ -143,6 +172,56 @@ class ConnectorHub:
         finally:
             if self._in_flight.get(key) is task and task.done():
                 del self._in_flight[key]
+
+    async def write(
+        self,
+        *,
+        connector_id: str,
+        mutation: str,
+        params: dict[str, Any],
+        timeout_seconds: float | None = None,
+    ) -> JobResult:
+        """Perform a write on a connector, wherever it is connected.
+
+        Deliberately **not** a flag on :meth:`run`, and deliberately without its
+        coalescing. Two identical reads are one read; two identical receipts are
+        two receipts, and folding them together would silently drop a real
+        second payment from the same customer for the same amount on the same
+        day. There is no key under which a write may join another write.
+
+        Like :meth:`run` it never raises for expected failures, so callers have
+        one code path. Unlike it, every failure it returns is non-retryable:
+        this side cannot tell a write that never left from one that posted and
+        lost its reply, so re-sending is never the automatic answer.
+        """
+        timeout = timeout_seconds or self._settings.default_write_timeout_seconds
+        job_id = uuid.uuid4().hex
+
+        link = self.local_link(connector_id)
+        if link is None:
+            # Not routed across instances. A write has a person waiting on it
+            # and must not be re-sent, so the extra hop -- which can fail after
+            # the frame was delivered -- buys an ambiguity we refuse to create.
+            # Reads coalesce and retry; a voucher does neither.
+            owner = None
+            with contextlib.suppress(Exception):
+                owner = await self._bus.locate(connector_id)
+            if owner is not None and owner != self._settings.instance_id:
+                logger.info(
+                    "refusing to route write for %s to instance %s", connector_id, owner
+                )
+                return JobResult.failure(job_id, _write_elsewhere_error(connector_id))
+            return JobResult.failure(job_id, _write_offline_error(connector_id))
+
+        if not link.can_write(mutation):
+            return JobResult.failure(job_id, _cannot_write_error(mutation))
+
+        return await link.run_write(
+            mutation=mutation,
+            params=params,
+            timeout_seconds=timeout,
+            job_id=job_id,
+        )
 
     async def _dispatch(
         self,
@@ -236,5 +315,45 @@ def _outdated_error(query: str) -> JobError:
         code="connector_outdated",
         message=f"connector does not support query {query!r}",
         user_message="Your Tally Connector needs updating to show this.",
+        retryable=False,
+    )
+
+
+def _write_offline_error(connector_id: str) -> JobError:
+    """Offline, and definitely nothing was written.
+
+    Worth its own message rather than reusing the read one: "please try again"
+    is safe here precisely because the entry never left this building.
+    """
+    return JobError(
+        code="connector_offline",
+        message=f"connector {connector_id} is not connected",
+        user_message=(
+            "Your Tally PC is offline, so nothing was saved. Check it is "
+            "switched on and connected, then try again."
+        ),
+        # The entry never left this building, so re-sending it cannot duplicate
+        # anything. This is the one write failure that is unambiguously safe.
+        retryable=True,
+    )
+
+
+def _write_elsewhere_error(connector_id: str) -> JobError:
+    return JobError(
+        code="connector_elsewhere",
+        message=f"connector {connector_id} is held by another backend instance",
+        user_message="Your Tally PC is reconnecting. Nothing was saved -- please try again.",
+        retryable=True,
+    )
+
+
+def _cannot_write_error(mutation: str) -> JobError:
+    return JobError(
+        code="connector_outdated",
+        message=f"connector does not support mutation {mutation!r}",
+        user_message=(
+            "The Tally Connector on your PC is too old to create entries. "
+            "Update it and try again."
+        ),
         retryable=False,
     )

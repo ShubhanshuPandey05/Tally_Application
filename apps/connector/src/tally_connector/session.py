@@ -23,7 +23,7 @@ from typing import Any, Protocol
 
 import websockets
 from pydantic import ValidationError
-from tally_core.tally import TallyClient, registry_manifest
+from tally_core.tally import TallyClient, mutation_manifest, registry_manifest
 from tally_core.versioning import is_newer
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
@@ -40,6 +40,8 @@ from .protocol import (
     JobRequest,
     LogBatch,
     Message,
+    MutationCapability,
+    MutationRequest,
     Ping,
     Pong,
     QueryCapability,
@@ -133,6 +135,7 @@ class ConnectorSession:
                 max_entries=settings.cache_max_entries,
                 stale_ttl_seconds=settings.cache_stale_ttl_seconds,
             ),
+            voucher_entry_mode=settings.voucher_entry_mode,
         )
         # Caps how many jobs are *accepted* at once. They still reach Tally one
         # at a time -- the pipeline sees to that -- but bounding acceptance keeps
@@ -265,6 +268,11 @@ class ConnectorSession:
         if not self._settings.backend_url.startswith("wss://"):
             return None
         context = ssl.create_default_context()
+        if self._settings.tls_ca_bundle is not None:
+            # Added to the system store rather than replacing it: a corporate
+            # proxy's private root has to become trusted without un-trusting
+            # every public CA on the way.
+            context.load_verify_locations(cafile=str(self._settings.tls_ca_bundle))
         if not self._settings.verify_tls:
             # Development only. Loud, because shipping this would expose a
             # customer's books to anyone who can intercept the connection.
@@ -279,6 +287,7 @@ class ConnectorSession:
             secret=self._settings.connector_secret,
             host=self._settings.host_info(self._version),
             capabilities=[QueryCapability(**entry) for entry in registry_manifest()],
+            mutations=[MutationCapability(**entry) for entry in mutation_manifest()],
         )
         await self._send(socket, hello)
 
@@ -298,6 +307,11 @@ class ConnectorSession:
                 f"connector speaks v{PROTOCOL_VERSION}; please update the connector"
             )
         return ack
+
+    @property
+    def executor(self) -> JobExecutor:
+        """The live executor, so a setting can be changed without a reconnect."""
+        return self._executor
 
     async def _serve(self, socket: Any) -> None:
         async for raw in socket:
@@ -325,6 +339,8 @@ class ConnectorSession:
                 self._start_ping(socket, message)
             elif kind == "job":
                 self._start_job(socket, message)
+            elif kind == "mutation":
+                self._start_write(socket, message)
             elif kind == "update":
                 self._handle_update_command(message)
             elif kind == "roster":
@@ -485,6 +501,37 @@ class ConnectorSession:
             # The backend will have timed the job out and the phone will retry;
             # holding the result would only serve it to nobody.
             logger.info("connection closed before job %s could be returned", job.job_id)
+
+    def _start_write(self, socket: Any, message: dict[str, Any]) -> None:
+        try:
+            request = MutationRequest.model_validate(message)
+        except ValidationError as exc:
+            # Dropped rather than answered. A malformed write is the one frame
+            # where guessing at what was meant could book a voucher nobody
+            # asked for, and the backend times the request out either way.
+            logger.warning("discarding malformed write request: %s", exc)
+            return
+
+        task = asyncio.create_task(self._run_write(socket, request))
+        self._jobs.add(task)
+        task.add_done_callback(self._jobs.discard)
+
+    async def _run_write(self, socket: Any, request: MutationRequest) -> None:
+        async with self._semaphore:
+            logger.info("running write %s (%s)", request.job_id, request.mutation)
+            result = await self._executor.write(request)
+
+        try:
+            await self._send(socket, result)
+        except ConnectionClosed:
+            # Worth a louder line than the read case. The voucher is in Tally
+            # and the person who created it is about to be told it failed, so
+            # this log is the only record connecting the two.
+            logger.warning(
+                "connection closed before write %s could be reported (ok=%s)",
+                request.job_id,
+                result.ok,
+            )
 
     # -- plumbing --------------------------------------------------------
 

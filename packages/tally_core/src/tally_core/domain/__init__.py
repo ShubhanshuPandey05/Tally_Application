@@ -9,6 +9,7 @@ from .masters import (
     LedgerGroup,
     StockItem,
     StockUnit,
+    TallyLicence,
     VoucherType,
     VoucherTypeKind,
 )
@@ -36,6 +37,7 @@ __all__ = [
     "Side",
     "StockItem",
     "StockUnit",
+    "TallyLicence",
     "TrialBalanceRow",
     "Voucher",
     "VoucherType",

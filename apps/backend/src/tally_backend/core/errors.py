@@ -204,3 +204,15 @@ _CODES = {
     503: "unavailable",
     504: "timeout",
 }
+
+
+class WriteRefused(AppError):
+    """A write declined before it reached anyone's TallyPrime.
+
+    Distinct from a write Tally refused: nothing was sent, so whatever was
+    asked for definitely does not exist, and the message can say so plainly
+    rather than hedging.
+    """
+
+    status_code = 409
+    code = "write_refused"

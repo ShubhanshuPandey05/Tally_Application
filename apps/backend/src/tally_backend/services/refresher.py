@@ -50,6 +50,9 @@ logger = logging.getLogger(__name__)
 #: Datasets kept warm, with whether each is expensive for Tally to produce.
 WARM_DATASETS: list[tuple[str, bool]] = [
     ("ledgers.list", False),
+    # Cheap. Group Outstanding nests a party under its own sub-group with it,
+    # and without a snapshot that report would ask the shop's Tally live.
+    ("groups.list", False),
     # Cheap, and every voucher-based figure depends on it to tell a renamed
     # "Tax Invoice" from a Journal. Warmed alongside the vouchers it classifies
     # so the two are never more than one sweep apart.

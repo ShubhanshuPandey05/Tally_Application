@@ -36,6 +36,10 @@ class OutstandingScreen extends ConsumerStatefulWidget {
 class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
   DateTime? _asOf;
 
+  /// Parties whose bills are showing, by name. Held here rather than in each
+  /// card so "Expand all" can reach every one of them.
+  final Set<String> _expanded = <String>{};
+
   Future<void> _pickAsOf(BuildContext context) async {
     final DateTime now = DateTime.now();
     final DateTime picked = await showDatePicker(
@@ -103,6 +107,8 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
       builder: (BuildContext context, OutstandingReport report) {
         if (report.bills.isEmpty) return const <Widget>[];
         final ThemeData theme = Theme.of(context);
+        final bool allExpanded = report.byParty
+            .every((PartyBills party) => _expanded.contains(party.party));
 
         return <Widget>[
           Padding(
@@ -157,10 +163,36 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
                     const SizedBox(height: 14),
                     AgeingBar(ageing: report.ageing, total: report.total),
                     const SizedBox(height: 10),
-                    Text(
-                      '${report.billCount} bills · ${report.partyCount} parties',
-                      style: theme.textTheme.bodySmall
-                          ?.copyWith(color: context.mutedColor),
+                    Row(
+                      children: <Widget>[
+                        Expanded(
+                          child: Text(
+                            '${report.billCount} bills · ${report.partyCount} parties',
+                            style: theme.textTheme.bodySmall
+                                ?.copyWith(color: context.mutedColor),
+                          ),
+                        ),
+                        TextButton.icon(
+                          style: TextButton.styleFrom(
+                            visualDensity: VisualDensity.compact,
+                            tapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                          ),
+                          onPressed: () => setState(() {
+                            if (allExpanded) {
+                              _expanded.clear();
+                            } else {
+                              _expanded.addAll(
+                                report.byParty.map((PartyBills party) => party.party),
+                              );
+                            }
+                          }),
+                          icon: Icon(
+                            allExpanded ? Icons.unfold_less : Icons.unfold_more,
+                            size: 18,
+                          ),
+                          label: Text(allExpanded ? 'Collapse all' : 'Expand all'),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -170,7 +202,13 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
           for (final PartyBills party in report.byParty)
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _PartyCard(party: party),
+              child: _PartyCard(
+                party: party,
+                expanded: _expanded.contains(party.party),
+                onToggle: () => setState(() {
+                  if (!_expanded.remove(party.party)) _expanded.add(party.party);
+                }),
+              ),
             ),
         ];
       },
@@ -185,10 +223,21 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
   static String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
 }
 
+/// A party, its total, and -- behind the arrow -- the bills that make it up.
+///
+/// Two targets on one card because they answer different questions: the arrow
+/// lists what is outstanding right here, and the card itself opens the party's
+/// statement, which is where "and what have they been paying like" is answered.
 class _PartyCard extends StatelessWidget {
-  const _PartyCard({required this.party});
+  const _PartyCard({
+    required this.party,
+    required this.expanded,
+    required this.onToggle,
+  });
 
   final PartyBills party;
+  final bool expanded;
+  final VoidCallback onToggle;
 
   @override
   Widget build(BuildContext context) {
@@ -197,35 +246,72 @@ class _PartyCard extends StatelessWidget {
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Theme(
-        // The default expansion tile divider fights the card border.
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          title: Text(
-            party.party,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            overdue
-                ? '${party.bills.length} bills · oldest ${party.maxDaysOverdue} days overdue'
-                : '${party.bills.length} bills · not yet due',
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: overdue ? context.negativeColor : context.mutedColor,
+      child: Column(
+        children: <Widget>[
+          InkWell(
+            onTap: () => context.push(
+              '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.party)}',
+            ),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          party.party,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          overdue
+                              ? '${party.bills.length} bills · oldest ${party.maxDaysOverdue} days overdue'
+                              : '${party.bills.length} bills · not yet due',
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: overdue ? context.negativeColor : context.mutedColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    MoneyFormat.compact(party.total),
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  IconButton(
+                    tooltip: expanded ? 'Hide bills' : 'Show bills',
+                    onPressed: onToggle,
+                    icon: AnimatedRotation(
+                      turns: expanded ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: const Icon(Icons.expand_more),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          trailing: Text(
-            MoneyFormat.compact(party.total),
-            style: theme.textTheme.titleSmall,
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            alignment: Alignment.topCenter,
+            child: expanded
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 8),
+                    child: Column(
+                      children: <Widget>[
+                        for (final OutstandingBill bill in party.bills)
+                          _BillRow(bill: bill),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
           ),
-          children: <Widget>[
-            for (final OutstandingBill bill in party.bills)
-              _BillRow(bill: bill),
-            _PartyStatementLink(party: party.party),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -253,12 +339,21 @@ class _BillRow extends StatelessWidget {
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodyMedium,
                 ),
-                Text(
-                  _subtitle(bill),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: bill.isOverdue ? context.negativeColor : context.mutedColor,
+                if (_dates(bill) case final String dates)
+                  Text(
+                    dates,
+                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
                   ),
-                ),
+                if (bill.isOverdue)
+                  Text(
+                    '${bill.daysOverdue} days overdue',
+                    style: theme.textTheme.bodySmall?.copyWith(color: context.negativeColor),
+                  )
+                else if (_dates(bill) == null)
+                  Text(
+                    ageingLabel(bill.ageingBucket),
+                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+                  ),
               ],
             ),
           ),
@@ -282,42 +377,12 @@ class _BillRow extends StatelessWidget {
     );
   }
 
-  static String _subtitle(OutstandingBill bill) {
-    final String? due = bill.dueDate == null
-        ? null
-        : 'due ${bill.dueDate!.day}/${bill.dueDate!.month}/${bill.dueDate!.year}';
-    if (bill.isOverdue) {
-      return '${bill.daysOverdue} days overdue${due == null ? '' : ' · $due'}';
-    }
-    return due ?? ageingLabel(bill.ageingBucket);
-  }
-}
-
-/// The way from a party's bills to everything that party has ever done.
-///
-/// Bills answer "what is outstanding"; the ledger answers "and what have they
-/// been paying like". Kept as an explicit action at the foot of the expansion
-/// rather than a tap on the party row, which already has a job -- opening and
-/// closing the bills.
-class _PartyStatementLink extends StatelessWidget {
-  const _PartyStatementLink({required this.party});
-
-  final String party;
-
-  @override
-  Widget build(BuildContext context) {
-    return Align(
-      alignment: Alignment.centerLeft,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(8, 0, 8, 4),
-        child: TextButton.icon(
-          onPressed: () => context.push(
-            '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party)}',
-          ),
-          icon: const Icon(Icons.receipt_long_outlined, size: 17),
-          label: const Text('Statement for this party'),
-        ),
-      ),
-    );
+  static String? _dates(OutstandingBill bill) {
+    String dmy(DateTime date) => '${date.day}/${date.month}/${date.year}';
+    final List<String> parts = <String>[
+      if (bill.billDate != null) 'bill ${dmy(bill.billDate!)}',
+      if (bill.dueDate != null) 'due ${dmy(bill.dueDate!)}',
+    ];
+    return parts.isEmpty ? null : parts.join(' · ');
   }
 }

@@ -40,7 +40,14 @@ from typing import Any
 
 from tally_core.tally import TallyClient
 
-from .config import ConnectorSettings, load_settings, save_pairing, save_settings
+from .config import (
+    SYNC_SPEEDS,
+    VOUCHER_ENTRY_MODES,
+    ConnectorSettings,
+    load_settings,
+    save_pairing,
+    save_settings,
+)
 from .pairing import PairingClient, PairingError, PendingClaim
 from .remote_logs import RemoteLogHandler
 from .session import AuthenticationRejected, ConnectorSession
@@ -328,6 +335,8 @@ class ConnectorRunner:
         bridge.register("refresh", self._action_refresh)
         bridge.register("port", self._action_port)
         bridge.register("new-code", self._action_new_code)
+        bridge.register("sync-speed", self._action_sync_speed)
+        bridge.register("entry-mode", self._action_entry_mode)
 
         server = LocalUiServer(bridge, port=settings.ui_port)
         self._bridge = bridge
@@ -345,6 +354,8 @@ class ConnectorRunner:
             tally_host=settings.tally_host,
             tally_port=settings.tally_port,
             log_dir=str(settings.log_dir or ""),
+            sync_speed=settings.sync_speed,
+            voucher_entry_mode=settings.voucher_entry_mode,
         )
 
     def _report_pairing(self, detail: str, *, claim: PendingClaim | None = None) -> None:
@@ -402,6 +413,57 @@ class ConnectorRunner:
             self._bridge.update(tally_port=port, tally_online=None)
         await self._action_restart({})
         return {"ok": True, "message": f"Now using port {port}. Restarting..."}
+
+    async def _action_sync_speed(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Change how hard this PC lets the backend work its TallyPrime.
+
+        The restart is the mechanism, not housekeeping. The backend learns the
+        choice from ``HostInfo`` on the handshake, so the setting only takes
+        effect once this connector has dialled in again -- exactly as the Tally
+        port does.
+        """
+        speed = str(payload.get("speed", "")).strip().lower()
+        if speed not in SYNC_SPEEDS:
+            return {"ok": False, "message": "Choose Gentle, Normal or Fast."}
+
+        # Written before the restart, never after: the restart re-reads the file.
+        save_settings({"sync_speed": speed}, self._config_path)
+        logger.info("sync speed set to %s from the connector window", speed)
+        if self._bridge is not None:
+            self._bridge.update(sync_speed=speed)
+        await self._action_restart({})
+        return {"ok": True, "message": f"Sync speed set to {speed.title()}. Reconnecting..."}
+
+
+    async def _action_entry_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Choose how entries sent from a phone arrive in TallyPrime.
+
+        Unlike the sync speed, this does **not** restart the session. The
+        setting is read by this connector when it builds each import rather
+        than reported to the backend on a handshake, so it can take effect on
+        the very next entry -- and dropping the socket to change a bookkeeping
+        policy would interrupt a sync for no reason.
+        """
+        mode = str(payload.get("mode", "")).strip().lower()
+        if mode not in VOUCHER_ENTRY_MODES:
+            return {"ok": False, "message": "Choose Optional or Regular."}
+
+        save_settings({"voucher_entry_mode": mode}, self._config_path)
+        logger.info("voucher entry mode set to %s from the connector window", mode)
+        if self._bridge is not None:
+            self._bridge.update(voucher_entry_mode=mode)
+        # Applied to the live session too, so the choice holds without waiting
+        # for a reconnect that this action deliberately does not trigger.
+        session = self._session
+        if session is not None:
+            session.executor.set_voucher_entry_mode(mode)
+
+        if mode == "optional":
+            return {
+                "ok": True,
+                "message": "New entries will wait for approval in TallyPrime.",
+            }
+        return {"ok": True, "message": "New entries will post straight into the books."}
 
     async def _action_new_code(self, _: dict[str, Any]) -> dict[str, Any]:
         if not self._interrupt.is_set():

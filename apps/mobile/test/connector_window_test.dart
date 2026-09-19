@@ -34,12 +34,19 @@ void main() {
         onRefresh: () {},
         onRestart: () {},
         onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
       )));
 
       expect(tester.takeException(), isNull);
       expect(find.text('Connected'), findsOneWidget);
       expect(find.text('Answering'), findsOneWidget);
       expect(find.text('D.D Enterprises'), findsOneWidget);
+
+      // Who can see them moved behind its own tab, so it is a click away
+      // rather than a scroll away.
+      await tester.tap(find.text('People'));
+      await tester.pumpAndSettle();
       expect(find.text('Ramesh Gupta'), findsOneWidget);
     });
 
@@ -55,6 +62,8 @@ void main() {
         onRefresh: () {},
         onRestart: () {},
         onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
       )));
 
       expect(find.text('not synced yet'), findsOneWidget);
@@ -73,6 +82,8 @@ void main() {
         onRefresh: () {},
         onRestart: () {},
         onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
       )));
 
       // Never "Not answering" on a machine nothing has asked yet -- that sends
@@ -93,6 +104,8 @@ void main() {
         onRefresh: () {},
         onRestart: () {},
         onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
       )));
 
       // Those decisions belong to whoever holds the account on their phone, not
@@ -106,6 +119,118 @@ void main() {
       ]) {
         expect(find.textContaining(forbidden), findsNothing, reason: forbidden);
       }
+    });
+    testWidgets('keeps the connection status visible on every tab',
+        (WidgetTester tester) async {
+      // The question this window is opened to answer must not be a tab away.
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
+      )));
+
+      await tester.tap(find.text('Sync speed'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Connected'), findsOneWidget);
+      expect(find.text('Answering'), findsOneWidget);
+    });
+
+    testWidgets('offers three speeds and reports the one chosen',
+        (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      String? chosen;
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String speed) => chosen = speed,
+        onEntryMode: (String _) {},
+      )));
+
+      await tester.tap(find.text('Sync speed'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Gentle'), findsOneWidget);
+      expect(find.text('Normal'), findsOneWidget);
+      expect(find.text('Fast'), findsOneWidget);
+
+      await tester.tap(find.text('Gentle'));
+      await tester.pumpAndSettle();
+
+      // The wire value, not the label: it is what the connector stores.
+      expect(chosen, 'gentle');
+    });
+
+    testWidgets('offers both entry modes and reports the one chosen',
+        (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      String? chosen;
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String mode) => chosen = mode,
+      )));
+
+      await tester.tap(find.text('Entries'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Wait for approval in TallyPrime'), findsOneWidget);
+      expect(find.text('Post straight into the books'), findsOneWidget);
+
+      await tester.tap(find.text('Post straight into the books'));
+      await tester.pumpAndSettle();
+
+      // The wire value, not the label: it is what the connector stores.
+      expect(chosen, 'regular');
+    });
+
+    testWidgets('says where an entry gets approved',
+        (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
+      )));
+
+      await tester.tap(find.text('Entries'));
+      await tester.pumpAndSettle();
+
+      // The approval happens in a different program, so the window has to
+      // give the steps. Somebody who reads this tab and still does not know
+      // where to go has been told about a setting and not about the workflow.
+      expect(
+        find.textContaining('un-mark it as optional'),
+        findsOneWidget,
+      );
     });
   });
 
@@ -213,6 +338,7 @@ void main() {
       expect(state.account.users.single.hasAccess, isTrue);
       expect(state.account.asOf, isNotNull);
     });
+
   });
 }
 
@@ -279,6 +405,8 @@ final ConnectorState _paired = ConnectorState(
     asOf: DateTime.now(),
   ),
   logDir: r'C:\Users\shop\AppData\Local\TallyFlow Connector\logs',
+  syncSpeed: 'normal',
+  voucherEntryMode: 'optional',
 );
 
 const ConnectorState _unprobed = ConnectorState(
@@ -309,6 +437,8 @@ const ConnectorState _unprobed = ConnectorState(
     asOf: null,
   ),
   logDir: '',
+  syncSpeed: 'normal',
+  voucherEntryMode: 'optional',
 );
 
 const ConnectorState _waiting = ConnectorState(
@@ -344,6 +474,8 @@ const ConnectorState _waiting = ConnectorState(
     asOf: null,
   ),
   logDir: r'C:\logs',
+  syncSpeed: 'normal',
+  voucherEntryMode: 'optional',
 );
 
 /// A stand-in grid: a checkerboard the size of a real pairing code, quiet zone

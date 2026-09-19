@@ -19,10 +19,11 @@ Every request Tally accepts has the same skeleton::
       </BODY>
     </ENVELOPE>
 
-The MVP only ever emits ``TALLYREQUEST=Export``. ``Import`` is deliberately not
-reachable from this module -- write support is a Phase 5 concern and will arrive
-as a separate, explicitly-named builder so no read path can accidentally mutate
-a book of accounts.
+Reads emit ``TALLYREQUEST=Export``; writes emit ``Import``, and the two have
+separate builders on purpose. :func:`build_export_envelope` cannot produce an
+``Import`` header whatever it is passed, so no read path can mutate a book of
+accounts by way of a mistyped argument -- reaching Tally's writer means calling
+:func:`build_import_envelope` by name.
 """
 
 from __future__ import annotations
@@ -156,5 +157,49 @@ def build_export_envelope(
         "<BODY><DESC>"
         f"{sv}{tdl}"
         "</DESC></BODY>"
+        "</ENVELOPE>"
+    )
+
+
+def build_import_envelope(*, request_id: str, company: str, messages: Sequence[str]) -> str:
+    """Assemble a complete ``Import`` envelope -- the only way to write to Tally.
+
+    Deliberately not a flag on :func:`build_export_envelope`. A boolean that
+    turns a read into a write is one wrong default away from a mutation, and the
+    whole point of the read-only rule is that such a mistake should not be
+    expressible.
+
+    ``company`` is required and never optional, unlike on an export. Tally
+    imports into whichever company is *active* when none is named, so an
+    unpinned import posts a customer's voucher into whichever company the person
+    at the till last clicked.
+
+    Verified live 2026-09-17: the reply is an ``<IMPORTRESULT>`` carrying
+    ``CREATED``/``ERRORS``/``EXCEPTIONS`` counts and ``LASTVCHID``, even for an
+    empty payload -- so a caller can always tell what actually happened rather
+    than inferring it from the absence of an error.
+    """
+    if not company:
+        raise ValueError("an import must name its company")
+
+    sv = f"<STATICVARIABLES>{tag('SVCURRENTCOMPANY', company)}</STATICVARIABLES>"
+    # The UDF namespace declaration is required even when no user-defined field
+    # is used: Tally rejects the payload outright without it.
+    body = "".join(
+        f'<TALLYMESSAGE xmlns:UDF="TallyUDF">{message}</TALLYMESSAGE>' for message in messages
+    )
+
+    return (
+        "<ENVELOPE>"
+        "<HEADER>"
+        "<VERSION>1</VERSION>"
+        "<TALLYREQUEST>Import</TALLYREQUEST>"
+        "<TYPE>Data</TYPE>"
+        f"{tag('ID', request_id)}"
+        "</HEADER>"
+        "<BODY>"
+        f"<DESC>{sv}</DESC>"
+        f"<DATA>{body}</DATA>"
+        "</BODY>"
         "</ENVELOPE>"
     )

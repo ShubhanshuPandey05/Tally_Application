@@ -181,6 +181,54 @@ void main() {
     expect(find.textContaining('2 parties are not in this group'), findsOneWidget);
   });
 
+  testWidgets('the group view nests a party under its own sub-group',
+      (WidgetTester tester) async {
+    final GroupOutstandingReport report =
+        GroupOutstandingReport.fromJson(<String, Object?>{
+      'group': 'Sundry Creditors',
+      'kind': 'payable',
+      'as_of': '2026-03-15',
+      'summary': <String, Object?>{
+        'net': <String, Object?>{'amount': '10480.00', 'side': 'credit'},
+      },
+      'parties': <Object?>[
+        <String, Object?>{
+          'party': 'Power Supplies Ltd',
+          'group': 'Electronics Supplier',
+          'net': <String, Object?>{'amount': '10480.00', 'side': 'credit'},
+          'bill_count': 1,
+          'bills': <Object?>[],
+        },
+      ],
+      'sub_groups': <Object?>[
+        <String, Object?>{'name': 'Electronics Supplier', 'parent': 'Sundry Creditors'},
+        // Nothing outstanding under this one, so it must not show as ₹0.
+        <String, Object?>{'name': 'Food Supplier', 'parent': 'Sundry Creditors'},
+      ],
+    });
+
+    await _pump(
+      tester,
+      const GroupOutstandingScreen(kind: OutstandingKind.payable),
+      <Override>[
+        groupOutstandingProvider(
+          (companyId: 'company-1', kind: OutstandingKind.payable, group: null, asOf: null),
+        ).overrideWith((Ref ref) async => _fresh(report)),
+      ],
+    );
+
+    await tester.tap(find.text('Group'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Electronics Supplier'), findsOneWidget);
+    expect(find.text('Food Supplier'), findsNothing);
+    expect(find.text('Power Supplies Ltd'), findsNothing);
+
+    await tester.tap(find.text('Electronics Supplier'));
+    await tester.pumpAndSettle();
+    expect(find.text('Power Supplies Ltd'), findsOneWidget);
+  });
+
   testWidgets('stock flags negative and low items distinctly',
       (WidgetTester tester) async {
     final StockReport report = StockReport.fromJson(

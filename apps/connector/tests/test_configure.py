@@ -13,13 +13,14 @@ the connector the developer is running.
 from __future__ import annotations
 
 import json
+import os
 from pathlib import Path
 
 import pytest
 
 from tally_connector import install as autostart
 from tally_connector import main
-from tally_connector.config import load_settings, save_settings
+from tally_connector.config import ConnectorSettings, load_settings, save_settings
 
 
 @pytest.fixture
@@ -241,3 +242,114 @@ async def test_purge_reports_what_it_deleted(
     assert str(config) in out
     assert str(data) in out
     assert "no longer paired" in out.lower()
+
+
+# --------------------------------------------------------------------------
+# Proxy and TLS trust
+#
+# A shop on a managed network -- a unit inside a mall, a franchise on head
+# office's LAN -- often cannot reach the internet except through a proxy. The
+# failure mode without this is the worst kind: "connector offline" while Tally
+# and the internet are both plainly working.
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture
+def clean_proxy_env():
+    """Snapshot and restore the variables these tests publish into.
+
+    ``apply_network_environment`` writes to ``os.environ`` directly -- that is
+    the entire point of it -- so ``monkeypatch`` cannot undo what it *creates*;
+    monkeypatch only restores names that already existed. Without this fixture
+    a leaked HTTPS_PROXY makes every later websocket test dial a proxy that
+    does not exist, which is precisely how this was discovered.
+    """
+    names = ("HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "SSL_CERT_FILE")
+    saved = {name: os.environ.get(name) for name in names}
+    for name in names:
+        os.environ.pop(name, None)
+    try:
+        yield
+    finally:
+        for name, value in saved.items():
+            if value is None:
+                os.environ.pop(name, None)
+            else:
+                os.environ[name] = value
+
+
+def test_a_configured_proxy_reaches_every_client(clean_proxy_env):
+    """One assignment has to cover three clients built in three modules.
+
+    ``websockets.connect`` defaults to ``proxy=True`` and ``httpx`` to
+    ``trust_env=True``, so publishing the standard variables reaches the
+    socket, the pairing client and the updater without plumbing a proxy
+    argument through any of them.
+    """
+    ConnectorSettings(proxy_url="http://proxy.shop.local:3128").apply_network_environment()
+
+    assert os.environ["HTTPS_PROXY"] == "http://proxy.shop.local:3128"
+    assert os.environ["HTTP_PROXY"] == "http://proxy.shop.local:3128"
+    assert os.environ["ALL_PROXY"] == "http://proxy.shop.local:3128"
+
+
+def test_an_operators_own_proxy_setting_outranks_ours(clean_proxy_env):
+    """What the machine already exports is its real network configuration."""
+    os.environ["HTTPS_PROXY"] = "http://set-by-the-admin:8080"
+
+    ConnectorSettings(proxy_url="http://from-connector-json:3128").apply_network_environment()
+
+    assert os.environ["HTTPS_PROXY"] == "http://set-by-the-admin:8080"
+
+
+def test_no_proxy_configured_touches_nothing(clean_proxy_env):
+    ConnectorSettings().apply_network_environment()
+
+    assert "HTTPS_PROXY" not in os.environ
+
+
+def test_a_ca_bundle_is_published_for_httpx(clean_proxy_env, tmp_path):
+    """A proxy that intercepts TLS re-signs with a private root. Trusting it is
+    the fix; turning verify_tls off would expose a customer's books instead."""
+    bundle = tmp_path / "corporate-root.pem"
+    bundle.write_text("-----BEGIN CERTIFICATE-----", encoding="utf-8")
+
+    ConnectorSettings(tls_ca_bundle=bundle).apply_network_environment()
+
+    assert os.environ["SSL_CERT_FILE"] == str(bundle)
+
+
+# --------------------------------------------------------------------------
+# How entries from a phone arrive in TallyPrime
+# --------------------------------------------------------------------------
+
+
+def test_entries_wait_for_approval_unless_somebody_says_otherwise():
+    """The cautious mode is the default, and the default is what ships.
+
+    A shop that installs this and never opens the connector window must get
+    entries that cannot touch its books until somebody in TallyPrime approves
+    them. Flipping this default would change what happens on machines whose
+    owners never made a choice at all.
+    """
+    assert ConnectorSettings().voucher_entry_mode == "optional"
+
+
+def test_posting_straight_into_the_books_is_an_explicit_choice(config):
+    save_settings({"voucher_entry_mode": "regular"}, config)
+
+    assert load_settings(config).voucher_entry_mode == "regular"
+
+
+def test_an_unrecognised_entry_mode_is_refused():
+    # Not silently coerced to a default: a typo in connector.json that quietly
+    # became "regular" would post somebody's entries into their books.
+    with pytest.raises(ValueError, match="voucher_entry_mode"):
+        ConnectorSettings(voucher_entry_mode="straight-through")
+
+
+def test_the_entry_mode_survives_a_round_trip(config):
+    save_settings({"voucher_entry_mode": "REGULAR "}, config)
+
+    # Normalised on the way in, so the window and the file agree on one spelling.
+    assert load_settings(config).voucher_entry_mode == "regular"

@@ -335,7 +335,7 @@ async def test_a_backfill_reads_one_slice_at_a_time(
         for query, params in fake_connector.calls
         if query == "vouchers.list"
     ]
-    assert len(windows) == 2, "a year of books at six-month slices"
+    assert len(windows) == 4, "a short probe, then slices that ramp up"
     assert all(
         (date.fromisoformat(to) - date.fromisoformat(frm)).days <= 190
         for frm, to in windows
@@ -355,7 +355,7 @@ async def test_a_backfill_asks_tally_where_the_books_start(
         run = await SyncService(session, app.state.settings).latest_run(
             linked_company["company_id"]
         )
-        assert run.total_chunks == 2
+        assert run.total_chunks == 4
         assert run.state is SyncState.SUCCEEDED
 
 
@@ -814,7 +814,7 @@ async def test_the_status_endpoint_describes_a_finished_sync(
     assert body["state"] == "succeeded"
     assert body["running"] is False
     assert body["progress"] == 1.0
-    assert body["completed_chunks"] == body["total_chunks"] == 2
+    assert body["completed_chunks"] == body["total_chunks"] == 4
     assert body["history"]["has_history"] is True
     assert body["history"]["supports_incremental"] is True
 
@@ -1086,7 +1086,7 @@ async def test_an_oversized_slice_narrows_the_ones_still_to_read(
         for q, p in fake_connector.calls
         if q == "vouchers.list"
     ]
-    assert spans[0] > 30, "the first slice is still the planner's month-based guess"
+    assert spans[0] <= 45, "the first slice is a short probe, not a six-month export"
     assert spans[-1] <= 30, "later slices were re-cut from what was measured"
     # No stub exports: a tail shorter than half a slice is absorbed into the
     # one before it rather than becoming a round trip of its own.
@@ -1105,7 +1105,7 @@ async def test_a_slice_inside_the_limit_leaves_the_plan_alone(
     await run_backfill(coordinator, linked_company["company_id"])
 
     windows = [p for q, p in fake_connector.calls if q == "vouchers.list"]
-    assert len(windows) == 2, "the original month-based plan, untouched"
+    assert len(windows) == 4, "the probe, then a braked ramp back up to month-sized slices"
 
 
 # --------------------------------------------------------------------------

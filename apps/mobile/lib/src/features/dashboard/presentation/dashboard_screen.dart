@@ -3,6 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
+import '../../entries/application/entry_providers.dart';
+import '../../entries/domain/entry_draft.dart';
 import '../../../app/shell.dart';
 import '../../../app/theme.dart';
 import '../../../core/layout/adaptive.dart';
@@ -110,6 +112,11 @@ class _Dashboard extends ConsumerWidget {
         title: CompanySwitcher(
             subtitle: company.tallyName != company.name ? company.tallyName : null),
         actions: <Widget>[
+          // Only when something is actually waiting. A permanent icon for an
+          // empty queue is one more thing to ignore; a badge that appears is
+          // the whole point -- a held entry nobody looks at is a receipt
+          // somebody thinks they recorded.
+          _PendingBadge(companyId: company.id),
           IconButton(
             tooltip: 'Refresh from Tally',
             onPressed: () => ref.read(dashboardProvider(company.id).notifier).refresh(),
@@ -983,3 +990,40 @@ class _NoCompaniesScreen extends ConsumerWidget {
     );
   }
 }
+
+
+/// How many entries are still on their way, when there are any.
+///
+/// Silent when the queue is empty and when the list cannot be loaded: this
+/// sits in an app bar beside a shop's figures, and an error chip there would
+/// be alarming out of all proportion to a list that will load next time.
+class _PendingBadge extends ConsumerWidget {
+  const _PendingBadge({required this.companyId});
+
+  final String companyId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final List<PendingEntry>? entries =
+        ref.watch(pendingEntriesProvider(companyId)).valueOrNull;
+    if (entries == null) {
+      return const SizedBox.shrink();
+    }
+
+    final int open = entries.where((PendingEntry e) => e.isOpen).length;
+    if (open == 0) {
+      return const SizedBox.shrink();
+    }
+
+    return IconButton(
+      tooltip: '$open entr${open == 1 ? 'y' : 'ies'} waiting for your Tally PC',
+      onPressed: () => context.push(Routes.pendingEntries),
+      icon: Badge(
+        label: Text('$open'),
+        child: const Icon(Icons.schedule_send),
+      ),
+    );
+  }
+}
+
+

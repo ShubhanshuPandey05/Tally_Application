@@ -21,7 +21,7 @@ from ...db.models import Company
 from ...services import analytics as an
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
-from ...services.reads import DataResult, FetchMode, ReadService
+from ...services.reads import DataResult, FetchMode, NoDataYet, ReadService
 from ...services.sync import SyncCoordinator
 from ..deps import (
     CompanyDep,
@@ -301,6 +301,18 @@ async def outstanding_by_group(
     ledgers_result = await reads.fetch(
         company, dataset="ledgers.list", mode=resolved
     )
+    results = [bills_result, ledgers_result]
+    # The group tree only nests sub-groups. A company whose tree has not been
+    # read yet still gets its report, counted on direct membership, rather
+    # than an error screen over figures we do have.
+    groups = None
+    try:
+        groups_result = await reads.fetch(company, dataset="groups.list", mode=resolved)
+    except NoDataYet:
+        pass
+    else:
+        groups = an.parse_groups(groups_result.payload)
+        results.append(groups_result)
 
     data = an.group_outstanding(
         an.parse_bills(bills_result.payload),
@@ -308,6 +320,7 @@ async def outstanding_by_group(
         group=party_group,
         kind=kind,
         as_of=today,
+        groups=groups,
     )
     data["as_of"] = today.isoformat()
 
@@ -321,7 +334,7 @@ async def outstanding_by_group(
         request=request,
     )
 
-    return DataEnvelope(data=data, meta=_oldest_meta([bills_result, ledgers_result]))
+    return DataEnvelope(data=data, meta=_oldest_meta(results))
 
 
 @router.get("/reports/stock", response_model=DataEnvelope)

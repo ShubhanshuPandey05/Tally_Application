@@ -97,6 +97,20 @@ class QueryCapability(BaseModel):
     heavy: bool = False
 
 
+class MutationCapability(BaseModel):
+    """A write this connector build knows how to perform.
+
+    Sent separately from :class:`QueryCapability` rather than as a flag on it,
+    so a backend reading an older connector's handshake sees an empty list and
+    refuses the write locally. An old connector ignores an unknown frame by
+    design -- correct, and also silent, so without this the phone would wait
+    out the whole deadline for a reply that was never coming.
+    """
+
+    name: str
+    version: int
+
+
 class HostInfo(BaseModel):
     """Identifies the machine, for the "which PC is this?" screen in the app."""
 
@@ -104,6 +118,11 @@ class HostInfo(BaseModel):
     os: str
     connector_version: str
     python_version: str
+    #: How hard this PC is willing to let its TallyPrime be worked, chosen in
+    #: the connector's own window. Defaulted rather than required: an older
+    #: connector does not send it, and must keep pairing and syncing exactly as
+    #: it does today rather than being refused for omitting a field.
+    sync_speed: str = "normal"
 
 
 class Hello(ClientMessage):
@@ -122,6 +141,10 @@ class Hello(ClientMessage):
     signature: str
     host: HostInfo
     capabilities: list[QueryCapability]
+    #: Writes this build supports. Defaulted empty, so a connector from before
+    #: write-back existed handshakes exactly as it does today and is simply
+    #: never sent one.
+    mutations: list[MutationCapability] = Field(default_factory=list)
 
     @classmethod
     def signed(
@@ -131,6 +154,7 @@ class Hello(ClientMessage):
         secret: str,
         host: HostInfo,
         capabilities: list[QueryCapability],
+        mutations: list[MutationCapability] | None = None,
     ) -> Hello:
         nonce = secrets.token_hex(16)
         issued_at = int(time.time())
@@ -143,6 +167,7 @@ class Hello(ClientMessage):
             ),
             host=host,
             capabilities=capabilities,
+            mutations=mutations or [],
         )
 
 
@@ -241,6 +266,30 @@ class JobRequest(ServerMessage):
     #: Past this, the backend has already answered the phone; finishing the work
     #: would only burn Tally time on a result nobody is waiting for.
     deadline_seconds: float = 120.0
+
+
+class MutationRequest(ServerMessage):
+    """A single write, addressed by registered mutation name.
+
+    Deliberately a different frame type from :class:`JobRequest`. The connector
+    routes one through the read registry and the other through the write
+    registry, so a read can never be dispatched to Tally's importer by naming
+    it oddly, and a connector too old to write ignores this frame entirely
+    instead of guessing at it (CLAUDE.md: "unknown message types are refused or
+    ignored, never guessed at").
+
+    There is no ``cache_ttl_seconds``. A write has no answer worth reusing, and
+    a cached receipt would let a second attempt report the first one's success.
+    """
+
+    type: Literal["mutation"] = "mutation"
+    job_id: str
+    mutation: str
+    params: dict[str, Any] = Field(default_factory=dict)
+    #: Shorter than a read's by default. A person is standing there waiting,
+    #: and an import that has not been accepted in half a minute is one whose
+    #: outcome they should be told about rather than left guessing at.
+    deadline_seconds: float = 45.0
 
 
 class JobError(BaseModel):
@@ -480,7 +529,8 @@ class LogBatch(ClientMessage):
 
 #: Messages the connector may receive.
 Inbound = Annotated[
-    HelloAck | Ping | JobRequest | UpdateCommand | Roster, Field(discriminator="type")
+    HelloAck | Ping | JobRequest | MutationRequest | UpdateCommand | Roster,
+    Field(discriminator="type"),
 ]
 #: Messages the connector may send.
 Outbound = Annotated[

@@ -47,9 +47,12 @@ from ..services.entitlements import (
     require_data,
     require_mutable,
 )
+from ..services.masters import MasterService
 from ..services.public_stats import PublicStatsService
 from ..services.reads import ReadService
 from ..services.sync import SyncCoordinator
+from ..services.voucher_queue import VoucherQueue
+from ..services.voucher_writes import VoucherWriteService
 
 
 def get_settings(request: Request) -> Settings:
@@ -321,6 +324,37 @@ PlatformPrincipalDep = Annotated[PlatformPrincipal, Depends(get_platform_princip
 
 def get_auth_service(session: SessionDep, settings: SettingsDep) -> AuthService:
     return AuthService(session, settings)
+
+
+def get_master_service(
+    session: SessionDep, hub: HubDep, settings: SettingsDep
+) -> MasterService:
+    return MasterService(session, hub, settings)
+
+
+MasterServiceDep = Annotated[MasterService, Depends(get_master_service)]
+
+
+def get_voucher_queue(request: Request) -> VoucherQueue | None:
+    """The queue, when the app has one.
+
+    Optional rather than required so a test can drive the live write path with
+    no queue at all, which is how the "nothing was saved" behaviour stays
+    testable now that the default is to hold the entry instead.
+    """
+    return getattr(request.app.state, "voucher_queue", None)
+
+
+def get_voucher_write_service(
+    session: SessionDep,
+    hub: HubDep,
+    settings: SettingsDep,
+    queue: Annotated[VoucherQueue | None, Depends(get_voucher_queue)],
+) -> VoucherWriteService:
+    return VoucherWriteService(session, hub, settings, queue)
+
+
+VoucherWriteServiceDep = Annotated[VoucherWriteService, Depends(get_voucher_write_service)]
 
 
 def get_read_service(session: SessionDep, hub: HubDep, settings: SettingsDep) -> ReadService:

@@ -19,6 +19,7 @@ from ...domain.masters import (
     Ledger,
     LedgerGroup,
     StockItem,
+    TallyLicence,
     VoucherType,
     VoucherTypeKind,
 )
@@ -199,6 +200,98 @@ def _markers_from(el: ET.Element, name: str) -> CompanyMarkers:
         financial_year_from=parse_date(find_text(el, "STARTINGFROM")),
         ending_at=parse_date(find_text(el, "ENDINGAT")),
     )
+
+
+
+# --------------------------------------------------------------------------
+# Licence and operator rights
+# --------------------------------------------------------------------------
+
+
+class TallyLicenceParams(QueryParams):
+    pass
+
+
+@register
+class TallyLicenceQuery(TallyQuery[TallyLicenceParams, TallyLicence]):
+    """Whether this TallyPrime will actually serve a complete set of books.
+
+    Two conditions make every other read quietly wrong and neither announces
+    itself: educational mode returns only a fraction of the vouchers, and a
+    non-administrator Tally user cannot export some reports. Both are
+    indistinguishable from "this shop simply has very little data", which is
+    why a customer reports the product as broken and nothing in any log agrees.
+
+    ``$$LicenseInfo:...`` is read through ``COMPUTE`` on a Company collection
+    rather than through ``TYPE=Function``/``$$ProdInfo``. The Function form is
+    what the closest shipping competitor uses; tried against a live TallyPrime
+    on 2026-09-15 it answered ``<ERRORMSG>Function Execution Failed!</ERRORMSG>``
+    for every parameter, while this form returned every value asked for.
+    """
+
+    name = "tally.licence"
+    params_model = TallyLicenceParams
+
+    def build(self, params: TallyLicenceParams) -> str:
+        return build_export_envelope(
+            request_type="Collection",
+            request_id="TFLicence",
+            static_variables=StaticVariables(company=params.company),
+            collections=[
+                Collection(
+                    name="TFLicence",
+                    type="Company",
+                    compute={
+                        "TFEduMode": "$$LicenseInfo:IsEducationalMode",
+                        "TFLicMode": "$$LicenseInfo:IsLicensedMode",
+                        "TFIsAdmin": "$$LicenseInfo:IsAdmin",
+                        "TFSerial": "$$LicenseInfo:SerialNumber",
+                        "TFGold": "$$LicenseInfo:IsGold",
+                        "TFSilver": "$$LicenseInfo:IsSilver",
+                    },
+                )
+            ],
+        )
+
+    def parse(self, root: ET.Element, params: TallyLicenceParams) -> TallyLicence:
+        edition = None
+        if _tally_flag(root, "TFGOLD"):
+            edition = "Gold"
+        elif _tally_flag(root, "TFSILVER"):
+            edition = "Silver"
+
+        serial = _first_tag_text(root, "TFSERIAL")
+        # An unlicensed install reports 0, which is not a serial number and must
+        # not be shown to anyone as one.
+        if serial is not None and not serial.strip().strip("0"):
+            serial = None
+
+        return TallyLicence(
+            is_educational=_tally_flag(root, "TFEDUMODE"),
+            is_licensed=_tally_flag(root, "TFLICMODE"),
+            is_admin=_tally_flag(root, "TFISADMIN"),
+            serial_number=serial,
+            edition=edition,
+        )
+
+
+def _first_tag_text(root: ET.Element, tag: str) -> str | None:
+    for el in root.iter(tag):
+        value = text_of(el)
+        if value is not None:
+            return value
+    return None
+
+
+def _tally_flag(root: ET.Element, tag: str) -> bool | None:
+    """A computed Yes/No field, or ``None`` when this build did not report it.
+
+    The three-way answer is the point. Most of these names are absent on older
+    TallyPrime builds, and treating "did not say" as "No" would warn a customer
+    about a perfectly healthy install.
+    """
+    raw = _first_tag_text(root, tag)
+    return None if raw is None else parse_bool(raw)
 
 
 # --------------------------------------------------------------------------
