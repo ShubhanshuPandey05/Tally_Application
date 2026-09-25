@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-19T11:26:39+00:00",
+  "generated_at": "2026-09-25T08:55:12+00:00",
   "connector": {
-    "version": "0.4.1",
-    "file": "TallyFlowConnector-Setup-0.4.1.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.4.1.exe",
-    "sha256": "e226ae80cc5e384b8d94ca5ab1137c641c8bb4a49403f44907279c5c0baa5292",
-    "size_bytes": 48746705,
+    "version": "0.5.0",
+    "file": "TallyFlowConnector-Setup-0.5.0.exe",
+    "url": "/downloads/TallyFlowConnector-Setup-0.5.0.exe",
+    "sha256": "b2b2d638e1782eff7731377857dfe357c60f73bf3bd46a99aaadc18b54815fbb",
+    "size_bytes": 48745062,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales orders and purchase orders sent from the app are now accepted by TallyPrime. Receipts from the app are entered credit first, the way TallyPrime shows them. Not mandatory: an older connector keeps working, but it cannot receive orders."
+    "notes": "Sales invoices with items, and purchases, sent from the app are now accepted by TallyPrime. Orders use your Main Location godown, so companies with several godowns accept them. The Sync speed and Entries settings in this window now take effect. Not mandatory: an older connector keeps working, but cannot receive these entries."
   },
   "android": {
-    "version": "0.7.1",
-    "file": "TallyFlow-0.7.1.apk",
-    "url": "/downloads/TallyFlow-0.7.1.apk",
-    "sha256": "92ddb8afd7e58ea28971534d9b7e047271f3eb0f703e7c839bf9423ac3ebd748",
-    "size_bytes": 36120242,
+    "version": "0.8.0",
+    "file": "TallyFlow-0.8.0.apk",
+    "url": "/downloads/TallyFlow-0.8.0.apk",
+    "sha256": "8dedefe28d197e52fe5fbcee30b5d3e2288be3076200d36611854bbe7d54eaa2",
+    "size_bytes": 36195568,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales orders and purchase orders now go into TallyPrime. Add CGST, SGST or IGST to a sale or order from your Tally tax ledgers. Picking an item fills its unit and rate, and receipts and payments offer your cash and bank accounts.",
-    "build_number": 8
+    "notes": "New: record a purchase. Sale is now called Sales invoice. The party list shows every customer and supplier. When your Tally PC allows regular entries, choose per entry whether it waits for approval. The new-entry button opens a quarter-circle menu.",
+    "build_number": 9
   }
 }

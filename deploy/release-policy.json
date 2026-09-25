@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales orders and purchase orders sent from the app are now accepted by TallyPrime. Receipts from the app are entered credit first, the way TallyPrime shows them. Not mandatory: an older connector keeps working, but it cannot receive orders."
+    "notes": "Sales invoices with items, and purchases, sent from the app are now accepted by TallyPrime. Orders use your Main Location godown, so companies with several godowns accept them. The Sync speed and Entries settings in this window now take effect. Not mandatory: an older connector keeps working, but cannot receive these entries."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales orders and purchase orders now go into TallyPrime. Add CGST, SGST or IGST to a sale or order from your Tally tax ledgers. Picking an item fills its unit and rate, and receipts and payments offer your cash and bank accounts."
+    "notes": "New: record a purchase. Sale is now called Sales invoice. The party list shows every customer and supplier. When your Tally PC allows regular entries, choose per entry whether it waits for approval. The new-entry button opens a quarter-circle menu."
   }
 }
