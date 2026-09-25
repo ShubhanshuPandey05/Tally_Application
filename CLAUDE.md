@@ -284,9 +284,9 @@ reads the lines on a three-year-old invoice.
 
 ### Writing back
 
-A person can create a **receipt, payment, sale, sales order or purchase order**
+A person can create a **receipt, payment, sale, purchase, sales order or purchase order**
 from the app. That list is the whole of it, held in `WRITEABLE_KINDS` and
-refused by name rather than by omission, so adding a sixth kind is a deliberate
+refused by name rather than by omission, so adding a seventh kind is a deliberate
 act somebody reviewed.
 
 **The approval step is Tally's, not ours.** An entry arrives as a Tally
@@ -308,7 +308,9 @@ entries that cannot touch its books. The connector may only ever make an entry
 *more* cautious than the request asked for — a phone asking for a regular entry
 on a machine set to optional gets an optional one, and there is no payload that
 reverses it. That asymmetry is what makes the setting a policy rather than a
-default a client can talk its way past.
+default a client can talk its way past. The connector reports its setting on
+each handshake, and the entry form shows an *Optional* switch that the person
+may move only when the PC is set to regular; on an optional PC it is locked on.
 
 **An entry that cannot reach Tally is queued on the server.** Not on the shop's
 PC: an outbox there — BizAnalyst's shape, a local SQLite table — cannot accept
@@ -700,7 +702,7 @@ must be rebuilt after changing them.
 
 **In:** authentication · company connection · dashboard · reports · analytics ·
 charts · inventory · outstanding · ledger summary · sales summary · purchase
-summary · creating receipts, payments, sales, sales orders and purchase orders
+summary · creating receipts, payments, sales, purchases, sales orders and purchase orders
 from the app.
 
 **Out:** editing or deleting anything that already exists in Tally, and

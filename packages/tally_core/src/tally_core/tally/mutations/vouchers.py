@@ -63,6 +63,7 @@ _CANONICAL_TYPE: dict[VoucherTypeKind, str] = {
     VoucherTypeKind.RECEIPT: "Receipt",
     VoucherTypeKind.PAYMENT: "Payment",
     VoucherTypeKind.SALES: "Sales",
+    VoucherTypeKind.PURCHASE: "Purchase",
     VoucherTypeKind.SALES_ORDER: "Sales Order",
     VoucherTypeKind.PURCHASE_ORDER: "Purchase Order",
 }
@@ -81,14 +82,18 @@ _VIEW: dict[VoucherTypeKind, str] = {
     VoucherTypeKind.RECEIPT: ACCOUNTING_VIEW,
     VoucherTypeKind.PAYMENT: ACCOUNTING_VIEW,
     VoucherTypeKind.SALES: INVOICE_VIEW,
+    VoucherTypeKind.PURCHASE: INVOICE_VIEW,
     VoucherTypeKind.SALES_ORDER: INVOICE_VIEW,
     VoucherTypeKind.PURCHASE_ORDER: INVOICE_VIEW,
 }
 
-#: Where an order's goods come from or go to, and which batch, when the app
-#: does not say. "Any" is Tally's own word for "not decided yet": an order is a
-#: promise about goods, and the godown is settled when they actually move.
-ANY = "Any"
+#: The godown and batch every company starts with, used when the app does not
+#: name one. Orders entered by hand in TallyPrime export exactly these. "Any"
+#: was sent before and only worked on a company with a single godown, where
+#: Tally quietly resolves it to Main Location; a company with several godowns
+#: refuses the whole voucher.
+DEFAULT_GODOWN = "Main Location"
+DEFAULT_BATCH = "Primary Batch"
 
 _MONTHS = ("Jan", "Feb", "Mar", "Apr", "May", "Jun",
            "Jul", "Aug", "Sep", "Oct", "Nov", "Dec")
@@ -113,7 +118,8 @@ def _view_for(draft: VoucherDraft) -> str:
     back ``CREATED 1``. A silent refusal is the worst kind, so this is decided
     from the draft rather than from the kind alone.
     """
-    if draft.kind is VoucherTypeKind.SALES and not draft.inventory_entries:
+    invoices = {VoucherTypeKind.SALES, VoucherTypeKind.PURCHASE}
+    if draft.kind in invoices and not draft.inventory_entries:
         return ACCOUNTING_VIEW
     return _VIEW[draft.kind]
 
@@ -139,12 +145,16 @@ def _flag(value: bool) -> str:
     return "Yes" if value else "No"
 
 
-def _ledger_entry_xml(entry: DraftLedgerEntry) -> str:
+def _ledger_entry_xml(
+    entry: DraftLedgerEntry, *, invoice: bool = False, is_party: bool = False
+) -> str:
     parts = [
         tag("LEDGERNAME", entry.ledger_name),
         tag("ISDEEMEDPOSITIVE", _flag(entry.is_deemed_positive)),
         tag("AMOUNT", _amount(entry.amount)),
     ]
+    if is_party:
+        parts.insert(1, tag("ISPARTYLEDGER", "Yes"))
     for bill in entry.bill_references:
         parts.append(
             "<BILLALLOCATIONS.LIST>"
@@ -153,7 +163,14 @@ def _ledger_entry_xml(entry: DraftLedgerEntry) -> str:
             f"{tag('AMOUNT', _amount(bill.amount))}"
             "</BILLALLOCATIONS.LIST>"
         )
-    return f"<ALLLEDGERENTRIES.LIST>{''.join(parts)}</ALLLEDGERENTRIES.LIST>"
+    # An invoice carries its ledger lines in LEDGERENTRIES.LIST, with the
+    # party marked. Verified live 2026-09-25 on "D.D Enterprises": a sale with
+    # stock lines sent as ALLLEDGERENTRIES came back ``CREATED 0, EXCEPTIONS
+    # 1`` with no <LINEERROR> -- whatever godown or batch it named, and with
+    # ISPARTYLEDGER alone -- and ``CREATED 1`` in this form. Orders are
+    # invoice-view too and were re-checked in it.
+    element = "LEDGERENTRIES.LIST" if invoice else "ALLLEDGERENTRIES.LIST"
+    return f"<{element}>{''.join(parts)}</{element}>"
 
 
 def _inventory_entry_xml(
@@ -196,8 +213,8 @@ def _inventory_entry_xml(
         number, due = order
         parts.append(
             "<BATCHALLOCATIONS.LIST>"
-            f"{tag('GODOWNNAME', entry.godown or ANY)}"
-            f"{tag('BATCHNAME', ANY)}"
+            f"{tag('GODOWNNAME', entry.godown or DEFAULT_GODOWN)}"
+            f"{tag('BATCHNAME', DEFAULT_BATCH)}"
             f"{tag('ORDERNO', number)}"
             f"{tag('ORDERDUEDATE', _order_date(due))}"
             f"{tag('AMOUNT', amount)}"
@@ -205,11 +222,13 @@ def _inventory_entry_xml(
             f"{tag('BILLEDQTY', quantity)}"
             "</BATCHALLOCATIONS.LIST>"
         )
-    elif entry.godown:
+    else:
+        # Always named, like the order above: without it a company that keeps
+        # several godowns has no way to tell which one the goods left from.
         parts.append(
             "<BATCHALLOCATIONS.LIST>"
-            f"{tag('GODOWNNAME', entry.godown)}"
-            f"{tag('BATCHNAME', 'Primary Batch')}"
+            f"{tag('GODOWNNAME', entry.godown or DEFAULT_GODOWN)}"
+            f"{tag('BATCHNAME', DEFAULT_BATCH)}"
             f"{tag('ACTUALQTY', quantity)}"
             f"{tag('BILLEDQTY', quantity)}"
             f"{tag('AMOUNT', _amount(entry.amount))}"
@@ -246,12 +265,20 @@ def build_voucher_xml(draft: VoucherDraft) -> str:
     if draft.narration:
         parts.append(tag("NARRATION", draft.narration))
 
-    parts.extend(_ledger_entry_xml(entry) for entry in draft.ledger_entries)
+    invoice = view == INVOICE_VIEW
+    parts.extend(
+        _ledger_entry_xml(
+            entry,
+            invoice=invoice,
+            is_party=invoice and entry.ledger_name == draft.party_name,
+        )
+        for entry in draft.ledger_entries
+    )
 
     # On a sale the goods leave, so the stock line is an outward movement; on a
     # purchase order they are coming in. Getting this backwards moves stock the
     # wrong way, which no amount of checking the rupee total would reveal.
-    positive = draft.kind is VoucherTypeKind.PURCHASE_ORDER
+    positive = draft.kind in {VoucherTypeKind.PURCHASE, VoucherTypeKind.PURCHASE_ORDER}
     order = (
         (draft.order_number, draft.order_due_date or draft.date)
         if draft.order_number

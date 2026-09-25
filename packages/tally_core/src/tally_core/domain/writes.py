@@ -34,6 +34,7 @@ WRITEABLE_KINDS: frozenset[VoucherTypeKind] = frozenset(
         VoucherTypeKind.RECEIPT,
         VoucherTypeKind.PAYMENT,
         VoucherTypeKind.SALES,
+        VoucherTypeKind.PURCHASE,
         VoucherTypeKind.SALES_ORDER,
         VoucherTypeKind.PURCHASE_ORDER,
     }
@@ -168,10 +169,13 @@ class VoucherDraft(BaseModel):
         movement with no accounting behind it -- a delivery note's shape -- and
         adding it to the balance would make every such voucher unbalanced.
         """
-        return sum(
+        total = sum(
             (entry.amount for entry in self.inventory_entries if entry.ledger_name),
             Decimal("0"),
         )
+        # Goods bought are a debit, so on a purchase the lines sit on the
+        # negative side -- the builder writes them negated for the same reason.
+        return -total if self.kind is VoucherTypeKind.PURCHASE else total
 
     @property
     def total(self) -> Decimal:

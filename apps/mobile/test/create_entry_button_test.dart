@@ -65,12 +65,14 @@ void main() {
       await tester.pumpWidget(harness());
       await tester.pumpAndSettle();
 
-      final Rect button = tester.getRect(find.byIcon(Icons.add));
+      // The button, not its icon: the icon sits 16px inside it, which once
+      // let a button that overlapped the bar pass this test.
+      final Rect button = tester.getRect(find.byType(FloatingActionButton));
 
       // Clear of the 66px bar...
-      expect(button.bottom, lessThan(phone.height - 66));
-      // ...but not adrift in the middle of the content.
-      expect(button.bottom, greaterThan(phone.height - 200));
+      expect(button.bottom, lessThanOrEqualTo(phone.height - 66));
+      // ...and just above it, not adrift in the content.
+      expect(button.bottom, greaterThan(phone.height - 66 - 24));
       expect(button.right, greaterThan(phone.width - 90));
     });
 
@@ -124,35 +126,44 @@ void main() {
       }
     });
 
-    testWidgets('stacks the option buttons in one column',
+    testWidgets('keeps every name clear of the other options',
         (WidgetTester tester) async {
-      // They drifted diagonally before, because each row resized during the
-      // animation. Same right edge for all five is what "stacked" means here.
+      // Six names round one ring overlap unless the ring is sized for them;
+      // an overlap is two choices somebody cannot tell apart.
       await openMenu(tester);
 
-      final List<double> rights = <double>[
-        for (final EntryKind kind in EntryKind.values)
-          tester.getRect(find.byKey(ValueKey<String>('entry-${kind.wire}'))).right,
-      ];
+      Rect name(EntryKind kind) => tester.getRect(find.text(kind.label));
+      Rect button(EntryKind kind) =>
+          tester.getRect(find.byKey(ValueKey<String>('entry-${kind.wire}')));
 
-      for (final double right in rights) {
-        expect((right - rights.first).abs(), lessThan(0.5));
+      for (final EntryKind a in EntryKind.values) {
+        for (final EntryKind b in EntryKind.values) {
+          if (a == b) continue;
+          expect(name(a).overlaps(name(b)), isFalse,
+              reason: '${a.label} and ${b.label} names overlap');
+          expect(name(a).overlaps(button(b)), isFalse,
+              reason: '${a.label} name covers the ${b.label} button');
+        }
       }
     });
 
-    testWidgets('puts each label to the left of its own button',
+    testWidgets('sets the buttons on one ring, each name outside its own',
         (WidgetTester tester) async {
       await openMenu(tester);
 
+      final Offset centre = tester.getCenter(find.byIcon(Icons.close));
+      final List<double> radii = <double>[];
       for (final EntryKind kind in EntryKind.values) {
-        final Rect label = tester.getRect(find.text(kind.label));
-        final Rect button =
-            tester.getRect(find.byKey(ValueKey<String>('entry-${kind.wire}')));
-
-        expect(label.right, lessThanOrEqualTo(button.left), reason: kind.label);
-        // And beside it, not above or below: the two should line up, which is
-        // what makes the pair read as one control.
-        expect(label.center.dy, closeTo(button.center.dy, 8), reason: kind.label);
+        final Offset button = tester
+            .getCenter(find.byKey(ValueKey<String>('entry-${kind.wire}')));
+        final Offset name = tester.getCenter(find.text(kind.label));
+        radii.add((button - centre).distance);
+        expect((name - centre).distance,
+            greaterThan((button - centre).distance),
+            reason: kind.label);
+      }
+      for (final double r in radii) {
+        expect(r, closeTo(radii.first, 1));
       }
     });
 
@@ -168,15 +179,21 @@ void main() {
       expect(close.center.dy, closeTo(opener.center.dy, 1));
     });
 
-    testWidgets('opens upward, clear of the button', (WidgetTester tester) async {
+    testWidgets('fans out round the button, clear of it',
+        (WidgetTester tester) async {
       await openMenu(tester);
 
       final Rect close = tester.getRect(find.byIcon(Icons.close));
-      final Rect lowest = tester.getRect(
-        find.byKey(ValueKey<String>('entry-${EntryKind.purchaseOrder.wire}')),
-      );
-
-      expect(lowest.bottom, lessThan(close.top));
+      for (final EntryKind kind in EntryKind.values) {
+        final Rect button =
+            tester.getRect(find.byKey(ValueKey<String>('entry-${kind.wire}')));
+        expect(button.overlaps(close), isFalse, reason: kind.label);
+        // A quarter disc up and to the left: nothing below or right of it.
+        expect(button.center.dy, lessThanOrEqualTo(close.center.dy + 1),
+            reason: kind.label);
+        expect(button.center.dx, lessThanOrEqualTo(close.center.dx + 1),
+            reason: kind.label);
+      }
     });
 
     testWidgets('hands back the kind that was tapped',

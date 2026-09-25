@@ -47,6 +47,20 @@ class EntriesRepository {
   Future<List<String>> parties(String companyId, {String? query}) =>
       _names('/v1/companies/$companyId/masters/parties', query);
 
+  /// Whether this company's Tally PC lets an entry skip approval.
+  ///
+  /// False on any failure: not knowing is read as optional-only, the answer
+  /// that cannot put an unapproved entry into somebody's books.
+  Future<bool> canPostRegular(String companyId) async {
+    try {
+      final Map<String, Object?> body =
+          await _api.getJson('/v1/companies/$companyId/entry-settings');
+      return body['can_post_regular'] == true;
+    } on Object {
+      return false;
+    }
+  }
+
   /// Stock items, for the line sheet, with the unit and rate a pick fills in.
   Future<List<ItemOption>> items(String companyId) async {
     final List<Map<String, Object?>> rows =
@@ -76,7 +90,9 @@ class EntriesRepository {
   Future<List<String>> _names(String path, String? query) async {
     final List<Map<String, Object?>> rows = await _api.getList(
       path,
-      query: <String, Object?>{if (query != null && query.isNotEmpty) 'q': query},
+      query: <String, Object?>{
+        if (query != null && query.isNotEmpty) 'q': query
+      },
     );
     return <String>[
       for (final Map<String, Object?> row in rows)
@@ -98,14 +114,19 @@ class EntriesRepository {
       '/v1/companies/$companyId/ledgers',
       body: <String, Object?>{'name': name, 'role': role},
     );
-    return body['ok'] == true ? null : body['message'] as String? ?? 'Not created.';
+    return body['ok'] == true
+        ? null
+        : body['message'] as String? ?? 'Not created.';
   }
 
-  Future<String?> createStockItem(String companyId, String name, {String? unit}) async {
+  Future<String?> createStockItem(String companyId, String name,
+      {String? unit}) async {
     final Map<String, Object?> body = await _api.postJson(
       '/v1/companies/$companyId/stock-items',
       body: <String, Object?>{'name': name, if (unit != null) 'unit': unit},
     );
-    return body['ok'] == true ? null : body['message'] as String? ?? 'Not created.';
+    return body['ok'] == true
+        ? null
+        : body['message'] as String? ?? 'Not created.';
   }
 }

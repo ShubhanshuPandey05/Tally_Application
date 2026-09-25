@@ -128,6 +128,7 @@ async def connector_socket(websocket: WebSocket) -> None:
         connector.os = hello.host.os
         connector.connector_version = hello.host.connector_version
         connector.sync_speed = hello.host.sync_speed
+        connector.voucher_entry_mode = hello.host.voucher_entry_mode
         connector.capabilities = [c.model_dump() for c in hello.capabilities]
         org_id = connector.org_id
         await session.commit()

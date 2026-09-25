@@ -207,6 +207,18 @@ def test_an_unknown_action_is_not_invented(server: LocalUiServer) -> None:
     assert fetch(f"{server.url}api/uninstall", data=b"{}", headers=LOCAL)[0] == 404
 
 
+@pytest.mark.parametrize("action", ["sync-speed", "entry-mode"])
+def test_every_tab_the_window_has_reaches_the_connector(
+    server: LocalUiServer, action: str
+) -> None:
+    """The Sync speed and Entries tabs answered 404 in 0.4.1: their actions
+    were registered by the connector but missing from the list this server
+    lets through, so pressing them changed nothing and said so nowhere."""
+    status, _ = fetch(f"{server.url}api/{action}", data=b"{}", headers=LOCAL)
+
+    assert status == 200
+
+
 def test_an_oversized_body_is_refused_rather_than_read(server: LocalUiServer) -> None:
     status, _ = fetch(
         f"{server.url}api/port", data=b"{" + b"x" * 8192 + b"}", headers=LOCAL

@@ -386,6 +386,10 @@ class Connector(Base, TimestampMixin):
     sync_speed: Mapped[str] = mapped_column(
         String(10), default="normal", server_default="normal"
     )
+    #: ``optional`` or ``regular``, from the connector's own window, reported on
+    #: every handshake. Null for a connector too old to report it, which is
+    #: treated as optional-only -- the cautious reading of not knowing.
+    voucher_entry_mode: Mapped[str | None] = mapped_column(String(10), nullable=True)
     os: Mapped[str | None] = mapped_column(String(100), nullable=True)
     #: Query manifest from the last handshake, so the API can answer "your
     #: connector is too old for this report" instead of failing obscurely.

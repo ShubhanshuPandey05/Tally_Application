@@ -438,11 +438,11 @@ class ConnectorRunner:
     async def _action_entry_mode(self, payload: dict[str, Any]) -> dict[str, Any]:
         """Choose how entries sent from a phone arrive in TallyPrime.
 
-        Unlike the sync speed, this does **not** restart the session. The
-        setting is read by this connector when it builds each import rather
-        than reported to the backend on a handshake, so it can take effect on
-        the very next entry -- and dropping the socket to change a bookkeeping
-        policy would interrupt a sync for no reason.
+        Applied to the live session at once, because this connector enforces it
+        on every import and the next entry must obey it. Then the session is
+        restarted, as for the sync speed, because the backend learns the
+        setting from ``HostInfo`` on the handshake and the app decides from it
+        whether to offer somebody the optional/regular choice.
         """
         mode = str(payload.get("mode", "")).strip().lower()
         if mode not in VOUCHER_ENTRY_MODES:
@@ -457,6 +457,7 @@ class ConnectorRunner:
         session = self._session
         if session is not None:
             session.executor.set_voucher_entry_mode(mode)
+        await self._action_restart({})
 
         if mode == "optional":
             return {

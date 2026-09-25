@@ -123,6 +123,12 @@ class HostInfo(BaseModel):
     #: connector does not send it, and must keep pairing and syncing exactly as
     #: it does today rather than being refused for omitting a field.
     sync_speed: str = "normal"
+    #: ``optional`` or ``regular``: how this PC lets entries from a phone
+    #: arrive, chosen in its own window. Reported so the app can offer the
+    #: choice only where the PC allows it -- the connector still enforces the
+    #: setting on every import either way. ``None`` from a connector built
+    #: before this was reported, which the app treats as optional-only.
+    voucher_entry_mode: str | None = None
 
 
 class Hello(ClientMessage):

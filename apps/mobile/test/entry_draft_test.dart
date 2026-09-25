@@ -238,7 +238,7 @@ void main() {
           });
 
       expect(of('purchase_order').label, 'Purchase order');
-      expect(of('sales').label, 'Sale');
+      expect(of('sales').label, 'Sales invoice');
     });
   });
 

@@ -62,7 +62,12 @@ LOCAL_HEADER = "X-TallyFlow-Local"
 MAX_BODY_BYTES = 4096
 
 #: Buttons the window may press, mapped to actions the connector registered.
-ACTIONS = {"restart", "refresh", "port", "new-code"}
+#:
+#: Must list every action the window sends. ``sync-speed`` and ``entry-mode``
+#: were registered by the runner and pressed by the window but missing here,
+#: so both tabs answered 404 and changed nothing -- found 2026-09-25 while
+#: testing the per-entry optional switch.
+ACTIONS = {"restart", "refresh", "port", "new-code", "sync-speed", "entry-mode"}
 
 
 class _Server(ThreadingHTTPServer):

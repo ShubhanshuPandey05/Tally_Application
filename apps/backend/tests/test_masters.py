@@ -353,6 +353,24 @@ async def test_the_party_picker_reads_the_domain_field_name(
     assert found == {"By domain field", "By tally field"}
 
 
+async def test_the_party_picker_offers_both_groups_in_a_long_chart(
+    client, linked_company, fake_connector
+):
+    """Sixty customers used to fill a list cut at fifty, in snapshot order, so
+    not one supplier reached the phone."""
+    fake_connector.set(
+        "ledgers.list",
+        [{"name": f"Customer {i:02}", "parent_group": "Sundry Debtors"} for i in range(60)]
+        + [{"name": "Supplier", "parent_group": "Sundry Creditors"}],
+    )
+    await warm(client, linked_company, "ledgers")
+
+    found = {r["name"] for r in await names(client, linked_company, "parties")}
+
+    assert "Supplier" in found
+    assert len(found) == 61
+
+
 async def test_a_party_search_narrows_the_list(client, linked_company, fake_connector):
     fake_connector.set(
         "ledgers.list",

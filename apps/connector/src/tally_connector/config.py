@@ -331,6 +331,7 @@ class ConnectorSettings(BaseSettings):
             connector_version=connector_version,
             python_version=platform.python_version(),
             sync_speed=self.sync_speed,
+            voucher_entry_mode=self.voucher_entry_mode,
         )
 
     def redacted(self) -> dict[str, object]:

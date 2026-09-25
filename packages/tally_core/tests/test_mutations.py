@@ -248,6 +248,41 @@ def test_a_purchase_order_brings_stock_inward() -> None:
     assert "<ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>" in build(order)
 
 
+def test_a_purchase_brings_its_goods_in_and_credits_the_supplier() -> None:
+    """The shape a live TallyPrime accepted on 2026-09-25 and exported back:
+    supplier credited, stock and its purchase ledger debited."""
+    purchase = VoucherDraft(
+        kind=VoucherTypeKind.PURCHASE,
+        date=date(2026, 9, 1),
+        party_name="Sur Shyam",
+        ledger_entries=[
+            DraftLedgerEntry(
+                ledger_name="Sur Shyam", amount=Decimal("112"), is_deemed_positive=False
+            ),
+            DraftLedgerEntry(
+                ledger_name="IGST 12", amount=Decimal("-12"), is_deemed_positive=True
+            ),
+        ],
+        inventory_entries=[
+            DraftInventoryEntry(
+                item_name="Babul",
+                quantity=Decimal("1"),
+                amount=Decimal("100"),
+                ledger_name="Purchase",
+            )
+        ],
+    )
+
+    assert purchase.is_balanced
+    xml = build(purchase)
+    assert 'VCHTYPE="Purchase"' in xml
+    assert 'OBJVIEW="Invoice Voucher View"' in xml
+    assert (
+        "<STOCKITEMNAME>Babul</STOCKITEMNAME><ISDEEMEDPOSITIVE>Yes</ISDEEMEDPOSITIVE>"
+    ) in xml
+    assert "<AMOUNT>-100.00</AMOUNT>" in xml
+
+
 def test_a_kind_the_app_may_not_create_is_refused() -> None:
     with pytest.raises(ValueError, match="cannot be created"):
         VoucherDraft(kind=VoucherTypeKind.JOURNAL, date=date(2026, 9, 17))
@@ -576,7 +611,15 @@ def test_a_sale_with_stock_lines_is_still_an_invoice() -> None:
         ],
     )
 
-    assert 'OBJVIEW="Invoice Voucher View"' in build(invoice)
+    xml = build(invoice)
+    assert 'OBJVIEW="Invoice Voucher View"' in xml
+    # The shape a live TallyPrime accepted; ALLLEDGERENTRIES was refused
+    # silently for an invoice.
+    assert (
+        "<LEDGERENTRIES.LIST><LEDGERNAME>Ram &amp; Sons</LEDGERNAME>"
+        "<ISPARTYLEDGER>Yes</ISPARTYLEDGER>"
+    ) in xml
+    assert "ALLLEDGERENTRIES" not in xml
 
 
 def test_an_order_is_built_the_way_tallyprime_exports_one():
@@ -611,10 +654,11 @@ def test_an_order_is_built_the_way_tallyprime_exports_one():
     xml = build_voucher_xml(draft)
 
     assert 'OBJVIEW="Invoice Voucher View"' in xml
-    # Every line carries the order number and due date, in a batch that is
-    # "Any" godown and "Any" batch until the goods actually move.
+    # Every line carries the order number and due date, in Tally's default
+    # godown and batch -- what a hand-entered order exports.
     assert (
-        "<BATCHALLOCATIONS.LIST><GODOWNNAME>Any</GODOWNNAME><BATCHNAME>Any</BATCHNAME>"
+        "<BATCHALLOCATIONS.LIST><GODOWNNAME>Main Location</GODOWNNAME>"
+        "<BATCHNAME>Primary Batch</BATCHNAME>"
         "<ORDERNO>PO-17</ORDERNO><ORDERDUEDATE>31-Mar-26</ORDERDUEDATE>"
     ) in xml
     # Goods coming in are a debit: negative, on the line and its ledger.

@@ -40,6 +40,18 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
   bool _saving = false;
   bool _accountSettled = false;
 
+  /// The person's choice of optional or regular, once they have made one.
+  /// Until then the entry follows the Tally PC's own setting.
+  bool? _optionalChoice;
+
+  /// Whether this entry will wait for approval in TallyPrime.
+  ///
+  /// Always true when the PC is set to optional -- or its setting is not known
+  /// yet -- because then the connector makes every entry optional anyway, and
+  /// a switch that looked like it did otherwise would be lying.
+  bool _optional(bool canPostRegular) =>
+      !canPostRegular || (_optionalChoice ?? false);
+
   @override
   void initState() {
     super.initState();
@@ -141,6 +153,10 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                   reference: _reference.text.trim(),
                   lines: _lines,
                   taxes: _taxes,
+                  optional: _optional(
+                    ref.read(canPostRegularProvider(companyId)).valueOrNull ??
+                        false,
+                  ),
                 ),
               );
       if (!mounted) {
@@ -192,6 +208,7 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
   Future<void> _offerToCreate(String companyId, EntryResult result) async {
     final String name = result.missingName!;
     final bool isParty = result.missingKind == 'ledger';
+    final String who = _kind.isSupplierSide ? 'supplier' : 'customer';
 
     final bool? confirmed = await showDialog<bool>(
       context: context,
@@ -199,7 +216,7 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
         title: Text('Add $name?'),
         content: Text(
           isParty
-              ? 'There is no customer called "$name" in TallyPrime. Add them '
+              ? 'There is no $who called "$name" in TallyPrime. Add them '
                   'and save this entry?\n\nCheck the spelling first - a '
                   'second, slightly different name is hard to merge later.'
               : 'There is no item called "$name" in TallyPrime. Add it and '
@@ -212,7 +229,7 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
           ),
           FilledButton(
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(isParty ? 'Add customer' : 'Add item'),
+            child: Text(isParty ? 'Add $who' : 'Add item'),
           ),
         ],
       ),
@@ -227,7 +244,7 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
       final String? problem = isParty
           ? await ref
               .read(entriesRepositoryProvider)
-              .createLedger(companyId, name)
+              .createLedger(companyId, name, role: who)
           : await ref
               .read(entriesRepositoryProvider)
               .createStockItem(companyId, name);
@@ -257,9 +274,14 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
   /// The ledgers the account field offers for this kind of entry.
   List<String> _accountOptions(String companyId) {
     final AutoDisposeFutureProvider<List<String>> source = switch (_kind) {
-      EntryKind.receipt || EntryKind.payment => cashBankNamesProvider(companyId),
-      EntryKind.purchaseOrder => purchaseLedgerNamesProvider(companyId),
-      EntryKind.sales || EntryKind.salesOrder =>
+      EntryKind.receipt ||
+      EntryKind.payment =>
+        cashBankNamesProvider(companyId),
+      EntryKind.purchase ||
+      EntryKind.purchaseOrder =>
+        purchaseLedgerNamesProvider(companyId),
+      EntryKind.sales ||
+      EntryKind.salesOrder =>
         salesLedgerNamesProvider(companyId),
     };
     final List<String> options =
@@ -311,7 +333,22 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
     }
 
     return Scaffold(
-      appBar: AppBar(title: Text(_kind.label)),
+      appBar: AppBar(
+        title: Text(_kind.label),
+        actions: <Widget>[
+          _OptionalSwitch(
+            canPostRegular: ref
+                    .watch(canPostRegularProvider(companyId ?? ''))
+                    .valueOrNull ??
+                false,
+            onChanged: (bool value) => setState(() => _optionalChoice = value),
+            value: _optional(
+              ref.watch(canPostRegularProvider(companyId ?? '')).valueOrNull ??
+                  false,
+            ),
+          ),
+        ],
+      ),
       body: ContentPane(
         child: Form(
           key: _form,
@@ -353,7 +390,8 @@ class _NewEntryScreenState extends ConsumerState<NewEntryScreen> {
                     labelText: 'Amount',
                     prefixText: '₹ ',
                     helperText: _kind.takesLines
-                        ? 'For a sale without items. Adding items replaces it.'
+                        ? 'For a ${_kind.label.toLowerCase()} without items. '
+                            'Adding items replaces it.'
                         : null,
                   ),
                   onChanged: (_) => setState(() {}),
@@ -830,13 +868,14 @@ class _NamePicker extends StatelessWidget {
         // than deleting the word first.
         if (typed.isEmpty ||
             options.any((String o) => o.toLowerCase() == typed)) {
-          // Everything, capped. An empty field that offers nothing looks
-          // broken; an empty field that offers two thousand rows is worse.
-          return options.take(8);
+          // Everything, in a scrolling list built lazily. Capping it at eight
+          // hid every party past the eighth name alphabetically, so a shop
+          // with a few customers never saw a single supplier without typing.
+          return options;
         }
         return options
             .where((String o) => o.toLowerCase().contains(typed))
-            .take(8);
+            .toList();
       },
       fieldViewBuilder: (
         BuildContext context,
@@ -895,6 +934,66 @@ class _NamePicker extends StatelessWidget {
           ),
         );
       },
+    );
+  }
+}
+
+/// "Optional" in the app bar: whether this entry waits for approval inside
+/// TallyPrime.
+///
+/// Only switchable when the shop's Tally PC is set to regular entries. When it
+/// is set to optional the switch shows on and cannot be moved, because the PC
+/// would make the entry optional regardless -- that setting is the shop's
+/// bookkeeping policy, chosen on the machine at the till.
+class _OptionalSwitch extends StatelessWidget {
+  const _OptionalSwitch({
+    required this.canPostRegular,
+    required this.value,
+    required this.onChanged,
+  });
+
+  final bool canPostRegular;
+  final bool value;
+  final ValueChanged<bool> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    final ColorScheme scheme = Theme.of(context).colorScheme;
+    return Tooltip(
+      message: canPostRegular
+          ? 'On: waits for approval in TallyPrime. Off: goes straight into the books.'
+          : 'Your Tally PC is set to send every entry as optional.',
+      child: Padding(
+        padding: const EdgeInsets.only(right: 8),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: <Widget>[
+            Text(
+              'Optional',
+              style: TextStyle(
+                fontSize: 12,
+                color: canPostRegular
+                    ? scheme.onSurface
+                    : scheme.onSurface.withOpacity(0.45),
+              ),
+            ),
+            const SizedBox(width: 4),
+            // Scaled down: Material's switch is sized for a settings list and
+            // crowds the title in an app bar.
+            SizedBox(
+              height: 22,
+              child: FittedBox(
+                child: Switch(
+                  key: const ValueKey<String>('entry-optional'),
+                  value: value,
+                  onChanged: canPostRegular ? onChanged : null,
+                  materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

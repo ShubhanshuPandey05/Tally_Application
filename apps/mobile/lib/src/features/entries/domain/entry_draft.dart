@@ -25,11 +25,20 @@ enum EntryKind {
   ),
   sales(
     wire: 'sales',
-    label: 'Sale',
+    label: 'Sales invoice',
     blurb: 'An invoice raised on a customer',
     partyLabel: 'Customer',
     accountLabel: 'Sales ledger',
     defaultAccount: 'Sales',
+    takesLines: true,
+  ),
+  purchase(
+    wire: 'purchase',
+    label: 'Purchase',
+    blurb: 'A bill received from a supplier',
+    partyLabel: 'Supplier',
+    accountLabel: 'Purchase ledger',
+    defaultAccount: 'Purchase',
     takesLines: true,
   ),
   salesOrder(
@@ -91,6 +100,10 @@ enum EntryKind {
   /// An order: its reference is its order number, written on every line.
   bool get isOrder => this == salesOrder || this == purchaseOrder;
 
+  /// Whether the party is somebody we buy from. A missing party is added
+  /// under Sundry Creditors for these rather than as a customer.
+  bool get isSupplierSide =>
+      this == payment || this == purchase || this == purchaseOrder;
 }
 
 /// Resolve a kind from a URL, falling back rather than throwing.
@@ -156,8 +169,7 @@ class EntryTax {
 /// or null when the name carries none. Only ever a starting value: the field
 /// it fills stays editable.
 double? rateInName(String name) {
-  final RegExpMatch? match =
-      RegExp(r'(\d+(?:\.\d+)?)\s*%').firstMatch(name);
+  final RegExpMatch? match = RegExp(r'(\d+(?:\.\d+)?)\s*%').firstMatch(name);
   return match == null ? null : double.tryParse(match.group(1)!);
 }
 
@@ -192,6 +204,7 @@ class EntryDraft {
     this.reference,
     this.lines = const <EntryLine>[],
     this.taxes = const <EntryTax>[],
+    this.optional = true,
   });
 
   final EntryKind kind;
@@ -203,6 +216,10 @@ class EntryDraft {
   final String? reference;
   final List<EntryLine> lines;
   final List<EntryTax> taxes;
+
+  /// Whether the entry waits for approval in TallyPrime. A request the Tally
+  /// PC can only tighten: one set to optional ignores `false`.
+  final bool optional;
 
   /// What the party is charged: the taxable [amount] plus every tax on it.
   double get grandTotal => taxes.fold<double>(
@@ -218,6 +235,7 @@ class EntryDraft {
         'date': date.toIso8601String().split('T').first,
         'party': party,
         'amount': amount.toStringAsFixed(2),
+        'optional': optional,
         if (account != null && account!.isNotEmpty) 'account': account,
         if (narration != null && narration!.isNotEmpty) 'narration': narration,
         if (reference != null && reference!.isNotEmpty) 'reference': reference,
@@ -365,7 +383,8 @@ class PendingEntry {
     const Map<String, String> names = <String, String>{
       'receipt': 'Receipt',
       'payment': 'Payment',
-      'sales': 'Sale',
+      'sales': 'Sales invoice',
+      'purchase': 'Purchase',
       'sales_order': 'Sales order',
       'purchase_order': 'Purchase order',
     };

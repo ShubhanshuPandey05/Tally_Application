@@ -36,7 +36,7 @@ from tally_core.domain.writes import (
 )
 
 from ...core.errors import AppError, NotFound
-from ...db.models import Company, PendingVoucher, PendingVoucherState, utc_now
+from ...db.models import Company, Connector, PendingVoucher, PendingVoucherState, utc_now
 from ...services import analytics as an
 from ...services.audit import record
 from ...services.reads import FetchMode, NoDataYet
@@ -59,6 +59,7 @@ _KINDS: dict[str, VoucherTypeKind] = {
     "receipt": VoucherTypeKind.RECEIPT,
     "payment": VoucherTypeKind.PAYMENT,
     "sales": VoucherTypeKind.SALES,
+    "purchase": VoucherTypeKind.PURCHASE,
     "sales_order": VoucherTypeKind.SALES_ORDER,
     "purchase_order": VoucherTypeKind.PURCHASE_ORDER,
 }
@@ -125,6 +126,10 @@ class CreateVoucherRequest(BaseModel):
     #: Added on top of ``amount``, which stays the taxable value: the items'
     #: total, or the figure typed for a sale with no items.
     taxes: list[TaxRequest] = Field(default_factory=list, max_length=10)
+    #: Whether the entry waits for approval in TallyPrime. Only a request:
+    #: a connector set to optional makes every entry optional whatever this
+    #: says, so it can make an entry more cautious and never less.
+    optional: bool = True
 
     @field_validator("kind")
     @classmethod
@@ -167,6 +172,7 @@ _DEFAULT_ACCOUNT: dict[VoucherTypeKind, str] = {
     VoucherTypeKind.RECEIPT: "Cash",
     VoucherTypeKind.PAYMENT: "Cash",
     VoucherTypeKind.SALES: "Sales",
+    VoucherTypeKind.PURCHASE: "Purchase",
     VoucherTypeKind.SALES_ORDER: "Sales",
     VoucherTypeKind.PURCHASE_ORDER: "Purchase",
 }
@@ -245,9 +251,8 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
         "narration": body.narration,
         "reference": body.reference,
         "voucher_type_name": body.voucher_type,
-        # Always. The connector decides whether it stays optional; asking for
-        # the cautious thing here means a bug in that layer fails safe.
-        "optional": True,
+        # The person's choice, which the connector can only ever tighten.
+        "optional": body.optional,
     }
 
     if kind in {VoucherTypeKind.SALES_ORDER, VoucherTypeKind.PURCHASE_ORDER}:
@@ -327,6 +332,40 @@ def _to_draft(body: CreateVoucherRequest) -> VoucherDraft:
                 ledger_name=account, amount=body.amount, is_deemed_positive=False
             ),
         ]
+    elif kind is VoucherTypeKind.PURCHASE:
+        # A purchase is the mirror of a sale: the supplier is credited with
+        # the goods and the tax on them, the purchase ledger and each tax
+        # ledger debited. GST paid is recoverable input, not a cost, so it
+        # never lands in the purchase ledger.
+        if lines and sum(line.amount for line in lines) != body.amount:
+            raise BadDraft(
+                "stock lines do not sum to the invoice amount",
+                user_message="The items do not add up to the invoice total.",
+            )
+        entries = [
+            DraftLedgerEntry(
+                ledger_name=body.party,
+                amount=body.amount + tax_total,
+                is_deemed_positive=False,
+                # The supplier's bill is a debt this purchase creates.
+                bill_references=[
+                    BillAllocation(name=b.bill, method="New Ref", amount=b.amount)
+                    for b in body.bills
+                ],
+            ),
+        ]
+        # As on a sale, the purchase ledger is debited in exactly one place:
+        # inside each stock line when there are lines, here when there are not.
+        if not lines:
+            entries.append(
+                DraftLedgerEntry(
+                    ledger_name=account, amount=-body.amount, is_deemed_positive=True
+                )
+            )
+        entries.extend(
+            DraftLedgerEntry(ledger_name=t.ledger, amount=-t.amount, is_deemed_positive=True)
+            for t in body.taxes
+        )
     else:
         # A sale: the customer owes us, and the sales ledger is credited.
         if lines and sum(line.amount for line in lines) != body.amount:
@@ -636,6 +675,11 @@ _PARTY_GROUPS = {"sundry debtors", "sundry creditors"}
 #: Tally's own group for GST, TDS and every other duty ledger.
 _TAX_GROUPS = {"duties & taxes", "duties and taxes"}
 
+#: How many names a picker returns. The app loads each list once and filters on
+#: the phone, so this has to cover a whole chart of accounts rather than one
+#: screenful -- names are a few bytes each.
+_PICKER_LIMIT = 5000
+
 
 class NameResponse(BaseModel):
     """One suggestion. A name and where it sits -- never a balance.
@@ -687,7 +731,7 @@ async def party_names(
     company: CompanyDep,
     reads: ReadServiceDep,
     q: str | None = None,
-    limit: int = 50,
+    limit: int = _PICKER_LIMIT,
 ) -> list[NameResponse]:
     """Customers and suppliers, for the party field.
 
@@ -696,25 +740,7 @@ async def party_names(
     old is the right trade here: a party added in TallyPrime five minutes ago
     can still be typed in full, and the entry will name it correctly.
     """
-    rows = await _snapshot_rows(reads, company, "ledgers.list")
-
-    out: list[NameResponse] = []
-    for row in rows:
-        name = (row or {}).get("name")
-        # ``parent_group`` is what the domain Ledger calls it; ``parent`` is
-        # what Tally's XML calls it and what a stock item still uses. Reading
-        # only one of them silently returned nobody.
-        parent = (row or {}).get("parent_group") or (row or {}).get("parent") or ""
-        if not name or parent.strip().lower() not in _PARTY_GROUPS:
-            continue
-        if not _matches(name, q):
-            continue
-        out.append(NameResponse(name=name, group=parent))
-        if len(out) >= limit:
-            break
-
-    out.sort(key=lambda n: n.name.lower())
-    return out
+    return await _ledgers_under(reads, company, _PARTY_GROUPS, q, limit)
 
 
 @router.get("/masters/items", response_model=list[ItemResponse])
@@ -722,7 +748,7 @@ async def item_names(
     company: CompanyDep,
     reads: ReadServiceDep,
     q: str | None = None,
-    limit: int = 50,
+    limit: int = _PICKER_LIMIT,
 ) -> list[ItemResponse]:
     """Stock items, for the line sheet, with the unit and a starting rate.
 
@@ -757,28 +783,44 @@ async def item_names(
 async def _ledgers_under(
     reads: ReadServiceDep, company: Company, groups: set[str], q: str | None, limit: int
 ) -> list[NameResponse]:
-    """Ledgers whose group is one of ``groups``, from the stored snapshot."""
+    """Ledgers filed under one of ``groups``, at any depth, from the snapshot.
+
+    Sub-groups count. Shops file parties under home-made groups -- "Local
+    Suppliers" under Sundry Creditors -- and matching the direct parent only
+    left those parties out of the picker with nothing to say why. Without the
+    group tree membership falls back to the direct parent, as the outstanding
+    report does.
+
+    Sorted before the cut, not after. The app loads this list once and filters
+    it on the phone, so cutting in snapshot order let one group's names fill
+    the whole list and the other group's never arrive.
+    """
     rows = await _snapshot_rows(reads, company, "ledgers.list")
+    tree = an.parse_groups(await _snapshot_rows(reads, company, "groups.list"))
+    wanted = set(groups)
+    for root in groups:
+        wanted |= {grp.name.strip().lower() for grp in an.sub_groups(tree, root)}
 
     out: list[NameResponse] = []
     for row in rows:
         name = (row or {}).get("name")
+        # ``parent_group`` is what the domain Ledger calls it; ``parent`` is
+        # what Tally's XML calls it and what a stock item still uses. Reading
+        # only one of them silently returned nobody.
         parent = (row or {}).get("parent_group") or (row or {}).get("parent") or ""
-        if not name or parent.strip().lower() not in groups:
+        if not name or parent.strip().lower() not in wanted:
             continue
         if not _matches(name, q):
             continue
         out.append(NameResponse(name=name, group=parent))
-        if len(out) >= limit:
-            break
 
     out.sort(key=lambda n: n.name.lower())
-    return out
+    return out[:limit]
 
 
 @router.get("/masters/taxes", response_model=list[NameResponse])
 async def tax_ledger_names(
-    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = _PICKER_LIMIT
 ) -> list[NameResponse]:
     """Duty and tax ledgers -- CGST, SGST, IGST, cess -- for a sale or order."""
     return await _ledgers_under(reads, company, _TAX_GROUPS, q, limit)
@@ -786,7 +828,7 @@ async def tax_ledger_names(
 
 @router.get("/masters/accounts", response_model=list[NameResponse])
 async def cash_and_bank_names(
-    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = _PICKER_LIMIT
 ) -> list[NameResponse]:
     """Cash and bank ledgers, for the other side of a receipt or payment.
 
@@ -798,7 +840,7 @@ async def cash_and_bank_names(
 
 @router.get("/masters/sales-accounts", response_model=list[NameResponse])
 async def sales_ledger_names(
-    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = _PICKER_LIMIT
 ) -> list[NameResponse]:
     """Sales ledgers, for the value of a sale's or sales order's goods.
 
@@ -811,7 +853,30 @@ async def sales_ledger_names(
 
 @router.get("/masters/purchase-accounts", response_model=list[NameResponse])
 async def purchase_ledger_names(
-    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = 50
+    company: CompanyDep, reads: ReadServiceDep, q: str | None = None, limit: int = _PICKER_LIMIT
 ) -> list[NameResponse]:
     """Purchase ledgers, for the value of a purchase order's goods."""
     return await _ledgers_under(reads, company, {"purchase accounts"}, q, limit)
+
+
+class EntrySettingsResponse(BaseModel):
+    """What the entry form may offer for this company."""
+
+    #: True when the Tally PC is set to regular entries, so the person may
+    #: choose per entry. False when it is set to optional -- or too old to say,
+    #: or never connected -- and every entry will wait for approval.
+    can_post_regular: bool
+
+
+@router.get("/entry-settings", response_model=EntrySettingsResponse)
+async def entry_settings(company: CompanyDep, session: SessionDep) -> EntrySettingsResponse:
+    """Whether this company's Tally PC lets an entry skip approval.
+
+    The choice belongs to the shop's own PC, set in the connector window. This
+    only tells the app whether to offer it; the connector enforces the setting
+    on every import, so a stale answer here can make an entry more cautious
+    than asked, never less.
+    """
+    connector = await session.get(Connector, company.connector_id)
+    mode = connector.voucher_entry_mode if connector is not None else None
+    return EntrySettingsResponse(can_post_regular=mode == "regular")

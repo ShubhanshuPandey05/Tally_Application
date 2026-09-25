@@ -21,6 +21,13 @@ final AutoDisposeFutureProviderFamily<List<PendingEntry>, String>
       ref.watch(entriesRepositoryProvider).pending(companyId),
 );
 
+/// Whether the entry form may offer "regular" as well as "optional".
+final AutoDisposeFutureProviderFamily<bool, String> canPostRegularProvider =
+    FutureProvider.autoDispose.family<bool, String>(
+  (Ref ref, String companyId) =>
+      ref.watch(entriesRepositoryProvider).canPostRegular(companyId),
+);
+
 /// Party and item names for the entry form's pickers.
 ///
 /// Fetched once per company and held for the life of the screen rather than
