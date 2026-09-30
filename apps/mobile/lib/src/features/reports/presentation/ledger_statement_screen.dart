@@ -20,6 +20,7 @@ import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../companies/domain/company.dart';
 import '../application/report_providers.dart';
+import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
 
@@ -108,11 +109,17 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
       ],
       // No live read: this screen is reached by tapping, and a customer walking
       // through five ledgers must not queue five exports against the PC running
-      // their till. Re-reading the provider is the honest refresh here.
-      onRefresh: () async {
-        ref.invalidate(ledgerStatementProvider(args));
-        await ref.read(ledgerStatementProvider(args).future);
-      },
+      // their till. It does ask the server again, though -- re-reading the
+      // provider would only answer from the phone's own copy.
+      onRefresh: () => refreshReport<LedgerStatement>(
+        ref,
+        ledgerStatementProvider(args),
+        (ReportsRepository repository) => repository.ledgerStatement(
+          companyId,
+          ledger: widget.ledger,
+          range: range,
+        ),
+      ),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(48),
         child: SizedBox(

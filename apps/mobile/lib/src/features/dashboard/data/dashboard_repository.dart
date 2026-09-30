@@ -22,6 +22,7 @@ class DashboardRepository {
     String companyId, {
     FetchMode mode = FetchMode.auto,
     DateRange? period,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> json = await _api.getJson(
       '/v1/companies/$companyId/dashboard',
@@ -30,7 +31,8 @@ class DashboardRepository {
         'from_date': period?.fromWire,
         'to_date': period?.toWire,
       },
+      cache: cache,
     );
-    return Dashboard.fromJson(json);
+    return Dashboard.fromJson(json, savedAt: json.deviceSavedAt);
   }
 }

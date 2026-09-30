@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../app/theme.dart';
 import '../model/freshness.dart';
+import '../providers.dart';
 import 'primitives.dart';
 
 /// The "as of" line that sits above every set of figures.
@@ -9,7 +11,7 @@ import 'primitives.dart';
 /// Never hidden when data is stale or the PC is offline. An owner acting on a
 /// number they believe is live -- deciding whether to accept a cheque, whether
 /// stock is on the shelf -- is the concrete harm this widget exists to prevent.
-class FreshnessBanner extends StatelessWidget {
+class FreshnessBanner extends ConsumerWidget {
   const FreshnessBanner({
     super.key,
     required this.freshness,
@@ -22,10 +24,11 @@ class FreshnessBanner extends StatelessWidget {
   final bool dense;
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final ThemeData theme = Theme.of(context);
+    final bool phoneOnline = ref.watch(reachabilityProvider).online;
 
-    if (!freshness.needsAttention) {
+    if (phoneOnline && !freshness.needsAttention) {
       return Padding(
         padding: EdgeInsets.symmetric(horizontal: 16, vertical: dense ? 4 : 8),
         child: Row(
@@ -41,7 +44,7 @@ class FreshnessBanner extends StatelessWidget {
       );
     }
 
-    final _BannerStyle style = _styleFor(freshness, context);
+    final _BannerStyle style = _styleFor(freshness, context, phoneOnline: phoneOnline);
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
       child: Container(
@@ -84,7 +87,24 @@ class FreshnessBanner extends StatelessWidget {
     );
   }
 
-  _BannerStyle _styleFor(Freshness freshness, BuildContext context) {
+  _BannerStyle _styleFor(
+    Freshness freshness,
+    BuildContext context, {
+    required bool phoneOnline,
+  }) {
+    // Checked first. With no signal the server has told us nothing about the
+    // shop's PC, and a stored "connector offline" from yesterday would send
+    // somebody to check a machine that is fine.
+    if (!phoneOnline) {
+      return _BannerStyle(
+        icon: Icons.signal_wifi_off_outlined,
+        colour: context.cautionColor,
+        title: 'You are offline',
+        detail: freshness.available
+            ? 'Showing figures saved on this phone. ${freshness.label}.'
+            : 'Connect to the internet to see these figures.',
+      );
+    }
     if (!freshness.connectorOnline) {
       return _BannerStyle(
         icon: Icons.cloud_off_outlined,

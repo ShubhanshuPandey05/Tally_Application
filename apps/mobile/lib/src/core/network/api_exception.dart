@@ -41,6 +41,12 @@ class ApiException implements Exception {
         'timeout',
       }.contains(code);
 
+  /// The request never got an answer from our server -- no signal, or no
+  /// reply in time. Distinct from [isConnectivity], which also covers the
+  /// server answering that the *shop's PC* is unreachable: only this one means
+  /// the phone should fall back to its own copy.
+  bool get isUnreachable => statusCode == null && (code == 'network' || code == 'timeout');
+
   /// Nothing has ever been read for this company. A first-run empty state, not
   /// an error -- and emphatically not zeroes, which would read as "no sales".
   bool get isFirstRun => code == 'no_data_yet';

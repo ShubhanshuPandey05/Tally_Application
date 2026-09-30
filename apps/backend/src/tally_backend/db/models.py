@@ -767,10 +767,42 @@ class CompanySyncState(Base):
 
     def covers(self, from_date: date, to_date: date) -> bool:
         """Whether the store can answer a window without touching Tally."""
+        if not self.covers_start(from_date):
+            return False
+        assert self.backfilled_to is not None
+        return to_date <= self.backfilled_to
+
+    def covers_start(self, from_date: date) -> bool:
+        """Whether the store holds everything from ``from_date`` onwards, up to
+        :attr:`backfilled_to`.
+
+        A window reaching back past :attr:`books_from` still counts when the
+        backfill reached ``books_from``: Tally holds no vouchers before the
+        books begin, so there is nothing there to be missing. Without this a
+        financial-year register for a company whose books open mid-year could
+        never be answered from history -- the backfill stops at the first day
+        of the books, and 1 April is earlier.
+        """
         if not self.has_history:
             return False
-        assert self.backfilled_from is not None and self.backfilled_to is not None
-        return self.backfilled_from <= from_date and to_date <= self.backfilled_to
+        assert self.backfilled_from is not None
+        if self.backfilled_from <= from_date:
+            return True
+        return self.books_from is not None and self.backfilled_from <= self.books_from
+
+    def answers_behind(self, from_date: date, to_date: date) -> bool:
+        """Whether the store can answer a window that runs past its newest sync.
+
+        Only ever as a *stale* answer, never as a current one. The part after
+        :attr:`backfilled_to` is exactly the ordinary staleness a snapshot
+        stand-in already has -- the figures stop at the last sync, and the
+        response is dated by it -- whereas a gap at the *start* would make a
+        window look quieter than it was, which no banner can explain.
+        """
+        if not self.covers_start(from_date):
+            return False
+        assert self.backfilled_to is not None
+        return from_date <= self.backfilled_to < to_date
 
 
 class SyncRun(Base):

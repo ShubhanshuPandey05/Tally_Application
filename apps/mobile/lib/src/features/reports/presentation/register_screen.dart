@@ -17,6 +17,7 @@ import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../dashboard/presentation/widgets/dashboard_sections.dart';
 import '../application/report_providers.dart';
+import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
 
@@ -71,10 +72,15 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
       title: _isSales ? 'Sales register' : 'Purchase register',
       subtitle: periodLabel,
       state: state,
-      onRefresh: () async {
-        ref.invalidate(registerProvider(args));
-        await ref.read(registerProvider(args).future);
-      },
+      // Asks the server again rather than re-reading the provider, which would
+      // answer from the phone's copy. Still no live read: the register is
+      // built from stored history and never queues an export.
+      onRefresh: () => refreshReport<RegisterReport>(
+        ref,
+        registerProvider(args),
+        (ReportsRepository repository) =>
+            repository.register(companyId, kind: _kind, range: range),
+      ),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(94),
         child: Column(

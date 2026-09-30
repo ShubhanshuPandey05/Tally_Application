@@ -30,6 +30,7 @@ import '../../sync/domain/sync_status.dart';
 import '../../sync/presentation/widgets/sync_progress.dart';
 import '../../updates/presentation/update_banner.dart';
 import '../application/dashboard_providers.dart';
+import '../application/warm_up.dart';
 import '../domain/dashboard.dart';
 import 'widgets/company_switcher.dart';
 import 'widgets/dashboard_sections.dart';
@@ -106,6 +107,9 @@ class _Dashboard extends ConsumerWidget {
     final AsyncValue<Dashboard> state = ref.watch(dashboardProvider(company.id));
     final SyncStatus? sync = ref.watch(syncStatusProvider(company.id)).valueOrNull;
     final PeriodSelection? period = ref.watch(dashboardPeriodProvider(company.id));
+    // Listened, not watched: the warm-up fills the phone behind this screen and
+    // has nothing to show on it, so its finishing must not rebuild it.
+    ref.listen<AsyncValue<void>>(warmUpProvider(company.id), (_, __) {});
 
     return Scaffold(
       appBar: AppBar(

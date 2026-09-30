@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/model/freshness.dart';
+import '../../../core/network/device_first.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/providers.dart';
 import '../data/reports_repository.dart';
@@ -33,6 +34,7 @@ final AutoDisposeFutureProviderFamily<Fresh<DaybookReport>, DaybookArgs>
         args.companyId,
         range: args.range,
         kind: args.kind,
+        cache: deviceFirst(ref),
       ),
 );
 
@@ -41,7 +43,12 @@ final AutoDisposeFutureProviderFamily<Fresh<OutstandingReport>, OutstandingArgs>
     FutureProvider.autoDispose.family<Fresh<OutstandingReport>, OutstandingArgs>(
   (Ref ref, OutstandingArgs args) => ref
       .watch(reportsRepositoryProvider)
-      .outstanding(args.companyId, kind: args.kind, asOf: args.asOf),
+      .outstanding(
+        args.companyId,
+        kind: args.kind,
+        asOf: args.asOf,
+        cache: deviceFirst(ref),
+      ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<GroupOutstandingReport>, GroupOutstandingArgs>
@@ -53,33 +60,47 @@ final AutoDisposeFutureProviderFamily<Fresh<GroupOutstandingReport>, GroupOutsta
             kind: args.kind,
             group: args.group,
             asOf: args.asOf,
+            cache: deviceFirst(ref),
           ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<StockReport>, StockArgs> stockProvider =
     FutureProvider.autoDispose.family<Fresh<StockReport>, StockArgs>(
   (Ref ref, StockArgs args) =>
-      ref.watch(reportsRepositoryProvider).stock(args.companyId, only: args.only),
+      ref.watch(reportsRepositoryProvider).stock(
+        args.companyId,
+        only: args.only,
+        cache: deviceFirst(ref),
+      ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<LedgerReport>, LedgerArgs> ledgersProvider =
     FutureProvider.autoDispose.family<Fresh<LedgerReport>, LedgerArgs>(
   (Ref ref, LedgerArgs args) =>
-      ref.watch(reportsRepositoryProvider).ledgers(args.companyId, group: args.group),
+      ref.watch(reportsRepositoryProvider).ledgers(
+        args.companyId,
+        group: args.group,
+        cache: deviceFirst(ref),
+      ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<SlowMovingReport>, SlowMovingArgs>
     slowMovingProvider =
     FutureProvider.autoDispose.family<Fresh<SlowMovingReport>, SlowMovingArgs>(
   (Ref ref, SlowMovingArgs args) =>
-      ref.watch(reportsRepositoryProvider).slowMoving(args.companyId, days: args.days),
+      ref.watch(reportsRepositoryProvider).slowMoving(
+        args.companyId,
+        days: args.days,
+        cache: deviceFirst(ref),
+      ),
 );
 
 // -- drill-down --------------------------------------------------------------
 //
-// Auto-disposed like the rest: a drill-down is opened, read and closed, and
-// keeping the last twenty vouchers somebody looked at resident would be paying
-// memory for a back button that already works.
+// Auto-disposed like the rest, and kept warm for the same few minutes: long
+// enough that "back, then open it again" is instant, short enough that the last
+// twenty vouchers somebody looked at are not all held in memory. Older ones
+// still open from the phone's saved copy.
 
 typedef VoucherArgs = ({String companyId, String key, DateTime on});
 typedef LedgerStatementArgs = ({String companyId, String ledger, DateRange range});
@@ -91,7 +112,7 @@ final AutoDisposeFutureProviderFamily<Fresh<VoucherDetail>, VoucherArgs>
     FutureProvider.autoDispose.family<Fresh<VoucherDetail>, VoucherArgs>(
   (Ref ref, VoucherArgs args) => ref
       .watch(reportsRepositoryProvider)
-      .voucher(args.companyId, key: args.key, on: args.on),
+      .voucher(args.companyId, key: args.key, on: args.on, cache: deviceFirst(ref)),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<LedgerStatement>, LedgerStatementArgs>
@@ -99,7 +120,12 @@ final AutoDisposeFutureProviderFamily<Fresh<LedgerStatement>, LedgerStatementArg
     FutureProvider.autoDispose.family<Fresh<LedgerStatement>, LedgerStatementArgs>(
   (Ref ref, LedgerStatementArgs args) => ref
       .watch(reportsRepositoryProvider)
-      .ledgerStatement(args.companyId, ledger: args.ledger, range: args.range),
+      .ledgerStatement(
+        args.companyId,
+        ledger: args.ledger,
+        range: args.range,
+        cache: deviceFirst(ref),
+      ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<RegisterReport>, RegisterArgs>
@@ -107,7 +133,12 @@ final AutoDisposeFutureProviderFamily<Fresh<RegisterReport>, RegisterArgs>
     FutureProvider.autoDispose.family<Fresh<RegisterReport>, RegisterArgs>(
   (Ref ref, RegisterArgs args) => ref
       .watch(reportsRepositoryProvider)
-      .register(args.companyId, kind: args.kind, range: args.range),
+      .register(
+        args.companyId,
+        kind: args.kind,
+        range: args.range,
+        cache: deviceFirst(ref),
+      ),
 );
 
 final AutoDisposeFutureProviderFamily<Fresh<ItemMovementReport>, ItemMovementArgs>
@@ -115,7 +146,12 @@ final AutoDisposeFutureProviderFamily<Fresh<ItemMovementReport>, ItemMovementArg
     FutureProvider.autoDispose.family<Fresh<ItemMovementReport>, ItemMovementArgs>(
   (Ref ref, ItemMovementArgs args) => ref
       .watch(reportsRepositoryProvider)
-      .itemMovement(args.companyId, item: args.item, range: args.range),
+      .itemMovement(
+        args.companyId,
+        item: args.item,
+        range: args.range,
+        cache: deviceFirst(ref),
+      ),
 );
 
 /// Pull-to-refresh for a report: force one live read, then re-read the

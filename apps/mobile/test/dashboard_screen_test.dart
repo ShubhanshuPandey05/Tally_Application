@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tallyflow/src/app/theme.dart';
+import 'package:tallyflow/src/core/network/api_client.dart';
 import 'package:tallyflow/src/core/network/api_exception.dart';
 import 'package:tallyflow/src/core/widgets/cards.dart';
 import 'package:tallyflow/src/core/widgets/primitives.dart';
@@ -12,6 +13,7 @@ import 'package:tallyflow/src/features/auth/domain/app_user.dart';
 import 'package:tallyflow/src/features/companies/application/company_providers.dart';
 import 'package:tallyflow/src/features/companies/domain/company.dart';
 import 'package:tallyflow/src/features/dashboard/application/dashboard_providers.dart';
+import 'package:tallyflow/src/features/dashboard/application/warm_up.dart';
 import 'package:tallyflow/src/features/dashboard/data/dashboard_repository.dart';
 import 'package:tallyflow/src/features/dashboard/domain/dashboard.dart';
 import 'package:tallyflow/src/features/dashboard/presentation/dashboard_screen.dart';
@@ -55,6 +57,7 @@ class _FakeDashboardRepository implements DashboardRepository {
     String companyId, {
     FetchMode mode = FetchMode.auto,
     DateRange? period,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     loads++;
     lastMode = mode;
@@ -104,6 +107,9 @@ Future<void> _pump(
         sharedPreferencesProvider.overrideWithValue(preferences),
         companiesProvider.overrideWith((Ref ref) async => companies),
         dashboardRepositoryProvider.overrideWithValue(repository),
+        // The warm-up fills the phone behind the dashboard over the network;
+        // these tests are about what the dashboard itself draws.
+        warmUpProvider.overrideWith((Ref ref, String companyId) async {}),
         authControllerProvider.overrideWith(() => _SignedIn(user ?? _admin())),
       ],
       child: MaterialApp(theme: AppTheme.light(), home: const DashboardScreen()),

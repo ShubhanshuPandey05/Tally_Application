@@ -224,7 +224,15 @@ class ReadService:
         params: dict[str, Any] | None = None,
         mode: FetchMode = FetchMode.AUTO,
         heavy: bool = False,
+        stand_in: bool = True,
     ) -> DataResult:
+        """One dataset, from a snapshot or from Tally according to ``mode``.
+
+        ``stand_in=False`` refuses to answer from a snapshot taken under other
+        params. For a caller that has a better fallback of its own -- the
+        voucher history, which holds the whole window a stand-in snapshot
+        would only partly cover.
+        """
         params = {"company": company.tally_name, **(params or {})}
         key = params_key(params)
         snapshot = await self._load_snapshot(company.id, dataset, key)
@@ -241,7 +249,25 @@ class ReadService:
 
         if mode is FetchMode.CACHED:
             if snapshot is None:
-                raise NoDataYet(f"no snapshot for {dataset} on company {company.id}")
+                # The same rule the failed-refresh path already follows. A
+                # cached read is the one that must *never* reach Tally, so it
+                # is also the one with the least excuse for answering "nothing
+                # yet" while an older read of the same thing sits one row away
+                # -- outstanding bills are aged as of today, and every cached
+                # read of them after midnight used to report no data at all.
+                held = (
+                    await self._stand_in(company.id, dataset, params) if stand_in else None
+                )
+                if held is None:
+                    raise NoDataYet(f"no snapshot for {dataset} on company {company.id}")
+                result = self._from_snapshot(
+                    held,
+                    connector_online=await self._connector_online(company.connector_id),
+                )
+                # Answering for other params is stale by definition, whatever
+                # the row's own flag says.
+                result.is_stale = True
+                return result
             return self._from_snapshot(
                 snapshot, connector_online=await self._connector_online(company.connector_id)
             )
@@ -264,7 +290,12 @@ class ReadService:
             )
 
         return await self._refresh(
-            company, dataset=dataset, params=params, fallback=snapshot, heavy=heavy
+            company,
+            dataset=dataset,
+            params=params,
+            fallback=snapshot,
+            heavy=heavy,
+            stand_in=stand_in,
         )
 
     async def _refresh(
@@ -275,6 +306,7 @@ class ReadService:
         params: dict[str, Any],
         fallback: Snapshot | None,
         heavy: bool,
+        stand_in: bool = True,
     ) -> DataResult:
         timeout = (
             self._settings.heavy_job_timeout_seconds
@@ -310,7 +342,7 @@ class ReadService:
         # up to sales and receivables reporting "your Tally PC is offline" while
         # cash and stock, whose params hold no date, still show yesterday's
         # figures. Six cards, one story, two of them telling it differently.
-        if fallback is None:
+        if fallback is None and stand_in:
             fallback = await self._stand_in(company.id, dataset, params)
 
         if fallback is not None:
@@ -369,17 +401,48 @@ class ReadService:
             )
             return await self._from_store(sync_state, payload, company)
 
-        return await self.fetch(
-            company,
-            dataset="vouchers.list",
-            params={
-                "from_date": from_date.isoformat(),
-                "to_date": to_date.isoformat(),
-                "include_inventory": include_inventory,
-            },
-            mode=mode,
-            heavy=True,
+        # History that stops at the last sync. Every drill-down window ends
+        # today, and the store only reaches today once a delta has run today --
+        # so each morning before the first sync, and all day when the shop's PC
+        # is off, every drill-down used to find no exact snapshot and tell
+        # somebody who had read these vouchers a dozen times that it was
+        # "waiting for your first read". Kept as the fallback rather than the
+        # first choice: a live read, when there is one, reaches today.
+        lagging = (
+            mode is not FetchMode.LIVE
+            and sync_state is not None
+            and sync_state.answers_behind(from_date, to_date)
         )
+        try:
+            return await self.fetch(
+                company,
+                dataset="vouchers.list",
+                params={
+                    "from_date": from_date.isoformat(),
+                    "to_date": to_date.isoformat(),
+                    "include_inventory": include_inventory,
+                },
+                mode=mode,
+                heavy=True,
+                # A stand-in snapshot is some older window; the store holds this
+                # one up to the last sync, which is never less.
+                stand_in=not lagging,
+            )
+        except NoDataYet:
+            if not lagging:
+                raise
+            assert sync_state is not None and sync_state.backfilled_to is not None
+            logger.info(
+                "answering vouchers %s..%s for company %s from history ending %s",
+                from_date,
+                to_date,
+                company.id,
+                sync_state.backfilled_to,
+            )
+            payload = await VoucherStore(self._session).read(
+                company.id, from_date=from_date, to_date=sync_state.backfilled_to
+            )
+            return await self._from_store(sync_state, payload, company, behind=True)
 
     async def fetch_voucher(
         self, company: Company, *, key: str, on: date
@@ -408,7 +471,12 @@ class ReadService:
         return await self._from_store(sync_state, [payload], company)
 
     async def _from_store(
-        self, sync_state: CompanySyncState, payload: Any, company: Company
+        self,
+        sync_state: CompanySyncState,
+        payload: Any,
+        company: Company,
+        *,
+        behind: bool = False,
     ) -> DataResult:
         """Freshness for a store-backed read.
 
@@ -433,7 +501,10 @@ class ReadService:
             payload=payload,
             refreshed_at=as_utc(stamp),
             from_snapshot=True,
-            is_stale=age > self._settings.snapshot_stale_after_seconds,
+            # `behind` is a window that runs past the last sync. However
+            # recent that sync, the days after it are missing, and the banner
+            # must say these figures stop short.
+            is_stale=behind or age > self._settings.snapshot_stale_after_seconds,
             # Observed, never assumed. This flag decides whether the app tells
             # an owner their PC is switched off, and a stored read says nothing
             # either way about whether it is.

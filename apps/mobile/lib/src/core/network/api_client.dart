@@ -4,10 +4,34 @@ import 'package:dio/dio.dart';
 
 import '../config/app_config.dart';
 import '../model/freshness.dart';
+import '../storage/read_cache.dart';
 import '../storage/token_store.dart';
 import 'api_exception.dart';
 import 'auth_interceptor.dart';
+import 'reachability.dart';
 import 'version_interceptor.dart';
+
+/// Whether a read goes through the phone's own copy, and how.
+///
+/// Opt-in per call. Reads of *books* keep a copy; reads that decide what the
+/// app may do -- pending entries, the update manifest, sync progress -- do
+/// not, because acting on an old answer there is worse than showing no answer.
+class CachePolicy {
+  const CachePolicy._({required this.preferDevice, this.onNewer});
+
+  /// Ask the server, keep what it says, and answer from the phone's copy if
+  /// the server cannot be reached. The policy for pull-to-refresh.
+  static const CachePolicy keep = CachePolicy._(preferDevice: false);
+
+  /// Answer from the phone's copy straight away when there is one, then check
+  /// the server behind it and call [onNewer] once a newer copy has been kept.
+  /// The policy for opening a screen.
+  const CachePolicy.deviceFirst({required void Function() onNewer})
+      : this._(preferDevice: true, onNewer: onNewer);
+
+  final bool preferDevice;
+  final void Function()? onNewer;
+}
 
 /// The only place in the app that speaks HTTP.
 ///
@@ -22,10 +46,14 @@ class ApiClient {
     required TokenStore tokens,
     required Future<void> Function() onSignedOut,
     VersionInterceptor? version,
+    ReadCache? cache,
+    Reachability? reachability,
     Dio? dio,
     Dio? refreshDio,
   })  : _tokens = tokens,
         _version = version,
+        _cache = cache,
+        _reachability = reachability,
         _dio = dio ?? Dio(_options(config)) {
     final Dio refreshClient = refreshDio ?? Dio(_options(config));
     _dio.interceptors.add(
@@ -51,6 +79,19 @@ class ApiClient {
   final Dio _dio;
   final TokenStore _tokens;
   final VersionInterceptor? _version;
+  final ReadCache? _cache;
+  final Reachability? _reachability;
+
+  /// Background checks in flight, by key. Two screens opening the same report
+  /// share one check rather than each asking the server.
+  final Set<String> _revalidating = <String>{};
+
+  /// How old the phone's copy may be before opening a screen also asks the
+  /// server behind it. Short, because the check is invisible -- the copy is
+  /// already on screen -- and the backend answers from its own snapshots, so
+  /// it costs the shop's Tally nothing. Its job is to stop somebody flicking
+  /// between two reports from sending a request on every flick.
+  static const Duration revalidateAfter = Duration(seconds: 30);
 
   TokenStore get tokens => _tokens;
   Dio get raw => _dio;
@@ -85,15 +126,9 @@ class ApiClient {
     String path, {
     Map<String, Object?>? query,
     CancelToken? cancelToken,
+    CachePolicy? cache,
   }) async {
-    final Object? body = await _send<Object?>(
-      () => _dio.get<Object?>(path, queryParameters: _clean(query), cancelToken: cancelToken),
-      // GETs are idempotent, so a dropped connection or a connector that
-      // timed out mid-export is worth one silent retry before the user sees
-      // "something went wrong" -- most of what a batch read hits is a
-      // desktop PC being briefly slow, not a real failure.
-      retries: _defaultRetries,
-    );
+    final Object? body = await _get(path, query, cancelToken, cache);
     return _asMap(body);
   }
 
@@ -101,11 +136,9 @@ class ApiClient {
     String path, {
     Map<String, Object?>? query,
     CancelToken? cancelToken,
+    CachePolicy? cache,
   }) async {
-    final Object? body = await _send<Object?>(
-      () => _dio.get<Object?>(path, queryParameters: _clean(query), cancelToken: cancelToken),
-      retries: _defaultRetries,
-    );
+    final Object? body = await _get(path, query, cancelToken, cache);
     if (body is! List) return const <Map<String, Object?>>[];
     return body
         .whereType<Map<Object?, Object?>>()
@@ -153,6 +186,99 @@ class ApiClient {
     return _asMap(body);
   }
 
+  Future<Object?> _get(
+    String path,
+    Map<String, Object?>? query,
+    CancelToken? cancelToken,
+    CachePolicy? policy,
+  ) {
+    final Map<String, Object?>? cleaned = _clean(query);
+    Future<Object?> fetch() => _send<Object?>(
+          () => _dio.get<Object?>(path, queryParameters: cleaned, cancelToken: cancelToken),
+          // GETs are idempotent, so a dropped connection or a connector that
+          // timed out mid-export is worth one silent retry before the user sees
+          // "something went wrong" -- most of what a batch read hits is a
+          // desktop PC being briefly slow, not a real failure.
+          retries: _defaultRetries,
+        );
+
+    final ReadCache? cache = _cache;
+    if (policy == null || cache == null) return fetch();
+    return _throughCache(cache, ReadCache.keyFor(path, cleaned), policy, fetch);
+  }
+
+  Future<Object?> _throughCache(
+    ReadCache cache,
+    String key,
+    CachePolicy policy,
+    Future<Object?> Function() fetch,
+  ) async {
+    if (policy.preferDevice) {
+      final SavedRead? saved = await cache.read(key);
+      if (saved != null) {
+        if (saved.age >= revalidateAfter) _revalidate(cache, key, fetch, policy.onNewer);
+        return _fromDevice(saved);
+      }
+    }
+
+    try {
+      final Object? body = await fetch();
+      await cache.write(key, body);
+      return body;
+    } on ApiException catch (error) {
+      // Only when the server could not be reached at all. A server that
+      // *answered* -- 402, 404, no data yet -- has said something the screen
+      // must show, and papering over it with an older copy would hide a
+      // lapsed subscription or a deleted company behind yesterday's figures.
+      if (!error.isUnreachable) rethrow;
+      final SavedRead? saved = await cache.read(key);
+      if (saved == null) rethrow;
+      return _fromDevice(saved);
+    }
+  }
+
+  /// Checks the server behind a copy that is already on screen.
+  ///
+  /// Every failure is swallowed: the person is looking at real figures with
+  /// their age beside them, and a failed background check has nothing to add
+  /// to that. [onNewer] fires only after a copy was actually kept, so a phone
+  /// with no signal does not rebuild the screen in a loop.
+  void _revalidate(
+    ReadCache cache,
+    String key,
+    Future<Object?> Function() fetch,
+    void Function()? onNewer,
+  ) {
+    if (!_revalidating.add(key)) return;
+    unawaited(() async {
+      try {
+        await cache.write(key, await fetch());
+        onNewer?.call();
+      } on ApiException {
+        // Deliberately ignored -- see above.
+      } finally {
+        _revalidating.remove(key);
+      }
+    }());
+  }
+
+  /// A saved body, stamped with when the phone received it.
+  ///
+  /// Written under a key the server never sends, beside the payload rather
+  /// than inside it, so parsers that do not look for it are unaffected. Lists
+  /// carry no stamp; nothing renders freshness for a bare list.
+  static Object? _fromDevice(SavedRead saved) {
+    final Object? body = saved.body;
+    if (body is! Map) return body;
+    return <String, Object?>{
+      ..._asMap(body),
+      deviceCopyKey: <String, Object?>{'saved_at': saved.savedAt.toIso8601String()},
+    };
+  }
+
+  /// Where [_fromDevice] records that a body came from the phone.
+  static const String deviceCopyKey = '_device';
+
   /// Two retries, not zero and not unbounded: the connector's own reconnect
   /// loop and Tally's export time already account for most slow requests, so
   /// anything still failing after this many attempts is worth surfacing
@@ -168,9 +294,16 @@ class ApiClient {
     while (true) {
       try {
         final Response<T> response = await request();
+        _reachability?.reached();
         return response.data;
       } on DioException catch (error) {
         final ApiException apiError = ApiException.fromDio(error);
+        if (apiError.isUnreachable) {
+          _reachability?.unreachable();
+        } else if (error.response != null) {
+          // An error the server sent is still the server answering.
+          _reachability?.reached();
+        }
         final bool canRetry =
             attempt < retries && (apiError.retryable || apiError.isConnectivity);
         if (!canRetry) throw apiError;
@@ -206,6 +339,15 @@ extension DataEnvelope on Map<String, Object?> {
 
   Freshness get envelopeFreshness {
     final Object? meta = this['meta'];
-    return Freshness.fromJson(meta is Map ? ApiClient._asMap(meta) : null);
+    return Freshness.fromJson(meta is Map ? ApiClient._asMap(meta) : null)
+        .savedOnDevice(deviceSavedAt);
+  }
+
+  /// When the phone received this body, if it came from the phone's own copy
+  /// rather than straight from the server.
+  DateTime? get deviceSavedAt {
+    final Object? device = this[ApiClient.deviceCopyKey];
+    if (device is! Map) return null;
+    return DateTime.tryParse(device['saved_at'] as String? ?? '');
   }
 }

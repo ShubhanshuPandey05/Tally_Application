@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/app/app.dart';
 import 'src/core/providers.dart';
+import 'src/core/storage/read_cache.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -21,10 +22,16 @@ Future<void> main() async {
   // slipped through -- and it is the call an out-of-date app makes first.
   final PackageInfo package = await PackageInfo.fromPlatform();
 
+  // Before the first frame, so the dashboard's first build can already answer
+  // from the phone -- which is the whole point of opening it with no signal.
+  // Never throws: a store that cannot open falls back to memory.
+  final ReadCache cache = await HiveReadCache.open();
+
   runApp(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(preferences),
+        readCacheProvider.overrideWithValue(cache),
       ],
       child: _VersionedApp(package: package),
     ),

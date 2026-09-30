@@ -95,6 +95,7 @@ class AuthController extends Notifier<AuthState> {
       // would lose the cached figures they opened it to see.
       if (error.isAuthFailure) {
         await store.clear();
+        await _forgetReads();
         state = AuthState.signedOut;
       } else {
         state = AuthState(
@@ -132,12 +133,14 @@ class AuthController extends Notifier<AuthState> {
 
   Future<void> signOut() async {
     await _repository.signOut();
+    await _forgetReads();
     state = AuthState.signedOut;
     _invalidateEverything();
   }
 
   Future<void> signOutEverywhere() async {
     await _repository.signOutEverywhere();
+    await _forgetReads();
     state = AuthState.signedOut;
     _invalidateEverything();
   }
@@ -148,11 +151,17 @@ class AuthController extends Notifier<AuthState> {
     if (state.status == AuthStatus.signedOut) return;
     state = AuthState.signedOut;
     _invalidateEverything();
+    // Not awaited: nothing can be read without a session, and the next sign-in
+    // clears again before it starts.
+    _forgetReads();
   }
 
   Future<bool> _attempt(Future<AppUser> Function() action) async {
     state = state.copyWith(error: null);
     try {
+      // Before the new session exists rather than after: cleared afterwards,
+      // the wipe could land on top of the new person's first reads.
+      await _forgetReads();
       final AppUser user = await action();
       state = AuthState(status: AuthStatus.signedIn, user: user);
       _invalidateEverything();
@@ -168,6 +177,13 @@ class AuthController extends Notifier<AuthState> {
   void _invalidateEverything() {
     ref.invalidate(apiClientProvider);
   }
+
+  /// Delete the phone's saved copy of every read.
+  ///
+  /// The in-memory providers go with [_invalidateEverything]; this is the copy
+  /// on disk, which would otherwise open the next person's app on the last
+  /// person's books.
+  Future<void> _forgetReads() => ref.read(readCacheProvider).clear();
 
   static const String _deviceName = 'TallyFlow Mobile';
 }

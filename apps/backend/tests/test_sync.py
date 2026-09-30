@@ -16,6 +16,7 @@ from sqlalchemy import select
 from tally_core.tally import get_query
 
 from tally_backend.db.models import (
+    Company,
     CompanySyncState,
     SyncChunk,
     SyncRun,
@@ -787,6 +788,13 @@ async def test_a_window_the_store_does_not_cover_still_goes_to_tally(
     company_id = await backfilled(app, coordinator, linked_company, fake_connector)
     fake_connector.set("voucher_types.list", [])
     fake_connector.set("vouchers.list", [])
+    # Books that go back further than the backfill reached. Without this the
+    # window below starts before the books do, and the store -- holding
+    # everything from the first day of the books -- would be complete for it.
+    async with app.state.session_factory() as session:
+        state = await session.get(CompanySyncState, company_id)
+        state.books_from = TODAY - timedelta(days=3000)
+        await session.commit()
 
     before = fake_connector.call_count("vouchers.list")
     await client.get(
@@ -1304,3 +1312,108 @@ async def test_a_refresh_never_fails_the_request(
     fake_connector.fail_with = "tally_unreachable"
 
     assert await coordinator.refresh(company_id) is True
+
+
+# --------------------------------------------------------------------------
+# History that stops at the last sync
+# --------------------------------------------------------------------------
+#
+# The drill-downs read stored history only, and their windows end today. The
+# store reaches today only once a delta has run today, so every morning before
+# the first sync -- and all day with the shop's PC switched off -- they used to
+# find no exact snapshot and say "waiting for your first read" about vouchers
+# that had been read many times over.
+
+
+async def test_a_drilldown_past_the_last_sync_answers_from_history(
+    app, coordinator, client, linked_company, fake_connector
+) -> None:
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.online = False
+
+    response = await client.get(
+        f"/v1/companies/{company_id}/reports/register",
+        params={
+            "kind": "sales",
+            "from_date": (TODAY - timedelta(days=60)).isoformat(),
+            # Past the last sync: the history ends at TODAY.
+            "to_date": (TODAY + timedelta(days=10)).isoformat(),
+        },
+        headers=linked_company["headers"],
+    )
+
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert body["data"]["voucher_count"] > 0
+    # The days after the last sync are missing, and the banner must say so.
+    assert body["meta"]["is_stale"] is True
+    assert fake_connector.call_count("vouchers.list") == 0
+
+
+async def test_history_that_stops_short_never_answers_a_live_read(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """Pull-to-refresh asked for today. Yesterday's history is not an answer."""
+    from tally_backend.core.errors import NoDataYet
+    from tally_backend.services.reads import FetchMode, ReadService
+
+    company_id = await backfilled(app, coordinator, linked_company, fake_connector)
+    fake_connector.online = False
+
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, company_id)
+        reads = ReadService(session, app.state.hub, app.state.settings)
+        with pytest.raises(NoDataYet):
+            await reads.fetch_vouchers(
+                company,
+                from_date=TODAY - timedelta(days=30),
+                to_date=TODAY + timedelta(days=10),
+                mode=FetchMode.LIVE,
+            )
+
+
+def _state(*, books_from, backfilled_from, backfilled_to) -> CompanySyncState:
+    return CompanySyncState(
+        company_id="c",
+        books_from=books_from,
+        backfilled_from=backfilled_from,
+        backfilled_to=backfilled_to,
+    )
+
+
+def test_a_window_before_the_books_begin_is_covered_when_the_books_are() -> None:
+    """Tally holds nothing before the first day of the books; nothing is missing."""
+    state = _state(
+        books_from=date(2026, 8, 1),
+        backfilled_from=date(2026, 8, 1),
+        backfilled_to=date(2026, 9, 30),
+    )
+
+    # A financial-year register for books opened mid-year.
+    assert state.covers(date(2026, 4, 1), date(2026, 9, 30))
+
+
+def test_a_gap_at_the_start_is_never_covered() -> None:
+    """Missing the start would make a window look quieter than it was."""
+    state = _state(
+        books_from=date(2020, 4, 1),
+        backfilled_from=date(2024, 4, 1),
+        backfilled_to=date(2026, 9, 30),
+    )
+
+    assert not state.covers(date(2023, 4, 1), date(2024, 6, 30))
+    assert not state.answers_behind(date(2023, 4, 1), date(2026, 10, 1))
+
+
+def test_answering_behind_needs_a_window_that_runs_past_the_last_sync() -> None:
+    state = _state(
+        books_from=None,
+        backfilled_from=date(2024, 4, 1),
+        backfilled_to=date(2026, 9, 29),
+    )
+
+    assert state.answers_behind(date(2026, 7, 1), date(2026, 9, 30))
+    # Wholly inside: that is `covers`, a current answer, not a stale one.
+    assert not state.answers_behind(date(2026, 7, 1), date(2026, 9, 29))
+    # Wholly after: the store holds none of it.
+    assert not state.answers_behind(date(2026, 9, 30), date(2026, 9, 30))

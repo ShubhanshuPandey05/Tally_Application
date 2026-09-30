@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/model/financial_year.dart';
+import '../../../core/network/device_first.dart';
 import '../../../core/providers.dart';
 import '../../../core/widgets/period_picker.dart';
 import '../../companies/application/financial_year_providers.dart';
@@ -82,9 +83,11 @@ class DashboardController extends FamilyAsyncNotifier<Dashboard, String> {
     // Watched, not read: picking a period is what re-runs this, so the period
     // selector needs no knowledge of how the dashboard reloads itself.
     final PeriodSelection? period = ref.watch(dashboardPeriodProvider(companyId));
+    // The phone's copy first: this is the screen the app opens on, and with no
+    // signal it is the one that must still show the books.
     return ref
         .watch(dashboardRepositoryProvider)
-        .load(companyId, period: period?.range);
+        .load(companyId, period: period?.range, cache: deviceFirst(ref));
   }
 
   /// Pull-to-refresh: ask for live figures, but keep the old ones on screen

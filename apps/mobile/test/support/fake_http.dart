@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:dio/dio.dart';
@@ -15,6 +16,11 @@ class FakeAdapter implements HttpClientAdapter {
   FakeAdapter();
 
   final List<RequestOptions> requests = <RequestOptions>[];
+
+  /// No signal: every request fails the way a phone in a lift fails, with a
+  /// socket error and no response at all. Still recorded, so a test can tell
+  /// "tried and could not" from "never tried".
+  bool offline = false;
   final Map<String, List<_Reply>> _scripted = <String, List<_Reply>>{};
 
   /// Adds one reply for a path. Replies are consumed in order, so a path can
@@ -45,6 +51,13 @@ class FakeAdapter implements HttpClientAdapter {
     Future<void>? cancelFuture,
   ) async {
     requests.add(options);
+    if (offline) {
+      throw DioException(
+        requestOptions: options,
+        type: DioExceptionType.connectionError,
+        error: const SocketException('Network is unreachable'),
+      );
+    }
 
     final List<_Reply>? replies = _scripted[options.path];
     if (replies == null || replies.isEmpty) {

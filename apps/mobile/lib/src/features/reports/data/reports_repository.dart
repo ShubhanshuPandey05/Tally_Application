@@ -17,6 +17,7 @@ class ReportsRepository {
     required DateRange range,
     FetchMode mode = FetchMode.auto,
     String? kind,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/daybook',
@@ -26,6 +27,7 @@ class ReportsRepository {
         'mode': mode.wire,
         'kind': kind,
       },
+      cache: cache,
     );
     return Fresh<DaybookReport>(
       DaybookReport.fromJson(body.envelopeData),
@@ -38,6 +40,7 @@ class ReportsRepository {
     OutstandingKind kind = OutstandingKind.receivable,
     FetchMode mode = FetchMode.auto,
     DateTime? asOf,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/outstanding',
@@ -46,6 +49,7 @@ class ReportsRepository {
         'mode': mode.wire,
         'as_of': asOf == null ? null : _isoDate(asOf),
       },
+      cache: cache,
     );
     return Fresh<OutstandingReport>(
       OutstandingReport.fromJson(body.envelopeData),
@@ -62,6 +66,7 @@ class ReportsRepository {
     String? group,
     FetchMode mode = FetchMode.auto,
     DateTime? asOf,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/outstanding/group',
@@ -71,6 +76,7 @@ class ReportsRepository {
         'mode': mode.wire,
         'as_of': asOf == null ? null : _isoDate(asOf),
       },
+      cache: cache,
     );
     return Fresh<GroupOutstandingReport>(
       GroupOutstandingReport.fromJson(body.envelopeData),
@@ -82,10 +88,12 @@ class ReportsRepository {
     String companyId, {
     FetchMode mode = FetchMode.auto,
     String? only,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/stock',
       query: <String, Object?>{'mode': mode.wire, 'only': only},
+      cache: cache,
     );
     return Fresh<StockReport>(
       StockReport.fromJson(body.envelopeData),
@@ -97,10 +105,12 @@ class ReportsRepository {
     String companyId, {
     FetchMode mode = FetchMode.auto,
     String? group,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/ledgers',
       query: <String, Object?>{'mode': mode.wire, 'group': group},
+      cache: cache,
     );
     return Fresh<LedgerReport>(
       LedgerReport.fromJson(body.envelopeData),
@@ -112,10 +122,12 @@ class ReportsRepository {
     String companyId, {
     int days = 90,
     FetchMode mode = FetchMode.auto,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/insights/slow-moving',
       query: <String, Object?>{'days': days, 'mode': mode.wire},
+      cache: cache,
     );
     return Fresh<SlowMovingReport>(
       SlowMovingReport.fromJson(body.envelopeData),
@@ -135,10 +147,12 @@ class ReportsRepository {
     String companyId, {
     required String key,
     required DateTime on,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/voucher',
       query: <String, Object?>{'key': key, 'on': _isoDate(on)},
+      cache: cache,
     );
     return Fresh<VoucherDetail>(
       VoucherDetail.fromJson(body.envelopeData),
@@ -150,6 +164,7 @@ class ReportsRepository {
     String companyId, {
     required String ledger,
     required DateRange range,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/ledger-statement',
@@ -158,6 +173,7 @@ class ReportsRepository {
         'from_date': range.fromWire,
         'to_date': range.toWire,
       },
+      cache: cache,
     );
     return Fresh<LedgerStatement>(
       LedgerStatement.fromJson(body.envelopeData),
@@ -169,6 +185,7 @@ class ReportsRepository {
     String companyId, {
     required String kind,
     required DateRange range,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/register',
@@ -177,6 +194,7 @@ class ReportsRepository {
         'from_date': range.fromWire,
         'to_date': range.toWire,
       },
+      cache: cache,
     );
     return Fresh<RegisterReport>(
       RegisterReport.fromJson(body.envelopeData),
@@ -188,6 +206,7 @@ class ReportsRepository {
     String companyId, {
     required String item,
     required DateRange range,
+    CachePolicy cache = CachePolicy.keep,
   }) async {
     final Map<String, Object?> body = await _api.getJson(
       '/v1/companies/$companyId/reports/stock/movement',
@@ -196,6 +215,7 @@ class ReportsRepository {
         'from_date': range.fromWire,
         'to_date': range.toWire,
       },
+      cache: cache,
     );
     return Fresh<ItemMovementReport>(
       ItemMovementReport.fromJson(body.envelopeData),

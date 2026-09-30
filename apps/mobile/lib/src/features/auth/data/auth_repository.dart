@@ -83,8 +83,12 @@ class AuthRepository {
     return me();
   }
 
+  /// Kept on the phone so a launch with no signal still knows who is signed
+  /// in -- role, subscription, whether a password change is owed -- instead of
+  /// guessing, which is how an offline cashier would see admin controls.
   Future<AppUser> me() async {
-    final Map<String, Object?> json = await _api.getJson('/v1/auth/me');
+    final Map<String, Object?> json =
+        await _api.getJson('/v1/auth/me', cache: CachePolicy.keep);
     return AppUser.fromJson(json);
   }
 

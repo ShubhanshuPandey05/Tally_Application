@@ -70,6 +70,21 @@ dependencies:
   pdf: ^3.11.3
   printing: ^5.14.3
 
+  # The phone's own copy of every report it has been shown. An owner opening
+  # the app on a bus with no signal wants yesterday's receivables, not an
+  # error, and a report opened a minute ago must not flash a skeleton again.
+  #
+  # Hive rather than SharedPreferences: a day book is hundreds of kilobytes and
+  # preferences load whole into memory on every launch. Encrypted with a key
+  # held in secure storage, because this is somebody's books at rest on a phone
+  # that may be lost. Works on the web build too (IndexedDB), which a
+  # file-per-report cache would not.
+  hive_ce: ^2.20.1
+  path_provider: ^2.1.5
+  # Cache keys are hashed: Hive caps a key at 255 ASCII characters, and a
+  # ledger-statement query carries a ledger name that may be neither.
+  crypto: ^3.0.7
+
   cupertino_icons: ^1.0.8
 
 dev_dependencies:

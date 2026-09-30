@@ -16,6 +16,7 @@ class Freshness {
     this.fromSnapshot = true,
     this.error,
     this.sectionsUnavailable = 0,
+    this.savedAt,
   });
 
   final bool available;
@@ -27,7 +28,31 @@ class Freshness {
   final String? error;
   final int sectionsUnavailable;
 
+  /// When this phone received these figures, if they were answered from its
+  /// own copy rather than straight from the server. Null for a fresh answer.
+  ///
+  /// Never replaces [refreshedAt] in anything shown: "updated 3 hours ago"
+  /// is about the figures, and a copy saved a minute ago of figures read three
+  /// hours ago is still three hours old.
+  final DateTime? savedAt;
+
+  bool get fromDevice => savedAt != null;
+
   static const Freshness unavailable = Freshness(available: false);
+
+  Freshness savedOnDevice(DateTime? at) => at == null
+      ? this
+      : Freshness(
+          available: available,
+          refreshedAt: refreshedAt,
+          ageSeconds: ageSeconds,
+          isStale: isStale,
+          connectorOnline: connectorOnline,
+          fromSnapshot: fromSnapshot,
+          error: error,
+          sectionsUnavailable: sectionsUnavailable,
+          savedAt: at,
+        );
 
   factory Freshness.fromJson(Map<String, Object?>? json) {
     if (json == null || json.isEmpty) return unavailable;
@@ -56,7 +81,19 @@ class Freshness {
   }
 
   /// Whether the app should warn the user rather than just inform them.
-  bool get needsAttention => !available || isStale || !connectorOnline;
+  bool get needsAttention =>
+      !available || isStale || !connectorOnline || _agedOnDevice;
+
+  /// A copy's `is_stale` was the server's verdict at the moment it answered.
+  /// Days later, on a phone with no signal, that verdict still says "current",
+  /// so a copy is judged again here by the age of its figures, on the same
+  /// fifteen minutes the backend uses for its own snapshots.
+  bool get _agedOnDevice {
+    final DateTime? at = refreshedAt;
+    return fromDevice &&
+        at != null &&
+        DateTime.now().difference(at) > const Duration(minutes: 15);
+  }
 
   static String relativeTime(DateTime time) {
     final Duration delta = DateTime.now().difference(time);

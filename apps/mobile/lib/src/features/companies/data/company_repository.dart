@@ -6,8 +6,11 @@ class CompanyRepository {
 
   final ApiClient _api;
 
-  Future<List<Company>> list() async {
-    final List<Map<String, Object?>> rows = await _api.getList('/v1/companies');
+  /// Kept on the phone: without the list there is no company to open, so an
+  /// app launched with no signal could show nothing else it holds either.
+  Future<List<Company>> list({CachePolicy cache = CachePolicy.keep}) async {
+    final List<Map<String, Object?>> rows =
+        await _api.getList('/v1/companies', cache: cache);
     return rows.map(Company.fromJson).toList(growable: false);
   }
 

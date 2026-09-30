@@ -184,6 +184,75 @@ void main() {
     expect(adapter.countFor('/v1/companies'), 0);
   });
 
+  group('a renewal that cannot get through is not a sign-out', () {
+    // The bug these pin: opening the app with no signal, access token long
+    // expired, used to clear the session -- signing people out of the one app
+    // that keeps their figures for exactly that moment.
+
+    test('no signal keeps the session and fails as offline', () async {
+      await seedSession(expired: true);
+      adapter.offline = true;
+
+      await expectLater(
+        build().getJson('/v1/companies'),
+        throwsA(isA<ApiException>()
+            .having((ApiException e) => e.isUnreachable, 'isUnreachable', isTrue)
+            .having((ApiException e) => e.isAuthFailure, 'isAuthFailure', isFalse)),
+      );
+
+      expect(storage.values, contains('tallyflow.session'));
+      expect(signedOutCalls, 0);
+    });
+
+    test('a server error during renewal keeps the session', () async {
+      // A deploy restarting the API is not the customer's credentials expiring.
+      await seedSession(expired: true);
+      adapter.always('/v1/auth/refresh',
+          status: 503, body: _error('unavailable', 'Back in a moment.'));
+
+      await expectLater(
+        build().getJson('/v1/companies'),
+        throwsA(isA<ApiException>()
+            .having((ApiException e) => e.statusCode, 'statusCode', 503)
+            .having((ApiException e) => e.isAuthFailure, 'isAuthFailure', isFalse)),
+      );
+
+      expect(storage.values, contains('tallyflow.session'));
+      expect(signedOutCalls, 0);
+    });
+
+    test('a 401 whose renewal fails is not passed on as a 401', () async {
+      await seedSession(expired: false);
+      adapter.enqueue('/v1/companies',
+          status: 401, body: _error('unauthenticated', 'Please sign in again.'));
+      adapter.always('/v1/auth/refresh',
+          status: 503, body: _error('unavailable', 'Back in a moment.'));
+
+      await expectLater(
+        build().getJson('/v1/companies'),
+        throwsA(isA<ApiException>()
+            .having((ApiException e) => e.isAuthFailure, 'isAuthFailure', isFalse)),
+      );
+
+      expect(storage.values, contains('tallyflow.session'));
+      expect(signedOutCalls, 0);
+    });
+
+    test('the next request with signal renews as normal', () async {
+      await seedSession(expired: true);
+      adapter.offline = true;
+      final ApiClient client = build();
+      await expectLater(client.getJson('/v1/companies'), throwsA(isA<ApiException>()));
+
+      adapter.offline = false;
+      adapter.enqueue('/v1/auth/refresh', body: _tokenBody('fresh'));
+      adapter.always('/v1/companies', body: <String, Object?>{'ok': true});
+
+      expect((await client.getJson('/v1/companies'))['ok'], true);
+      expect(adapter.requests.last.headers['Authorization'], 'Bearer access-fresh');
+    });
+  });
+
   test('requesting without a session fails fast instead of hitting the API',
       () async {
     adapter.always('/v1/companies', body: <String, Object?>{'ok': true});

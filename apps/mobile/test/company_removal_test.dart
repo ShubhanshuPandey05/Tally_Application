@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:tallyflow/src/app/theme.dart';
+import 'package:tallyflow/src/core/network/api_client.dart';
 import 'package:tallyflow/src/core/providers.dart';
 import 'package:tallyflow/src/features/auth/application/auth_controller.dart';
 import 'package:tallyflow/src/features/auth/domain/app_user.dart';
@@ -42,7 +43,8 @@ class _FakeCompanyRepository implements CompanyRepository {
   Future<void> unlink(String companyId) async => unlinked.add(companyId);
 
   @override
-  Future<List<Company>> list() async => <Company>[_first, _second];
+  Future<List<Company>> list({CachePolicy cache = CachePolicy.keep}) async =>
+      <Company>[_first, _second];
 
   @override
   Future<Company> detail(String companyId) async => _first;

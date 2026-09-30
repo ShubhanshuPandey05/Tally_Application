@@ -311,7 +311,9 @@ class Dashboard {
       !sales.ok && !purchases.ok && !funds.ok && !receivables.ok &&
       !payables.ok && !inventory.ok && !activity.ok;
 
-  factory Dashboard.fromJson(Map<String, Object?> json) {
+  /// [savedAt] is set when the body came from the phone's own copy; see
+  /// [Freshness.savedAt].
+  factory Dashboard.fromJson(Map<String, Object?> json, {DateTime? savedAt}) {
     final Map<String, Object?> company = Section._map(json['company']);
     final Map<String, Object?> sections = Section._map(json['sections']);
 
@@ -327,7 +329,7 @@ class Dashboard {
       asOf: DateTime.tryParse(json['as_of'] as String? ?? '') ?? DateTime.now(),
       freshness: Freshness.fromJson(
         json['freshness'] is Map ? Section._map(json['freshness']) : null,
-      ),
+      ).savedOnDevice(savedAt),
       sales: Section.parse(section('sales'), TradeSummary.fromJson),
       purchases: Section.parse(section('purchases'), TradeSummary.fromJson),
       funds: Section.parse(section('cash_and_bank'), FundsSummary.fromJson),

@@ -1,6 +1,7 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../../../core/network/device_first.dart';
 import '../../../core/providers.dart';
 import '../data/company_repository.dart';
 import '../domain/company.dart';
@@ -10,9 +11,12 @@ final Provider<CompanyRepository> companyRepositoryProvider =
   (Ref ref) => CompanyRepository(ref.watch(apiClientProvider)),
 );
 
+/// Opened from the phone's copy first. Every screen hangs off the active
+/// company, so waiting on the network for this list is waiting on it for the
+/// whole app.
 final FutureProvider<List<Company>> companiesProvider =
     FutureProvider<List<Company>>(
-  (Ref ref) => ref.watch(companyRepositoryProvider).list(),
+  (Ref ref) => ref.watch(companyRepositoryProvider).list(cache: deviceFirst(ref)),
 );
 
 /// Which company's books are on screen.

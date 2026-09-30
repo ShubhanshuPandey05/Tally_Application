@@ -17,6 +17,7 @@ import '../../../core/widgets/period_picker.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../application/report_providers.dart';
+import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
 
@@ -66,10 +67,14 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen>
       title: widget.item,
       subtitle: periodLabel,
       state: state,
-      onRefresh: () async {
-        ref.invalidate(itemMovementProvider(args));
-        await ref.read(itemMovementProvider(args).future);
-      },
+      // The server again, not the phone's copy -- and still stored history,
+      // never an export.
+      onRefresh: () => refreshReport<ItemMovementReport>(
+        ref,
+        itemMovementProvider(args),
+        (ReportsRepository repository) =>
+            repository.itemMovement(companyId, item: widget.item, range: range),
+      ),
       bottom: PreferredSize(
         preferredSize: const Size.fromHeight(48),
         child: SizedBox(

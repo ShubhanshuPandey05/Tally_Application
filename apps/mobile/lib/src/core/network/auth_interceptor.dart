@@ -40,7 +40,7 @@ class AuthInterceptor extends Interceptor {
 
   final Future<void> Function() _onSignedOut;
 
-  Future<StoredSession?>? _inFlight;
+  Future<_Renewal>? _inFlight;
 
   static bool _isPublic(String path) =>
       _unauthenticatedPaths.any((String candidate) => path.endsWith(candidate));
@@ -77,7 +77,15 @@ class AuthInterceptor extends Interceptor {
     // Renew proactively. Waiting for the 401 would cost a wasted round trip on
     // a mobile connection for every screen opened after the token lapses.
     if (!session.isAccessUsable) {
-      session = await _refresh();
+      final _Renewal renewal = await _refresh();
+      final DioException? unreachable = renewal.unreachable;
+      if (unreachable != null) {
+        // Surfaced as the connectivity failure it is, not as a 401. The
+        // session is intact; this request simply could not be made, and the
+        // caller falls back to what the phone already holds.
+        return handler.reject(_asFailureOf(options, unreachable), true);
+      }
+      session = renewal.session;
       if (session == null) {
         return handler.reject(_authFailure(options), true);
       }
@@ -98,7 +106,14 @@ class AuthInterceptor extends Interceptor {
       return handler.next(err);
     }
 
-    final StoredSession? session = await _refresh();
+    final _Renewal renewal = await _refresh();
+    final DioException? unreachable = renewal.unreachable;
+    if (unreachable != null) {
+      // Passing the original 401 on would read upstream as "signed out" when
+      // all that happened is the renewal could not get through.
+      return handler.next(_asFailureOf(options, unreachable));
+    }
+    final StoredSession? session = renewal.session;
     if (session == null) {
       return handler.next(err);
     }
@@ -113,13 +128,13 @@ class AuthInterceptor extends Interceptor {
     }
   }
 
-  Future<StoredSession?> _refresh() {
+  Future<_Renewal> _refresh() {
     return _inFlight ??= _performRefresh().whenComplete(() => _inFlight = null);
   }
 
-  Future<StoredSession?> _performRefresh() async {
+  Future<_Renewal> _performRefresh() async {
     final StoredSession? current = await _store.read();
-    if (current == null) return null;
+    if (current == null) return const _Renewal.rejected();
 
     try {
       final Response<Object?> response = await _refreshClient.post<Object?>(
@@ -127,7 +142,7 @@ class AuthInterceptor extends Interceptor {
         data: <String, Object?>{'refresh_token': current.refreshToken},
       );
       final Object? body = response.data;
-      if (body is! Map) return null;
+      if (body is! Map) return _Renewal.unreachable(_unreadable(response));
 
       final StoredSession renewed = StoredSession(
         accessToken: body['access_token'] as String,
@@ -136,16 +151,60 @@ class AuthInterceptor extends Interceptor {
             .add(Duration(seconds: (body['expires_in'] as num?)?.toInt() ?? 900)),
       );
       await _store.write(renewed);
-      return renewed;
-    } on DioException {
+      return _Renewal.renewed(renewed);
+    } on DioException catch (error) {
+      // Only the server saying no ends a session. This used to clear the
+      // tokens on *any* failure, so opening the app with no signal -- the
+      // access token long expired, the renewal unable to leave the phone --
+      // signed people out of the very app that keeps their figures for
+      // exactly that moment.
+      if (!_isRejection(error)) return _Renewal.unreachable(error);
+
       // The refresh token is gone, expired, or was revoked as a replay. There
       // is no recovery except signing in again, and holding on to dead
       // credentials would just fail every subsequent screen the same way.
       await _store.clear();
       await _onSignedOut();
-      return null;
+      return const _Renewal.rejected();
     }
   }
+
+  /// Whether the backend refused the refresh token itself.
+  ///
+  /// It answers 401 for an unknown, expired, replayed or deactivated token and
+  /// 422 for one it cannot parse. Everything else -- no connection, a timeout,
+  /// a 5xx during a deploy, a 429, a 426 asking for an update -- says nothing
+  /// about the token, and a customer must not have to sign in again because
+  /// the server restarted while they were opening the app.
+  static bool _isRejection(DioException error) {
+    final int? status = error.response?.statusCode;
+    return status == 400 || status == 401 || status == 403 || status == 422;
+  }
+
+  static DioException _unreadable(Response<Object?> response) => DioException(
+        requestOptions: response.requestOptions,
+        type: DioExceptionType.badResponse,
+        message: 'unreadable refresh response',
+      );
+
+  /// The renewal's failure, re-addressed to the request that was waiting on it.
+  ///
+  /// Keeps the renewal's own response, when it had one, so a 503 reads as a
+  /// 503 -- but never a 401, which by construction it cannot be here.
+  static DioException _asFailureOf(RequestOptions options, DioException cause) =>
+      DioException(
+        requestOptions: options,
+        response: cause.response == null
+            ? null
+            : Response<Object?>(
+                requestOptions: options,
+                statusCode: cause.response!.statusCode,
+                data: cause.response!.data,
+              ),
+        type: cause.type,
+        error: cause.error,
+        message: cause.message,
+      );
 
   DioException _authFailure(RequestOptions options) => DioException(
         requestOptions: options,
@@ -160,4 +219,18 @@ class AuthInterceptor extends Interceptor {
           },
         ),
       );
+}
+
+/// How a renewal ended. Three outcomes, not two, and conflating the last two is
+/// the bug this type exists to prevent: "the server refused the token" ends a
+/// session, "the request never arrived" must not.
+class _Renewal {
+  const _Renewal.renewed(StoredSession this.session) : unreachable = null;
+  const _Renewal.rejected()
+      : session = null,
+        unreachable = null;
+  const _Renewal.unreachable(DioException this.unreachable) : session = null;
+
+  final StoredSession? session;
+  final DioException? unreachable;
 }
