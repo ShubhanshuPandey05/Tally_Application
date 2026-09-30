@@ -37,6 +37,6 @@
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "New: record a purchase. Sale is now called Sales invoice. The party list shows every customer and supplier. When your Tally PC allows regular entries, choose per entry whether it waits for approval. The new-entry button opens a quarter-circle menu."
+    "notes": "Works offline: your last figures stay on the phone, and opening the app without internet no longer signs you out. Reports open instantly instead of loading every time. Detailed reports no longer say \"Waiting for your first read\" when your Tally PC is off. New accounts can explore a sample company while waiting for approval."
   }
 }

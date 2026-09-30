@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-25T08:55:12+00:00",
+  "generated_at": "2026-09-30T16:11:15+00:00",
   "connector": {
     "version": "0.5.0",
     "file": "TallyFlowConnector-Setup-0.5.0.exe",
@@ -12,14 +12,14 @@
     "notes": "Sales invoices with items, and purchases, sent from the app are now accepted by TallyPrime. Orders use your Main Location godown, so companies with several godowns accept them. The Sync speed and Entries settings in this window now take effect. Not mandatory: an older connector keeps working, but cannot receive these entries."
   },
   "android": {
-    "version": "0.8.0",
-    "file": "TallyFlow-0.8.0.apk",
-    "url": "/downloads/TallyFlow-0.8.0.apk",
-    "sha256": "8dedefe28d197e52fe5fbcee30b5d3e2288be3076200d36611854bbe7d54eaa2",
-    "size_bytes": 36195568,
+    "version": "0.9.0",
+    "file": "TallyFlow-0.9.0.apk",
+    "url": "/downloads/TallyFlow-0.9.0.apk",
+    "sha256": "f33a397f0d96a162d66966e002f8854b909c63070a82c84462b8da5210cf5b38",
+    "size_bytes": 36609026,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "New: record a purchase. Sale is now called Sales invoice. The party list shows every customer and supplier. When your Tally PC allows regular entries, choose per entry whether it waits for approval. The new-entry button opens a quarter-circle menu.",
-    "build_number": 9
+    "notes": "Works offline: your last figures stay on the phone, and opening the app without internet no longer signs you out. Reports open instantly instead of loading every time. Detailed reports no longer say \"Waiting for your first read\" when your Tally PC is off. New accounts can explore a sample company while waiting for approval.",
+    "build_number": 10
   }
 }
