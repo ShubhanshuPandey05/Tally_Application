@@ -126,3 +126,8 @@ export function fromDateInput(value) {
   if (!value) return null;
   return new Date(`${value}T23:59:59Z`).toISOString();
 }
+
+/** The platform header the app sends, as a person would say it. */
+export function platformName(platform) {
+  return { android: 'Android', ios: 'iPhone', web: 'Web', windows: 'Windows' }[platform] || platform;
+}

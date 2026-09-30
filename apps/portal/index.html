@@ -12,6 +12,21 @@
          was literally "/portal/favicon.svg", which 404s the moment the portal
          is served from its own hostname at the root. -->
     <link rel="icon" href="%BASE_URL%favicon.svg" type="image/svg+xml" />
+    <!-- The app's face. Loaded rather than left to the system stack, so the
+         portal and the phone beside it set the same numbers the same way. -->
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
+    />
+    <!-- Before first paint, so a Light or Dark choice does not flash Dim. -->
+    <script>
+      try {
+        var t = localStorage.getItem('tallyflow.portal.theme');
+        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+      } catch (e) {}
+    </script>
   </head>
   <body>
     <div id="root"></div>

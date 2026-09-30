@@ -18,10 +18,11 @@ a.stat:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 
 .stat-value {
   font-size: 27px;
-  font-weight: 680;
+  font-weight: 700;
   letter-spacing: -.02em;
   line-height: 1.15;
-  font-variant-numeric: tabular-nums;
+  /* Proportional, not tabular: a lone figure at this size set in tabular
+     digits gives "111" the width of "000" and looks loose. Columns keep them. */
 }
 .stat-label { font-size: 12.5px; color: var(--ink-2); font-weight: 550; }
 .stat-note { font-size: 11.5px; color: var(--ink-3); margin-top: 3px; }

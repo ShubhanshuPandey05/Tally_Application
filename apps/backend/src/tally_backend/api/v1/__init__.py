@@ -17,6 +17,7 @@ from . import (
     pairing,
     portal,
     portal_logs,
+    portal_usage,
     public,
     sync,
     team,
@@ -42,6 +43,8 @@ api_router.include_router(portal.router)
 #: in its own module because deciding what an account is entitled to and finding
 #: out why one customer's PC stopped talking are different jobs.
 api_router.include_router(portal_logs.router)
+#: Who is using the product and how much. Counts only, same authority again.
+api_router.include_router(portal_usage.router)
 api_router.include_router(connectors.router)
 api_router.include_router(companies.router)
 api_router.include_router(sync.router)

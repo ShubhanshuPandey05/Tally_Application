@@ -268,6 +268,11 @@ class Settings(BaseSettings):
     #: yet -- it is written for a health view that does not exist -- so it is
     #: pruned on the same window rather than left to grow unattended.
     job_stat_retention_days: int = 2
+    #: How long per-person daily usage is kept for the portal's usage view. A
+    #: different kind of table from the four above: one row per person per day
+    #: they were active, so it grows with *people* rather than with requests,
+    #: and "is this account using what it pays for?" is asked over months.
+    usage_retention_days: int = 180
     #: Whether connectors' pushed logs are accepted at all. Off makes the
     #: backend ignore the frames; connectors keep sending them and nothing
     #: breaks, which is what makes this safe to flip during an incident.

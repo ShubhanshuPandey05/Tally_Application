@@ -1,0 +1,68 @@
+.people-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.people-usage .is-stale { opacity: .55; transition: opacity .15s; }
+.people-usage .seg button { padding: 3px 9px; font-size: 12px; }
+
+.people {
+  list-style: none;
+  margin: 16px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.person {
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  padding: 12px 14px;
+  background: var(--surface);
+}
+/* Somebody who has not opened the app in the whole window is the finding on
+   this screen -- but not an alarm, so it is quieter rather than coloured. */
+.person.is-quiet { background: var(--surface-2); }
+
+.person-head { display: flex; align-items: center; gap: 12px; }
+.person-sub { font-size: 12px; }
+
+.person-facts {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(92px, 1fr));
+  gap: 8px 14px;
+  margin: 12px 0 0;
+}
+.person-facts dt {
+  font-size: 11px;
+  color: var(--ink-3);
+  font-weight: 600;
+}
+.person-facts dd {
+  margin: 1px 0 0;
+  font-size: 13px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.person-devices { margin-top: 8px; }
+.person-devices .btn { padding-left: 4px; }
+.person-devices-none { margin: 10px 0 0; font-size: 12px; }
+
+.devices {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 12.5px;
+}
+.devices li {
+  display: flex;
+  gap: 10px;
+  padding: 6px 10px;
+  background: var(--surface-2);
+  border-radius: var(--r-sm);
+}

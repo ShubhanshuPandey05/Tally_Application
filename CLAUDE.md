@@ -366,6 +366,15 @@ would make one of those wrong every time. **Dim is the default**, not the system
 setting: a theme that flips with the system clock changes the look of somebody's
 books halfway through the day for no reason they asked for.
 
+**The management portal wears the same tokens** (decided 2026-09-30): the app's
+blue, its four greys per skin, its radii, Inter, and the same three skins with
+Dim the default, stored per browser. It had a pine-teal palette of its own, and
+a partner who has just watched a customer use the app should not then open what
+looks like a different product. Its one rule of its own survives — amber means
+something is waiting on a human, and nothing else is amber. Chart marks on Dim
+and Dark use `--chart` (`#6887ff`), not the app's dark primary `#8aa4ff`, which
+is too light to hold a bar's shape there.
+
 Colour lives almost entirely inside small rounded icon tiles. That is what keeps
 a screen with six categories on it legible, and it is why the tile palette is a
 fixed set rather than something a new feature adds to.
@@ -674,6 +683,34 @@ diagnostic. Retention is not the only lever: the portal can clear any of them on
 demand, per connector, per account or entirely. Clearing the audit trail is
 owner-only and is itself audited, so the gap it leaves has a name and a time on
 it.
+
+### The usage view
+
+The portal's **Usage** page and each account's **People and activity** answer
+"who is actually using this?" — for a partner deciding who to ring before a
+renewal, and for support asking "is it everyone, or just them?".
+
+They read `user_activity_days`: **one row per person per day they were
+active**, counting dashboard opens, reports opened, entries made and sign-ins,
+plus the app build from the `X-App-Version` / `X-App-Platform` headers the app
+already sends. It is written by `services.usage.note` inside `audit.record`,
+in the same transaction as the audit row — not rolled up from the trail
+afterwards, because a rollup's watermark can fall behind the trail's two-day
+pruning and lose days silently. An upsert, because two screens opening at once
+are two requests racing to insert the same row.
+
+It is the one diagnostic table **not** kept for two days: it grows with
+*people*, not with requests, and renewal questions are about months. Kept 180
+days (`TALLYFLOW_USAGE_RETENTION_DAYS`), pruned by the same `LogWriter` pass.
+A day is an **Indian calendar day** — a shop owner checking receivables at 7am
+is using the product today, and in UTC that is still yesterday.
+
+**Counts only, by construction.** No company, no report parameter, no figure:
+the table cannot hold what somebody looked at, which is the only way to be sure
+the portal can never show it. `portal.*` audit rows are excluded, since their
+`user_id` is a *portal* user's. "Last seen" also takes the latest sign-in and
+session renewal, so it is right from the first day rather than only once the
+table has filled.
 
 ---
 

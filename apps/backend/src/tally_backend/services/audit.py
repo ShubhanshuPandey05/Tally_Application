@@ -20,6 +20,7 @@ from sqlalchemy import delete
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AuditLog
+from . import usage
 
 logger = logging.getLogger(__name__)
 
@@ -62,6 +63,11 @@ async def record(
             duration_ms=duration_ms,
             ip_address=client_ip(request),
         )
+    )
+    # Beside the audit row and in the same transaction, so the usage the portal
+    # shows and the trail it came from can never disagree about a request.
+    await usage.note(
+        session, action=action, org_id=org_id, user_id=user_id, request=request
     )
 
 

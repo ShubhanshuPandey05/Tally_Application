@@ -22,6 +22,7 @@ const ICONS = {
   server: 'M4 5h16v5H4zM4 14h16v5H4zM7.5 7.5h.01M7.5 16.5h.01',
   connector: 'M9 3v5M15 3v5M6 8h12v5a6 6 0 0 1-12 0zM12 19v3',
   activity: 'M3 12h4l3 8 4-16 3 8h4',
+  usage: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
   settings:
     'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.08A1.7 1.7 0 0 0 10.1 3.04V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.03',
 };
@@ -56,35 +57,51 @@ function Item({ to, icon, label, badge, end = false }) {
 }
 
 /**
- * Light / dark / system, as an explicit three-state choice.
+ * Light, Dim or Dark -- the app's three skins, with Dim the default.
  *
- * Three and not two because the default is "follow the machine", and a toggle
- * with two positions cannot express that -- it either forces a choice on first
- * paint or silently makes one of the two mean "unset", which then drifts out of
- * sync with the OS.
+ * Not "follow the system", which this used to offer: the app decided against
+ * it because a theme that flips with the OS clock changes the look of a screen
+ * halfway through a working day, and the portal now wears the app's colours for
+ * the same reason it should share its rules. Stored per browser, like the app
+ * stores it per device -- the same person may want light on a desk monitor.
  */
+const SKINS = ['dim', 'light', 'dark'];
+const SKIN_LABEL = { dim: 'Dim', light: 'Light', dark: 'Dark' };
+const SKIN_GLYPH = { dim: '◐', light: '☀', dark: '☾' };
+
+function readSkin() {
+  try {
+    const stored = localStorage.getItem('tallyflow.portal.theme');
+    // 'system' from before this change reads as the default.
+    return SKINS.includes(stored) ? stored : 'dim';
+  } catch {
+    return 'dim';
+  }
+}
+
 function ThemeToggle() {
-  const [theme, setTheme] = useState(() => localStorage.getItem('tallyflow.portal.theme') || 'system');
+  const [skin, setSkin] = useState(readSkin);
 
   useEffect(() => {
-    const root = document.documentElement;
-    if (theme === 'system') root.removeAttribute('data-theme');
-    else root.setAttribute('data-theme', theme);
-    localStorage.setItem('tallyflow.portal.theme', theme);
-  }, [theme]);
+    document.documentElement.setAttribute('data-theme', skin);
+    try {
+      localStorage.setItem('tallyflow.portal.theme', skin);
+    } catch {
+      // Private window: the choice lasts this tab, which is all it can.
+    }
+  }, [skin]);
 
-  const next = { system: 'light', light: 'dark', dark: 'system' }[theme];
-  const glyph = { system: '◐', light: '☀', dark: '☾' }[theme];
+  const next = SKINS[(SKINS.indexOf(skin) + 1) % SKINS.length];
 
   return (
     <button
       type="button"
       className="btn btn-ghost btn-sm"
-      title={`Theme: ${theme}. Click for ${next}.`}
-      aria-label={`Theme: ${theme}`}
-      onClick={() => setTheme(next)}
+      title={`${SKIN_LABEL[skin]}. Click for ${SKIN_LABEL[next]}.`}
+      aria-label={`Theme: ${SKIN_LABEL[skin]}`}
+      onClick={() => setSkin(next)}
     >
-      <span aria-hidden="true" style={{ fontSize: 15 }}>{glyph}</span>
+      <span aria-hidden="true" style={{ fontSize: 15 }}>{SKIN_GLYPH[skin]}</span>
     </button>
   );
 }
@@ -103,17 +120,16 @@ export default function Shell({ me, pending, onSignOut, children }) {
     <div className={`shell${open ? ' is-open' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
-          <svg viewBox="0 0 32 32" className="brand-mark" aria-hidden="true">
-            <rect width="32" height="32" rx="8" fill="currentColor" />
-            <path
-              d="M8 20.5 13 14l4 4.5L24 9"
-              fill="none"
-              stroke="var(--surface)"
-              strokeWidth="2.6"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-            />
-          </svg>
+          {/* The product's own mark -- the stacked TallyFlow, baked to
+              outlines by tools/brand -- rather than a tile of the portal's
+              own, which read as a different product. */}
+          <img
+            src={`${import.meta.env.BASE_URL}favicon.svg`}
+            alt=""
+            className="brand-mark"
+            width="30"
+            height="30"
+          />
           <div className="stack">
             <strong>TallyFlow</strong>
             <span className="dim" style={{ fontSize: 11.5 }}>Partner Desk</span>
@@ -124,6 +140,7 @@ export default function Shell({ me, pending, onSignOut, children }) {
           <span className="nav-group">Manage</span>
           <Item to="/" icon="overview" label="Overview" end />
           <Item to="/accounts" icon="accounts" label="Accounts" badge={pending || null} />
+          <Item to="/usage" icon="usage" label="Usage" />
           {owner ? <Item to="/partners" icon="partners" label="Partners" /> : null}
 
           <span className="nav-group">Support</span>

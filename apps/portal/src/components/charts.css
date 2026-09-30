@@ -1,0 +1,159 @@
+/* Chart marks follow one spec across the portal: columns at most 24px wide
+   with a 2px gap between neighbours, a 4px rounded data-end and a square
+   baseline; hairline, solid, recessive gridlines; text in ink tokens only. */
+
+.chart { margin: 0; }
+
+.chart-plot {
+  position: relative;
+  margin-left: 34px; /* room for the tick labels */
+}
+
+.chart-grid {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  pointer-events: none;
+}
+.chart-gridline {
+  position: relative;
+  border-top: 1px solid var(--line);
+  height: 0;
+}
+.chart-tick {
+  position: absolute;
+  right: calc(100% + 8px);
+  top: -8px;
+  font-size: 11px;
+  color: var(--ink-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.chart-bars {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+}
+
+/* The slot is the hit target: the whole column of air above a bar, not just
+   the painted pixels, so a one-person day is as easy to hover as a busy one. */
+.chart-slot {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: default;
+  border-radius: 4px 4px 0 0;
+}
+.chart-slot:focus-visible { outline: 2px solid var(--ring); outline-offset: 1px; }
+.chart-slot.is-hot { background: var(--chart-soft); }
+
+.chart-bar {
+  width: 100%;
+  max-width: 24px;
+  background: var(--chart);
+  border-radius: 4px 4px 0 0;
+  transition: height .25s ease, filter .12s;
+}
+.chart-slot.is-hot .chart-bar { filter: brightness(1.12); }
+
+.chart-dates {
+  display: flex;
+  gap: 2px;
+  margin: 6px 0 0 34px;
+  font-size: 11px;
+  color: var(--ink-3);
+}
+.chart-dates span {
+  flex: 1 1 0;
+  min-width: 0;
+  overflow: visible;
+  white-space: nowrap;
+  text-align: center;
+}
+.chart-dates span:first-child { text-align: left; }
+.chart-dates span:last-child { text-align: right; }
+
+.chart-tip {
+  position: absolute;
+  /* Inside the plot, over the bars, rather than above it: above, it escaped
+     the card and covered whatever sat on top of the chart. */
+  top: 4px;
+  transform: translateX(-50%);
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-md);
+  box-shadow: var(--shadow-2);
+  padding: 8px 11px;
+  font-size: 12.5px;
+  pointer-events: none;
+  white-space: nowrap;
+  z-index: 5;
+}
+.chart-tip-start { transform: translateX(-12px); }
+.chart-tip-end { transform: translateX(calc(-100% + 12px)); }
+.chart-tip-head { color: var(--ink-3); font-size: 11.5px; margin-bottom: 3px; }
+.chart-tip-row { display: flex; align-items: center; gap: 6px; }
+.chart-tip-row strong { font-variant-numeric: tabular-nums; }
+.chart-tip-minor { padding-left: 16px; font-size: 12px; }
+/* A short stroke of the series colour: identity without a filled box. */
+.chart-key { width: 10px; height: 2px; border-radius: 1px; background: var(--chart); }
+
+.chart-table { margin-top: 14px; }
+.chart-table summary {
+  cursor: pointer;
+  font-size: 12.5px;
+  color: var(--ink-2);
+  font-weight: 550;
+  width: max-content;
+}
+.chart-table summary:hover { color: var(--ink); }
+.chart-table .table-wrap { margin-top: 10px; max-height: 280px; overflow-y: auto; }
+
+/* ---- Sparkline ------------------------------------------------------ */
+
+.spark {
+  display: inline-flex;
+  align-items: flex-end;
+  gap: 1px;
+  height: 22px;
+  width: 112px;
+  vertical-align: middle;
+}
+.spark-bar {
+  flex: 1 1 0;
+  min-width: 1px;
+  background: var(--chart);
+  border-radius: 1px 1px 0 0;
+}
+/* A day with nothing is a stub on the baseline, not a gap -- a gap reads as
+   missing data, and "they did not open the app" is data. */
+.spark-bar.is-empty { height: 2px; background: var(--surface-3); }
+
+/* ---- Share bars ----------------------------------------------------- */
+
+.shares { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: 10px; }
+.share {
+  display: grid;
+  grid-template-columns: minmax(96px, 150px) minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+}
+.share-label { font-weight: 550; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.share-track { height: 10px; background: var(--surface-2); border-radius: 999px; overflow: hidden; }
+.share-fill { display: block; height: 100%; background: var(--chart); border-radius: 999px; }
+.share-value { font-variant-numeric: tabular-nums; font-weight: 600; white-space: nowrap; }
+
+@media (prefers-reduced-motion: reduce) {
+  .chart-bar { transition: none; }
+}

@@ -43,6 +43,7 @@ from sqlalchemy import delete, func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..db.models import AuditLog, ConnectorLog, JobStat, LogLevel, ServerLog, as_utc, utc_now
+from . import usage
 
 logger = logging.getLogger(__name__)
 
@@ -311,6 +312,7 @@ class LogWriter:
     connector_retention_days: int = 2
     audit_retention_days: int = 2
     job_stat_retention_days: int = 2
+    usage_retention_days: int = 180
     prune_interval_seconds: float = 3600.0
     _task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
     _stopping: asyncio.Event = field(default_factory=asyncio.Event, init=False, repr=False)
@@ -397,6 +399,9 @@ class LogWriter:
                 await session.execute(
                     delete(model).where(model.created_at < now - timedelta(days=max(days, 0)))
                 )
+            # Not a traffic table, but aged out by the same task so that no
+            # deploy can leave it growing with nothing pruning it.
+            await usage.prune(session, keep_days=self.usage_retention_days)
             await session.commit()
 
 

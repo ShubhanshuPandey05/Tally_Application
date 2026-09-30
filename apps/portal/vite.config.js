@@ -31,7 +31,9 @@ export default defineConfig({
     // not matter.
     proxy: {
       '/v1': {
-        target: 'http://127.0.0.1:8000',
+        // Overridable so a second backend -- a scratch database, a preview --
+        // can sit beside the usual one on :8000 without stopping it.
+        target: process.env.PORTAL_API || 'http://127.0.0.1:8000',
         changeOrigin: true,
         // The log tail is a streaming response. Without this the proxy buffers
         // it and the live view shows nothing until the request ends, which for

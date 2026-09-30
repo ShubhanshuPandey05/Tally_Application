@@ -1056,6 +1056,46 @@ class AuditLog(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, default=0)
 
 
+class UserActivityDay(Base):
+    """How much one person used the product on one day. Counts, nothing else.
+
+    The audit trail already names every screen somebody opens, but it is kept
+    for two days because it grows with *traffic*. "Is this account actually
+    using what it pays for?" is a question about weeks, so the trail is folded
+    into this as it is written: one row per person per day they were active,
+    which grows with *people* and is kept far longer.
+
+    Deliberately holds no figure from anybody's books and no report parameter
+    -- which ledger somebody opened is the customer's business, and the portal
+    that reads this table must never be able to show it.
+
+    ``day`` is an Indian calendar day, not a UTC one. A shop owner checking
+    receivables at 7am is using the product *today*, and in UTC that is still
+    yesterday.
+    """
+
+    __tablename__ = "user_activity_days"
+    __table_args__ = (Index("ix_user_activity_org_day", "org_id", "day"),)
+
+    user_id: Mapped[str] = mapped_column(String(32), primary_key=True)
+    day: Mapped[date] = mapped_column(Date, primary_key=True)
+    #: No foreign key, like the other diagnostic tables: removing a person or an
+    #: account must not rewrite what their usage was.
+    org_id: Mapped[str] = mapped_column(String(32))
+    first_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    last_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: Every audited action, including the three counted separately below.
+    events: Mapped[int] = mapped_column(Integer, default=0)
+    dashboard_views: Mapped[int] = mapped_column(Integer, default=0)
+    report_views: Mapped[int] = mapped_column(Integer, default=0)
+    entries_created: Mapped[int] = mapped_column(Integer, default=0)
+    logins: Mapped[int] = mapped_column(Integer, default=0)
+    #: The build they used last that day, from the headers the app already
+    #: sends. Answers "who is still on the old app?" without asking anyone.
+    app_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    platform: Mapped[str | None] = mapped_column(String(16), nullable=True)
+
+
 class JobStat(Base):
     """One row per dispatched connector job.
 

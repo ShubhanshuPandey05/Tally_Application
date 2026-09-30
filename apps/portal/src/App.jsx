@@ -28,6 +28,7 @@ import Overview from './pages/Overview.jsx';
 import Partners from './pages/Partners.jsx';
 import Settings from './pages/Settings.jsx';
 import SignIn from './pages/SignIn.jsx';
+import Usage from './pages/Usage.jsx';
 
 export default function App() {
   const [me, setMe] = useState(null);
@@ -103,6 +104,7 @@ export default function App() {
           />
           <Route path="/logs/connector" element={<ConnectorLogs me={me} />} />
           <Route path="/activity" element={<Activity me={me} />} />
+          <Route path="/usage" element={<Usage me={me} />} />
           <Route path="/settings" element={<Settings me={me} onUpdated={setMe} />} />
           {/* A stale bookmark should land somewhere useful, not on a blank
               page that looks like the portal is broken. */}

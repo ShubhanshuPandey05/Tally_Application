@@ -13,6 +13,8 @@ and the usage counters safe to put in one flat object.
 
 from __future__ import annotations
 
+from datetime import date
+
 from pydantic import BaseModel, EmailStr, Field
 
 from ..db.models import OrgStatus, PlatformRole
@@ -311,3 +313,106 @@ class AuditEntry(BaseModel):
     outcome: str = "ok"
     duration_ms: int = 0
     detail: dict | None = None
+
+
+# --------------------------------------------------------------------------
+# Usage
+# --------------------------------------------------------------------------
+#
+# Counts of what people *did* -- screens opened, entries made, days they came
+# back. Never what they saw: no report parameter, no company, no figure.
+
+
+class UsageDay(BaseModel):
+    day: date
+    active_users: int = 0
+    #: Zero on an account's own series, where it would always be one.
+    active_accounts: int = 0
+    events: int = 0
+    dashboard_views: int = 0
+    report_views: int = 0
+    entries_created: int = 0
+
+
+class UsageHeadline(BaseModel):
+    active_today: int = 0
+    active_7d: int = 0
+    active_30d: int = 0
+    #: Everyone who could have been active: members of the accounts in scope.
+    people: int = 0
+    report_views: int = 0
+    entries_created: int = 0
+    logins: int = 0
+    #: When counting began on this server. Before it the table is empty, and a
+    #: chart that starts at zero must say why rather than read as a collapse.
+    tracking_since: date | None = None
+
+
+class AccountUsage(BaseModel):
+    id: str
+    name: str
+    status: OrgStatus
+    people: int = 0
+    active_users: int = 0
+    active_days: int = 0
+    events: int = 0
+    report_views: int = 0
+    entries_created: int = 0
+    #: Most recent sign of life from anyone in the account: an audited action,
+    #: a sign-in, or a session being renewed -- the last of which the app does
+    #: in the background whenever it is open, so it is right from day one
+    #: rather than only once the usage table has filled.
+    last_seen_at: UtcDatetime | None = None
+
+
+class VersionShare(BaseModel):
+    version: str
+    platform: str | None = None
+    users: int = 0
+
+
+class PlatformUsageResponse(BaseModel):
+    days: int
+    headline: UsageHeadline
+    series: list[UsageDay]
+    top_accounts: list[AccountUsage]
+    #: Live accounts nobody has used for a week or more -- the ones to ring
+    #: before they stop paying rather than after.
+    quiet_accounts: list[AccountUsage]
+    versions: list[VersionShare]
+
+
+class DeviceSession(BaseModel):
+    device_name: str | None = None
+    user_agent: str | None = None
+    signed_in_at: UtcDatetime
+    last_used_at: UtcDatetime | None = None
+
+
+class PersonUsage(BaseModel):
+    id: str
+    email: str
+    full_name: str | None = None
+    role: str
+    is_active: bool = True
+    joined_at: UtcDatetime | None = None
+    last_login_at: UtcDatetime | None = None
+    last_seen_at: UtcDatetime | None = None
+    active_days: int = 0
+    events: int = 0
+    dashboard_views: int = 0
+    report_views: int = 0
+    entries_created: int = 0
+    logins: int = 0
+    app_version: str | None = None
+    platform: str | None = None
+    #: One count per day of the window, oldest first, for a sparkline.
+    daily: list[int] = Field(default_factory=list)
+    devices: list[DeviceSession] = Field(default_factory=list)
+
+
+class AccountUsageResponse(BaseModel):
+    days: int
+    series: list[UsageDay]
+    people: list[PersonUsage]
+    tracking_since: date | None = None

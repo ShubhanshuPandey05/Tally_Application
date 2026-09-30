@@ -26,6 +26,7 @@ from PIL import Image
 ROOT = Path(__file__).resolve().parents[2]
 MOBILE = ROOT / "apps/mobile"
 WEBSITE = ROOT / "apps/website"
+PORTAL = ROOT / "apps/portal"
 ANDROID = MOBILE / "android/app/src/main/res"
 IOS = MOBILE / "ios/Runner/Assets.xcassets/AppIcon.appiconset"
 #: The connector's window, which is a Windows target of the mobile package.
@@ -113,6 +114,10 @@ def main() -> None:
     # The website's favicon stays vector: it is served over HTTP to a browser
     # that renders SVG, so there is no reason to ship it a bitmap of a drawing.
     (WEBSITE / "public/favicon.svg").write_text(favicon, encoding="utf-8")
+    # The portal is a browser tab too, and it once wore a mark of its own -- a
+    # teal tile nobody would connect to the app the customer had just shown
+    # them. Same file, so the two cannot drift apart again.
+    (PORTAL / "public/favicon.svg").write_text(favicon, encoding="utf-8")
 
     jobs: list[tuple[str, Path, int]] = [
         # Safari ignores an SVG favicon, and this is also the tile somebody gets
@@ -142,6 +147,7 @@ def main() -> None:
     for _, dest, size in jobs:
         print(f"  {size:>4}px  {dest.relative_to(ROOT)}")
     print(f"  vector  {(WEBSITE / 'public/favicon.svg').relative_to(ROOT)}")
+    print(f"  vector  {(PORTAL / 'public/favicon.svg').relative_to(ROOT)}")
 
 
 if __name__ == "__main__":

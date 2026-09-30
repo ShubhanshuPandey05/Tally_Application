@@ -128,6 +128,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             connector_retention_days=settings.connector_log_retention_days,
             audit_retention_days=settings.audit_retention_days,
             job_stat_retention_days=settings.job_stat_retention_days,
+            usage_retention_days=settings.usage_retention_days,
         )
         app.state.log_writer = log_writer
         await log_writer.start()

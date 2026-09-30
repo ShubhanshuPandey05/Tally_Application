@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api.js';
+import PeopleUsage from '../components/PeopleUsage.jsx';
 import { Field, Modal, Pill, StatusPill, useToast } from '../components/ui.jsx';
 import { fmtAgo, fmtDate, fmtDateTime, fromDateInput, initials, toDateInput } from '../format.js';
 import './accounts.css';
@@ -148,9 +149,9 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
 
       {pending ? (
         <p className="hint" style={{ margin: 0 }}>
-          Until this is approved the business has no users and no companies — both
-          ceilings are zero. It can sign in and see nothing, which is a better first
-          launch than an error screen.
+          Until this is approved the business can add no Tally PC, company or
+          colleague — both ceilings are zero. Meanwhile its people can sign in and
+          explore the demo company.
         </p>
       ) : null}
 
@@ -210,6 +211,10 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
           </p>
         )}
       </div>
+
+      <hr className="divider" />
+
+      <PeopleUsage accountId={account.id} />
 
       <hr className="divider" />
 

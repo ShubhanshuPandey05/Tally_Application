@@ -1,133 +1,149 @@
 /* ==================================================================
-   The portal's design system.
+   The portal's design system -- the app's, on a wider screen.
 
-   One structural idea, carried over from the single-page version this
-   replaced, and worth restating because everything else follows from
-   it: COLOUR ENCODES ATTENTION. Amber appears in exactly one
-   circumstance -- something waiting on a human -- and nowhere else.
-   So "is there work?" is answered from across the room, and no stat
-   card has to shout it.
+   Same tokens as the Flutter app (apps/mobile/lib/src/app/theme.dart)
+   and the marketing site (apps/website/src/styles/base.css): one blue
+   for action, soft greys for anything that is a container, and
+   structure from radius rather than from borders round everything.
+   Whoever approves an account here has usually just watched the
+   customer use the app, and two nearly-identical blues read as a
+   mistake rather than as a family.
 
-   The one colour added since is `--stop` on an ERROR log line, which
-   is the support view's equivalent of the same idea.
+   Three skins, like the app: Light, Dim and Dark, with DIM THE DEFAULT
+   -- not the system setting. The app decided that for a reason that
+   holds here too: a theme that flips with the system clock changes
+   the look of a screen halfway through a working day for nobody's
+   benefit.
+
+   One idea is the portal's own and survives the change: COLOUR
+   ENCODES ATTENTION. Amber appears in exactly one circumstance --
+   something waiting on a human -- so "is there work?" is answered
+   from across the room. `--stop` marks an ERROR log line.
    ================================================================== */
 
-:root {
-  color-scheme: light dark;
+:root,
+:root[data-theme="dim"] {
+  color-scheme: dark;
 
-  /* Neutrals, biased very slightly cool so they sit with the accent
-     rather than fighting it. A pure grey here reads as unconsidered. */
-  --bg:        #f5f7f8;
-  --surface:   #ffffff;
-  --surface-2: #eef1f3;
-  --surface-3: #e4e9ec;
-  --line:      #dde3e7;
-  --ink:       #11181c;
-  --ink-2:     #55636c;
-  --ink-3:     #838f98;
+  /* Dim. The app's four greys: page, card, container, line. */
+  --bg:        #1a1d23;
+  --surface:   #232730;
+  --surface-2: #2c313b;
+  --surface-3: #363b46;
+  --line:      #363b46;
+  --ink:       #f2f3f7;
+  --ink-2:     #9ba1ae;
+  --ink-3:     #7d8391;
 
-  /* Deep pine-teal. Chosen over the usual dashboard blue because this
-     tool sits next to money and wants to read as considered, not as a
-     framework default. */
-  --accent:      #0b5d51;
-  --accent-ink:  #ffffff;
-  --accent-soft: #dcece9;
+  /* The app's dark-skin primary. Readable as text and as a button fill. */
+  --accent:      #8aa4ff;
+  --accent-ink:  #0e0f13;
+  --accent-soft: #23304f;
+  /* Chart marks. Not `--accent`: that blue is too light to hold a bar's
+     shape on a dark surface (validated -- see components/charts.jsx). */
+  --chart:       #6887ff;
+  --chart-soft:  rgba(104, 135, 255, .16);
 
-  /* The only warm colour in the file. Reserved for "needs a decision". */
-  --wait:      #9a5400;
-  --wait-soft: #fbeedd;
+  --wait:      #e0a049;
+  --wait-soft: rgba(224, 138, 21, .16);
 
-  --ok:      #1a7a4f;
-  --ok-soft: #dff1e7;
+  --ok:      #3fbf8a;
+  --ok-soft: rgba(23, 160, 107, .16);
 
-  --stop:      #a32f1e;
-  --stop-soft: #fbe6e2;
+  --stop:      #f07088;
+  --stop-soft: rgba(224, 68, 122, .16);
 
-  --off:      #6b7681;
-  --off-soft: #e9edef;
+  --off:      #9ba1ae;
+  --off-soft: #2c313b;
 
-  --ring: #0b5d51;
-  --shadow-1: 0 1px 2px rgba(17, 24, 28, .05);
-  --shadow-2: 0 1px 3px rgba(17, 24, 28, .07), 0 10px 28px rgba(17, 24, 28, .08);
-  --r-sm: 7px;
-  --r-md: 11px;
-  --r-lg: 15px;
+  --tile-blue:   #2d5bff;
+  --tile-green:  #17a06b;
+  --tile-amber:  #e08a15;
+  --tile-violet: #7c4dff;
+  --tile-rose:   #e0447a;
 
-  --sidebar-w: 244px;
-
-  --font: -apple-system, BlinkMacSystemFont, "Segoe UI", Inter, Roboto,
-          "Helvetica Neue", Arial, sans-serif;
-  --mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas,
-          "Liberation Mono", monospace;
-}
-
-/* Three theme states, and the default one stamps nothing on the root
-   element at all: most viewers sit on "system", where only
-   prefers-color-scheme separates light from dark. So the tokens are
-   redefined in both the media query and the explicit stamp, and every
-   component styles through the tokens rather than inside either block. */
-@media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) {
-    --bg:        #0d1117;
-    --surface:   #151a21;
-    --surface-2: #1c232b;
-    --surface-3: #252d37;
-    --line:      #29323c;
-    --ink:       #e9eef2;
-    --ink-2:     #9aa7b2;
-    --ink-3:     #6d7a86;
-
-    --accent:      #43b3a2;
-    --accent-ink:  #06201c;
-    --accent-soft: #123029;
-
-    --wait:      #e0a049;
-    --wait-soft: #33260f;
-
-    --ok:      #4fbb85;
-    --ok-soft: #12301f;
-
-    --stop:      #e8836c;
-    --stop-soft: #351b16;
-
-    --off:      #8b97a2;
-    --off-soft: #232b34;
-
-    --ring: #43b3a2;
-    --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
-    --shadow-2: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .34);
-  }
+  --ring: #8aa4ff;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .28);
+  --shadow-2: 0 1px 3px rgba(0, 0, 0, .35), 0 12px 32px rgba(0, 0, 0, .32);
 }
 
 :root[data-theme="dark"] {
-  --bg:        #0d1117;
-  --surface:   #151a21;
-  --surface-2: #1c232b;
-  --surface-3: #252d37;
-  --line:      #29323c;
-  --ink:       #e9eef2;
-  --ink-2:     #9aa7b2;
-  --ink-3:     #6d7a86;
+  color-scheme: dark;
 
-  --accent:      #43b3a2;
-  --accent-ink:  #06201c;
-  --accent-soft: #123029;
+  --bg:        #08090b;
+  --surface:   #101216;
+  --surface-2: #191c22;
+  --surface-3: #23262d;
+  --line:      #23262d;
+  --ink:       #f2f3f7;
+  --ink-2:     #9ba1ae;
+  --ink-3:     #767c89;
+
+  --accent:      #8aa4ff;
+  --accent-ink:  #0e0f13;
+  --accent-soft: #1c2640;
+  --chart:       #6887ff;
+  --chart-soft:  rgba(104, 135, 255, .14);
 
   --wait:      #e0a049;
-  --wait-soft: #33260f;
+  --wait-soft: rgba(224, 138, 21, .14);
+  --ok:        #3fbf8a;
+  --ok-soft:   rgba(23, 160, 107, .14);
+  --stop:      #f07088;
+  --stop-soft: rgba(224, 68, 122, .14);
+  --off:       #9ba1ae;
+  --off-soft:  #191c22;
 
-  --ok:      #4fbb85;
-  --ok-soft: #12301f;
+  --ring: #8aa4ff;
+  --shadow-1: 0 1px 2px rgba(0, 0, 0, .5);
+  --shadow-2: 0 1px 3px rgba(0, 0, 0, .55), 0 12px 32px rgba(0, 0, 0, .5);
+}
 
-  --stop:      #e8836c;
-  --stop-soft: #351b16;
+:root[data-theme="light"] {
+  color-scheme: light;
 
-  --off:      #8b97a2;
-  --off-soft: #232b34;
+  /* White page, white cards; the grey is for containers, not the page. */
+  --bg:        #f4f5f7;
+  --surface:   #ffffff;
+  --surface-2: #f4f5f7;
+  --surface-3: #eceef2;
+  --line:      #e8e9ed;
+  --ink:       #101114;
+  --ink-2:     #3b3d45;
+  --ink-3:     #6b6e78;
 
-  --ring: #43b3a2;
-  --shadow-1: 0 1px 2px rgba(0, 0, 0, .35);
-  --shadow-2: 0 1px 3px rgba(0, 0, 0, .4), 0 10px 28px rgba(0, 0, 0, .34);
+  --accent:      #2d5bff;
+  --accent-ink:  #ffffff;
+  --accent-soft: #eaefff;
+  --chart:       #2d5bff;
+  --chart-soft:  #eaefff;
+
+  --wait:      #b8720a;
+  --wait-soft: #fbf0dc;
+  --ok:        #12805c;
+  --ok-soft:   #e2f4ec;
+  --stop:      #c4314b;
+  --stop-soft: #fbe7eb;
+  --off:       #6b6e78;
+  --off-soft:  #eceef2;
+
+  --ring: #2d5bff;
+  --shadow-1: 0 1px 2px rgba(16, 17, 20, .04);
+  --shadow-2: 0 1px 3px rgba(16, 17, 20, .06), 0 12px 32px rgba(16, 17, 20, .08);
+}
+
+:root {
+  /* The app's radii: 16 on cards, 12 on fields, 10 on tiles. */
+  --r-sm: 10px;
+  --r-md: 12px;
+  --r-lg: 16px;
+
+  --sidebar-w: 244px;
+
+  --font: "Inter", system-ui, -apple-system, "Segoe UI", Roboto,
+          "Helvetica Neue", Arial, sans-serif;
+  --mono: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Consolas,
+          "Liberation Mono", monospace;
 }
 
 * { box-sizing: border-box; }
@@ -140,13 +156,14 @@ body {
   color: var(--ink);
   font: 14px/1.5 var(--font);
   -webkit-font-smoothing: antialiased;
+  font-feature-settings: "cv11", "ss01";
 }
 
 a { color: inherit; }
 
 /* ---- Type ------------------------------------------------------- */
 
-h1, h2, h3 { margin: 0; font-weight: 650; letter-spacing: -.011em; }
+h1, h2, h3 { margin: 0; font-weight: 700; letter-spacing: -.02em; }
 h1 { font-size: 21px; }
 h2 { font-size: 16px; }
 h3 { font-size: 13px; }
@@ -197,8 +214,9 @@ button, input, select, textarea {
   align-items: center;
   justify-content: center;
   gap: 7px;
-  padding: 8px 14px;
-  border-radius: var(--r-sm);
+  padding: 8px 16px;
+  /* Full radius on anything pressed, as in the app. */
+  border-radius: 999px;
   border: 1px solid var(--line);
   background: var(--surface);
   color: var(--ink);
@@ -307,6 +325,9 @@ button, input, select, textarea {
   background: currentColor;
 }
 .pill-plain::before { display: none; }
+/* A pill under a name in a vertical stack would otherwise stretch to the
+   column's width, and a full-width amber bar reads as an alert banner. */
+.stack > .pill { align-self: flex-start; }
 
 .pill-wait { background: var(--wait-soft); color: var(--wait); }
 .pill-ok   { background: var(--ok-soft);   color: var(--ok); }
@@ -322,6 +343,8 @@ table.data {
   width: 100%;
   border-collapse: collapse;
   font-size: 13px;
+  /* A column of proportionally spaced counts does not line up. */
+  font-variant-numeric: tabular-nums;
 }
 table.data th {
   text-align: left;
