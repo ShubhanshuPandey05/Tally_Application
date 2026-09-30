@@ -20,15 +20,16 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 
 @router.get("/config")
-async def public_config(settings: SettingsDep) -> dict:
+async def public_config() -> dict:
     """What an unauthenticated app needs to know before anyone signs in.
 
-    One field today: whether this server has a demo to offer. The app asks
-    rather than assuming, because "Explore the demo" on a deployment with no
-    demo is a button that can only disappoint -- and which deployments have one
-    is a server-side decision that changes without an app release.
+    ``demo_available`` is always false now and is kept only for installed
+    builds from before 0.9, which read it to decide whether to draw an
+    "Explore the demo" button. That login is gone -- the demo is a company lent
+    to every new account instead -- and false hides the button on those builds
+    rather than offering a door that now leads nowhere.
     """
-    return {"demo_available": bool(settings.demo_enabled and settings.demo_email)}
+    return {"demo_available": False}
 
 
 @router.get("/stats")

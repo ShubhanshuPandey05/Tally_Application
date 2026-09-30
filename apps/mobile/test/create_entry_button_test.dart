@@ -25,10 +25,11 @@ void main() {
   /// Not a stand-in opener: the menu anchors itself to wherever the Scaffold
   /// puts the button, and the bug that made the close button jump 82 pixels
   /// was only visible with the real navigation bar in place.
-  Widget harness() {
+  Widget harness({bool demo = false}) {
     return ProviderScope(
       overrides: <Override>[
         activeCompanyIdResolvedProvider.overrideWithValue('company-1'),
+        activeCompanyIsDemoProvider.overrideWithValue(demo),
       ],
       child: const MaterialApp(
         home: Scaffold(
@@ -82,6 +83,7 @@ void main() {
         ProviderScope(
           overrides: <Override>[
             activeCompanyIdResolvedProvider.overrideWithValue(null),
+            activeCompanyIsDemoProvider.overrideWithValue(false),
           ],
           child: const MaterialApp(
             home: Scaffold(
@@ -94,6 +96,19 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.byIcon(Icons.add), findsNothing);
+    });
+
+    testWidgets('is not offered on the demo company',
+        (WidgetTester tester) async {
+      // Every new account is looking at the same demo books, and the server
+      // refuses any entry into them.
+      await tester.binding.setSurfaceSize(phone);
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(harness(demo: true));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(FloatingActionButton), findsNothing);
     });
   });
 

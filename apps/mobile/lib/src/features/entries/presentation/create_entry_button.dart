@@ -107,6 +107,12 @@ class _CreateEntryButtonState extends ConsumerState<CreateEntryButton> {
     if (ref.watch(activeCompanyIdResolvedProvider) == null) {
       return const SizedBox.shrink();
     }
+    // Nor to the demo: every new account is looking at the same books, and the
+    // server refuses any entry into them. A button that can only be refused
+    // is worse than no button.
+    if (ref.watch(activeCompanyIsDemoProvider)) {
+      return const SizedBox.shrink();
+    }
 
     // No padding of its own. The Scaffold already lifts a floating button
     // clear of the navigation bar by its standard margin; the 70 that used to

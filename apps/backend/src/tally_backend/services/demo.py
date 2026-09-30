@@ -1,9 +1,22 @@
-"""Provisioning the demo account, and keeping its books up to today.
+"""The demo company: provisioning it, lending it out, and keeping it current.
 
 :mod:`tally_backend.services.demo_books` invents a business. This module gives
-it somewhere to live: an organisation, a user to sign in as, a connector that
-was never installed, a company, and the stored datasets every read path already
+it somewhere to live: an organisation nobody signs into, a connector that was
+never installed, a company, and the stored datasets every read path already
 knows how to serve.
+
+**It is lent, not logged into.** Every account that has no books of its own yet
+sees the demo company in its list -- a new signup waiting for approval, an
+approved one that has paired a PC but not yet linked a company -- and stops
+seeing it the moment its first real company is linked. There is one copy, held
+by the demo organisation: two years of generated vouchers per signup would grow
+the database with every download rather than with every customer.
+
+There used to be a shared demo *login* instead, with a published password.
+Everyone who used it was the same user, and a pending signup still opened on an
+empty screen. :func:`ensure_demo_company` now disables that user on every start
+and revokes its sessions, so the retired door stays shut on deployments that
+had it.
 
 The shape of the thing is the point. A demo could have been a pile of canned
 API responses behind a flag, and that is what makes a demo that drifts away
@@ -21,7 +34,11 @@ Two things are deliberately different, both in :class:`ReadService`:
   this account has no PC to be out of date with. The app is told ``is_demo`` so
   it can say what the data is instead of implying it came from somewhere.
 
-:func:`ensure_demo_account` is idempotent and cheap when there is nothing to do,
+A third difference lives in ``deps.get_company``, which is where the lending
+happens: a borrowed demo company answers reads only. Every write route resolves
+its company through that one dependency, so none of them has to remember.
+
+:func:`ensure_demo_company` is idempotent and cheap when there is nothing to do,
 so it runs at startup and again each day: the books have to keep ending *today*
 or "today's sales" is permanently zero and the dashboard is a museum piece.
 """
@@ -36,7 +53,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..config import Settings
 from ..core.crypto import SecretBox
-from ..core.security import hash_password, verify_password
 from ..db.models import (
     Company,
     CompanySyncState,
@@ -45,7 +61,7 @@ from ..db.models import (
     Membership,
     Organisation,
     OrgStatus,
-    Role,
+    RefreshToken,
     User,
     utc_now,
 )
@@ -76,47 +92,89 @@ async def find_demo_company(session: AsyncSession) -> Company | None:
     )
 
 
-async def ensure_demo_account(
+async def is_demo_company(session: AsyncSession, company: Company) -> bool:
+    org = await session.get(Organisation, company.org_id)
+    return bool(org is not None and org.is_demo)
+
+
+async def has_own_books(session: AsyncSession, org_id: str) -> bool:
+    """Whether this organisation has linked a real company yet.
+
+    Asked of the *organisation*, not of the person. A staff member who has not
+    been granted any of their business's companies is waiting on their admin,
+    not on a Tally PC, and handing them invented books instead would make the
+    missing grant look like a working account.
+    """
+    found = await session.scalar(
+        select(Company.id)
+        .where(Company.org_id == org_id, Company.is_active.is_(True))
+        .limit(1)
+    )
+    return found is not None
+
+
+async def demo_company_for(
+    session: AsyncSession, settings: Settings, org_id: str
+) -> Company | None:
+    """The demo company, when this organisation should be shown it.
+
+    None once the organisation has a company of its own -- so the demo
+    disappears on the same request that lists the first real one, rather than
+    at pairing, which would leave a paired-but-unlinked account looking at
+    nothing at all. None for the demo organisation itself, which already owns
+    the company and must not be shown it twice.
+    """
+    if not settings.demo_enabled:
+        return None
+    demo = await find_demo_company(session)
+    if demo is None or demo.org_id == org_id:
+        return None
+    if await has_own_books(session, org_id):
+        return None
+    return demo
+
+
+async def ensure_demo_company(
     session_factory: async_sessionmaker[AsyncSession],
     settings: Settings,
     hub: ConnectorHub,
     *,
     today: date | None = None,
 ) -> None:
-    """Create the demo account if it is missing, and bring its books to today.
+    """Create the demo company if it is missing, and bring its books to today.
 
-    Silent when unconfigured. Most deployments should not have a demo -- a
-    developer's laptop, a test run, a second instance -- and one that appears
-    because a default was generous is an account anybody can sign into.
+    Silent when turned off. Not every deployment should lend a demo -- a
+    developer's laptop, a test run -- and one that appears because a default
+    was generous is a company every signup is shown.
     """
-    email = settings.demo_email.strip().lower()
-    if not settings.demo_enabled or not email or not settings.demo_password:
+    if not settings.demo_enabled:
         return
 
     today = today or date.today()
     async with session_factory() as session:
-        org = await _ensure_org(session, settings, email)
+        org = await _ensure_org(session)
+        await _retire_shared_login(session, org)
         company = await _ensure_company(session, settings, org)
         await _extend_books(session, settings, hub, company, today=today)
         await session.commit()
 
 
 # --------------------------------------------------------------------------
-# The account
+# The organisation that holds it
 # --------------------------------------------------------------------------
 
 
-async def _ensure_org(session: AsyncSession, settings: Settings, email: str) -> Organisation:
+async def _ensure_org(session: AsyncSession) -> Organisation:
     org = await session.scalar(select(Organisation).where(Organisation.is_demo.is_(True)))
     if org is None:
         org = Organisation(
             name=DEMO_ORG_NAME,
             status=OrgStatus.ACTIVE,
-            # Live enough to read its own books. Every *change* is refused on
-            # the strength of `is_demo` rather than on these numbers -- see
-            # `services.entitlements.Entitlement.allows_changes` -- so the
-            # limits here only describe what the account already holds.
-            max_users=1,
+            # It holds the demo company and nothing else, and nobody signs into
+            # it. Every *change* to that company is refused on the strength of
+            # `is_demo` -- see `deps.get_company` -- so these numbers only
+            # describe what the organisation already holds.
+            max_users=0,
             max_companies=1,
             is_demo=True,
             approved_at=utc_now(),
@@ -125,30 +183,38 @@ async def _ensure_org(session: AsyncSession, settings: Settings, email: str) -> 
         await session.flush()
         logger.info("created the demo organisation %s", org.id)
 
-    user = await session.scalar(select(User).where(User.email == email))
-    if user is None:
-        user = User(
-            email=email,
-            password_hash=hash_password(settings.demo_password),
-            full_name="Demo User",
-            # Never true here, whatever the value is worth elsewhere: the demo
-            # password is published, everyone shares the account, and a forced
-            # password change would lock the next visitor out of it.
-            must_change_password=False,
-        )
-        session.add(user)
-        await session.flush()
-        session.add(Membership(org_id=org.id, user_id=user.id, role=Role.ADMIN))
-        logger.info("created the demo user %s", email)
-    elif not verify_password(settings.demo_password, user.password_hash):
-        # Rotating the published password has to actually take effect, which is
-        # the opposite of the portal owner's rule: that account belongs to a
-        # person who may have changed their own password, this one belongs to
-        # the deployment manifest and to nobody.
-        user.password_hash = hash_password(settings.demo_password)
-        logger.info("reset the demo password from the environment")
-
     return org
+
+
+async def _retire_shared_login(session: AsyncSession, org: Organisation) -> None:
+    """Shut the old shared demo login, on deployments that had one.
+
+    Its password was published, so leaving the user active would leave a door
+    open that the app no longer shows. Disabled rather than deleted: the audit
+    trail names this user, and "who did that?" must still have an answer.
+    Sessions are revoked too, because disabling the user stops the next sign-in
+    but not a refresh token already sitting on somebody's phone.
+    """
+    users = (
+        await session.execute(
+            select(User)
+            .join(Membership, Membership.user_id == User.id)
+            .where(Membership.org_id == org.id, User.is_active.is_(True))
+        )
+    ).scalars().all()
+    now = utc_now()
+    for user in users:
+        user.is_active = False
+        tokens = (
+            await session.execute(
+                select(RefreshToken).where(
+                    RefreshToken.user_id == user.id, RefreshToken.revoked_at.is_(None)
+                )
+            )
+        ).scalars().all()
+        for token in tokens:
+            token.revoked_at = now
+        logger.info("disabled the retired shared demo login %s", user.email)
 
 
 async def _ensure_company(

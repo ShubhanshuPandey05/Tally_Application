@@ -6,6 +6,7 @@
     "financial_year_from": null,
     "id": "<id>",
     "is_active": true,
+    "is_demo": false,
     "name": "Bhtia Supermarket",
     "tally_name": "Bhtia Supermarket"
   }

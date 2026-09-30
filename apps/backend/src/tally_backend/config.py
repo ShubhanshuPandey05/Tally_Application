@@ -222,18 +222,17 @@ class Settings(BaseSettings):
     portal_bootstrap_email: str = ""
     portal_bootstrap_password: str = ""
 
-    # --- Demo account ---------------------------------------------------
-    #: The shared, read-only showroom account: invented books, no connector,
-    #: anyone may sign in. Off unless a deployment turns it on, because a demo
-    #: that appears by default is a published login on somebody's private
-    #: instance. Only the deployment that fronts the website needs one.
+    # --- Demo company ---------------------------------------------------
+    #: A read-only company of invented books, lent to every account that has no
+    #: company of its own yet -- so a new signup waiting for approval explores
+    #: the product instead of an empty screen. Off unless a deployment turns it
+    #: on: invented figures appearing in somebody's private instance because a
+    #: default was generous is not a thing to discover in production.
+    #:
+    #: There is no demo login any more. `TALLYFLOW_DEMO_EMAIL` and
+    #: `TALLYFLOW_DEMO_PASSWORD` are ignored if still set, and the old shared
+    #: user is disabled at startup.
     demo_enabled: bool = False
-    demo_email: str = "demo@tallyflow.in"
-    #: Published on purpose -- the app offers a one-tap "Explore the demo" that
-    #: signs in with it. Kept in configuration rather than hard-coded so it can
-    #: be rotated without a release; the account is reset to this value at
-    #: startup, because it belongs to the deployment and not to a person.
-    demo_password: str = ""
     #: How many financial years of history the demo carries. Two gives the
     #: year-on-year comparisons something to compare against without making the
     #: first seed of a fresh database take noticeably long.

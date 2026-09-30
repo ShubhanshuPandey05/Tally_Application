@@ -366,9 +366,15 @@ class CompanyResponse(BaseModel):
     #: existed for, not an invented range of them. Null until the first sync has
     #: asked Tally, and the app falls back to the open year alone.
     books_from: date | None = None
+    #: Invented books, lent while this account has no company of its own. The
+    #: app labels every screen showing it and offers no changes to it -- the
+    #: server refuses them anyway, but a button that can only fail is a bug.
+    is_demo: bool = False
 
     @classmethod
-    def build(cls, company: Company, books_from: date | None = None) -> CompanyResponse:
+    def build(
+        cls, company: Company, books_from: date | None = None, *, is_demo: bool = False
+    ) -> CompanyResponse:
         return cls(
             id=company.id,
             name=company.label,
@@ -380,6 +386,7 @@ class CompanyResponse(BaseModel):
                 company.financial_year_from.date() if company.financial_year_from else None
             ),
             books_from=books_from,
+            is_demo=is_demo,
         )
 
 

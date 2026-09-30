@@ -527,17 +527,37 @@ The rule lives in `FinancialYear.confine` and is applied twice — in the picker
 and again when a period is applied — because a preset computed a moment before
 midnight on 31 March is not the window it was when it is used.
 
-### The demo account
+### The demo company
 
-One organisation flagged `is_demo`: an invented electricals distributor with
-two financial years of books, no connector, and a published one-tap sign-in
-(`POST /v1/auth/demo`, offered only where `/v1/public/config` says so). It
-exists so somebody can see the product before they own TallyPrime.
+One company, held by an organisation flagged `is_demo`: an invented
+electricals distributor with two financial years of books and no connector.
+It is **lent, read-only, to every account that has no company of its own** —
+a new signup waiting for approval, or one that has paired a PC but not yet
+linked a company — and it leaves that account's list on the same request that
+lists its first real company. It exists so that the wait for approval is spent
+in the product rather than on an empty screen.
 
-It is deliberately an **ordinary account**. The rows are real — organisation,
-user, company, snapshots, voucher records — and every screen reads them through
-the same code that reads a customer's books, so the demo cannot drift away from
-the product the way a set of canned responses would. `services/demo_books.py`
+There is **no demo login** (decided 2026-09-30). There used to be a shared
+account with a published password and a one-tap "Explore the demo"; everyone
+who used it was the same user, and a pending signup still opened on nothing.
+`ensure_demo_company` disables that old user and revokes its sessions at every
+start, and `/v1/public/config` answers `demo_available: false` so builds from
+before 0.9 hide their button rather than offering a door that leads nowhere.
+
+**The lending is the only exception to tenant isolation, and it lives in
+`deps.get_company`.** A company from another organisation is served only when
+it is the demo *and* the caller's organisation has no company of its own, and
+then only for `GET`/`HEAD`/`OPTIONS` — any other method is refused there, so
+every write route, including the ones not written yet, is safe by
+construction. It skips `company_access`, because the demo is nobody's to grant.
+`require_data` still runs first, so a lapsed account is not lent anything. One
+copy, not one per signup: two years of vouchers per download would grow the
+database with installs rather than with customers.
+
+The rows are real — organisation, company, snapshots, voucher records — and
+every screen reads them through the same code that reads a customer's books, so
+the demo cannot drift away from the product the way a set of canned responses
+would. `services/demo_books.py`
 posts double-entry vouchers and *folds* them into ledger balances, stock levels
 and outstanding bills, because those figures appear on different screens
 computed by different code: invent them separately and the demo contradicts
@@ -545,13 +565,11 @@ itself the moment somebody taps through. The generator is seeded per day, so
 the books are a pure function of the window they cover and yesterday never
 restates itself.
 
-Two rules hang off the flag. `Entitlement.allows_changes` is false, so nobody
-who signs in can unlink the company, revoke the connector, invite a colleague
-or change the shared password — enforced at the same choke points as everything
-else, plus `require_mutable` for the *removals* that a lapsed customer is still
-entitled to make on their own account. And `ReadService` never routes a demo
-read to the hub and never reports it stale: there is no PC to be out of date
-with, and the app is told `is_demo` so it says what the data is instead.
+`ReadService` never routes a demo read to the hub and never reports it stale:
+there is no PC to be out of date with. Companies carry `is_demo`, and the app
+keys everything off the *company*, not the account — the banner over the
+figures, no new-entry button, no "Remove" — because the same person sees the
+demo today and their own books tomorrow.
 
 ### Signing up provisions nothing
 
@@ -571,7 +589,7 @@ to avoid:
 
 | | `allows_changes` | `allows_data` |
 |---|---|---|
-| pending | ✗ | ✓ — nothing to read yet, and an error screen on first launch is worse than a wait |
+| pending | ✗ | ✓ — the lent demo company, until their own books arrive |
 | active | ✓ | ✓ |
 | suspended · rejected · expired | ✗ | ✗ |
 

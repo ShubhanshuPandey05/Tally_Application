@@ -1,9 +1,13 @@
-"""The demo account.
+"""The demo company.
 
-What is being pinned here is not "the seeder ran". It is that a visitor who
-signs into the demo gets the *product* -- the same endpoints, the same shapes,
-the same numbers agreeing across screens -- and that they cannot change
-anything, because thousands of other people are looking at the same books.
+What is being pinned here is not "the seeder ran". It is that a new account
+waiting for approval is lent the *product* -- the same endpoints, the same
+shapes, the same numbers agreeing across screens -- that it cannot change
+anything, because every other new account is looking at the same books, and
+that the loan ends the moment the account has books of its own.
+
+The lending rule is the one exception to tenant isolation in the whole backend,
+so most of what follows is about what it must *not* allow.
 """
 
 from __future__ import annotations
@@ -18,7 +22,19 @@ from httpx import ASGITransport, AsyncClient
 from sqlalchemy import select
 
 from tally_backend.config import Settings
-from tally_backend.db.models import Organisation
+from tally_backend.core.security import hash_password
+from tally_backend.db.models import (
+    Company,
+    Connector,
+    ConnectorStatus,
+    Membership,
+    Organisation,
+    OrgStatus,
+    RefreshToken,
+    Role,
+    User,
+    utc_now,
+)
 from tally_backend.main import create_app
 from tally_backend.services.demo_books import (
     COMPANY_NAME,
@@ -27,17 +43,12 @@ from tally_backend.services.demo_books import (
     financial_year_start,
 )
 
-DEMO_EMAIL = "demo@tallyflow.in"
-DEMO_PASSWORD = "explore-tallyflow"
-
 
 @pytest.fixture
 def demo_settings(settings: Settings) -> Settings:
     return settings.model_copy(
         update={
             "demo_enabled": True,
-            "demo_email": DEMO_EMAIL,
-            "demo_password": DEMO_PASSWORD,
             # One year rather than two. The books are a pure function of the
             # window, so a shorter one exercises identical code and keeps the
             # suite quick.
@@ -55,17 +66,66 @@ async def demo_app(demo_settings: Settings, fake_connector):
         yield application
 
 
+async def _sign_up(client: AsyncClient, email: str) -> dict[str, str]:
+    """A brand new signup: pending, entitled to nothing -- the demo's audience."""
+    response = await client.post(
+        "/v1/auth/register",
+        json={
+            "email": email,
+            "password": "a-sufficiently-long-password",
+            "full_name": "New Owner",
+            "org_name": f"Business of {email}",
+        },
+    )
+    assert response.status_code == 201, response.text
+    return {"Authorization": f"Bearer {response.json()['access_token']}"}
+
+
 @pytest_asyncio.fixture
 async def demo_client(demo_app) -> AsyncClient:
+    """Signed in as a new, unapproved business -- nobody's demo login."""
     async with AsyncClient(
         transport=ASGITransport(app=demo_app), base_url="http://test"
     ) as client:
-        response = await client.post(
-            "/v1/auth/login", json={"email": DEMO_EMAIL, "password": DEMO_PASSWORD}
-        )
-        assert response.status_code == 200, response.text
-        client.headers["Authorization"] = f"Bearer {response.json()['access_token']}"
+        client.headers.update(await _sign_up(client, "new@shop.in"))
         yield client
+
+
+async def _demo_id(client: AsyncClient) -> str:
+    companies = (await client.get("/v1/companies")).json()
+    assert len(companies) == 1 and companies[0]["is_demo"] is True, companies
+    return companies[0]["id"]
+
+
+async def approve(app, org_id: str) -> None:
+    """Stand in for a portal approval. Local rather than imported from
+    ``conftest``: see ``backend_support`` for why this suite never does that."""
+    async with app.state.session_factory() as session:
+        org = await session.get(Organisation, org_id)
+        org.status = OrgStatus.ACTIVE
+        org.max_users = 5
+        org.max_companies = 5
+        org.approved_at = utc_now()
+        await session.commit()
+
+
+async def _link_own_company(app, client: AsyncClient) -> str:
+    """Approve the caller's business and give it a real company."""
+    org_id = (await client.get("/v1/auth/me")).json()["org_id"]
+    await approve(app, org_id)
+    async with app.state.session_factory() as session:
+        connector = Connector(
+            org_id=org_id,
+            name="Shop PC",
+            secret_encrypted="unused",
+            status=ConnectorStatus.ACTIVE,
+        )
+        session.add(connector)
+        await session.flush()
+        company = Company(org_id=org_id, connector_id=connector.id, tally_name="Own Books")
+        session.add(company)
+        await session.commit()
+        return company.id
 
 
 # --------------------------------------------------------------------------
@@ -149,29 +209,30 @@ def test_the_books_run_to_today_so_the_dashboard_is_not_a_museum():
 
 
 # --------------------------------------------------------------------------
-# Signing in and reading
+# Being lent it
 # --------------------------------------------------------------------------
 
 
-async def test_the_demo_signs_in_and_has_a_company(demo_client: AsyncClient):
-    me = await demo_client.get("/v1/auth/me")
-    assert me.status_code == 200
-    assert me.json()["subscription"]["is_demo"] is True
-    # Reading is the whole point, so it must be allowed.
-    assert me.json()["subscription"]["allows_data"] is True
+async def test_a_new_signup_is_lent_the_demo_while_it_waits(demo_client: AsyncClient):
+    """The whole point: a pending account explores instead of staring at nothing."""
+    me = (await demo_client.get("/v1/auth/me")).json()
+    assert me["subscription"]["status"] == "pending"
 
-    companies = await demo_client.get("/v1/companies")
-    assert companies.status_code == 200
-    assert [c["tally_name"] for c in companies.json()] == [COMPANY_NAME]
+    companies = (await demo_client.get("/v1/companies")).json()
+    assert [c["tally_name"] for c in companies] == [COMPANY_NAME]
+    assert companies[0]["is_demo"] is True
     # The financial-year picker is built from this, so it has to arrive.
-    assert companies.json()[0]["books_from"] is not None
+    assert companies[0]["books_from"] is not None
+
+    detail = await demo_client.get(f"/v1/companies/{companies[0]['id']}")
+    assert detail.status_code == 200
+    assert detail.json()["is_demo"] is True
 
 
 async def test_the_dashboard_has_figures_without_a_connector(
     demo_client: AsyncClient, fake_connector
 ):
-    companies = (await demo_client.get("/v1/companies")).json()
-    company_id = companies[0]["id"]
+    company_id = await _demo_id(demo_client)
 
     response = await demo_client.get(f"/v1/companies/{company_id}/dashboard")
     assert response.status_code == 200, response.text
@@ -190,7 +251,7 @@ async def test_the_dashboard_has_figures_without_a_connector(
 
 
 async def test_reports_are_populated(demo_client: AsyncClient):
-    company_id = (await demo_client.get("/v1/companies")).json()[0]["id"]
+    company_id = await _demo_id(demo_client)
     today = date.today()
 
     ledgers = await demo_client.get(f"/v1/companies/{company_id}/reports/ledgers")
@@ -220,7 +281,7 @@ async def test_reports_are_populated(demo_client: AsyncClient):
 
 async def test_a_year_ago_still_answers_from_the_store(demo_client: AsyncClient):
     """History is what makes the year filter worth having."""
-    company_id = (await demo_client.get("/v1/companies")).json()[0]["id"]
+    company_id = await _demo_id(demo_client)
     year_start = financial_year_start(date.today())
 
     response = await demo_client.get(
@@ -236,73 +297,179 @@ async def test_a_year_ago_still_answers_from_the_store(demo_client: AsyncClient)
 
 
 # --------------------------------------------------------------------------
-# What it refuses
+# What a borrower may not do
 # --------------------------------------------------------------------------
 
 
-async def test_the_demo_cannot_be_taken_apart(demo_client: AsyncClient):
-    """Anyone can sign in, so nobody may change anything."""
-    companies = (await demo_client.get("/v1/companies")).json()
-    company_id = companies[0]["id"]
-    connector_id = companies[0]["connector_id"]
+@pytest.mark.parametrize(
+    ("method", "path"),
+    [
+        ("DELETE", ""),
+        ("POST", "/sync"),
+        ("DELETE", "/sync"),
+        ("POST", "/vouchers"),
+        ("POST", "/ledgers"),
+        ("POST", "/stock-items"),
+        ("DELETE", "/vouchers/pending/anything"),
+    ],
+)
+async def test_nothing_in_the_demo_can_be_changed(
+    demo_client: AsyncClient, fake_connector, method: str, path: str
+):
+    """Every new account shares these books, so no one of them may alter them.
 
-    removed = await demo_client.delete(f"/v1/companies/{company_id}")
-    assert removed.status_code == 402, removed.text
-    assert "demo" in removed.json()["error"]["message"].lower()
+    One case per write route that exists today. They are refused in
+    ``deps.get_company`` rather than route by route, so a write route added
+    tomorrow is refused too -- and this list is where to add it.
+    """
+    company_id = await _demo_id(demo_client)
 
-    revoked = await demo_client.delete(f"/v1/connectors/{connector_id}")
-    assert revoked.status_code == 402
-
-    invited = await demo_client.post(
-        "/v1/team", json={"email": "someone@example.com", "role": "staff"}
+    response = await demo_client.request(
+        method, f"/v1/companies/{company_id}{path}", json={}
     )
-    assert invited.status_code == 402
 
-    # Still there afterwards.
-    assert len((await demo_client.get("/v1/companies")).json()) == 1
+    assert response.status_code == 403, response.text
+    assert "demo" in response.json()["error"]["message"].lower()
+    assert fake_connector.calls == []
+    # Still there afterwards, for this account and for everyone else.
+    assert await _demo_id(demo_client) == company_id
 
 
-async def test_a_second_start_does_not_duplicate_the_account(demo_settings: Settings):
+async def test_the_loan_ends_when_the_account_has_books_of_its_own(
+    demo_app, demo_client: AsyncClient
+):
+    demo_id = await _demo_id(demo_client)
+
+    own_id = await _link_own_company(demo_app, demo_client)
+
+    companies = (await demo_client.get("/v1/companies")).json()
+    assert [c["id"] for c in companies] == [own_id]
+    assert companies[0]["is_demo"] is False
+    # And not merely hidden from the list: the loan is over.
+    gone = await demo_client.get(f"/v1/companies/{demo_id}/dashboard")
+    assert gone.status_code == 404
+
+
+async def test_a_paired_pc_without_a_company_keeps_the_demo(
+    demo_app, demo_client: AsyncClient
+):
+    """Pairing and linking are separate steps; the gap between them must not be empty."""
+    org_id = (await demo_client.get("/v1/auth/me")).json()["org_id"]
+    await approve(demo_app, org_id)
+    paired = await demo_client.post("/v1/connectors", json={"name": "Shop PC"})
+    assert paired.status_code == 201, paired.text
+
+    assert (await demo_client.get("/v1/companies")).json()[0]["is_demo"] is True
+
+
+async def test_borrowing_the_demo_opens_nobody_elses_books(demo_app):
+    """The exception to tenant isolation is exactly one company wide."""
+    async with AsyncClient(
+        transport=ASGITransport(app=demo_app), base_url="http://test"
+    ) as client:
+        owner = await _sign_up(client, "owner@real.in")
+        client.headers.update(owner)
+        real_id = await _link_own_company(demo_app, client)
+
+        newcomer = await _sign_up(client, "newcomer@shop.in")
+        client.headers.update(newcomer)
+        # Borrowing the demo does not make someone else's company readable.
+        refused = await client.get(f"/v1/companies/{real_id}/dashboard")
+        assert refused.status_code == 404
+
+        # Nor does an account with its own books get to read the demo.
+        lent_id = await _demo_id(client)
+        client.headers.update(owner)
+        assert (await client.get(f"/v1/companies/{lent_id}/dashboard")).status_code == 404
+
+
+async def test_a_lapsed_account_is_not_lent_anything(demo_app, demo_client: AsyncClient):
+    """402 means "your subscription is not live" -- the demo is no way round it."""
+    demo_id = await _demo_id(demo_client)
+    org_id = (await demo_client.get("/v1/auth/me")).json()["org_id"]
+    async with demo_app.state.session_factory() as session:
+        org = await session.get(Organisation, org_id)
+        org.status = OrgStatus.SUSPENDED
+        await session.commit()
+
+    assert (await demo_client.get(f"/v1/companies/{demo_id}/dashboard")).status_code == 402
+
+
+# --------------------------------------------------------------------------
+# Provisioning, and the login it replaced
+# --------------------------------------------------------------------------
+
+
+async def test_a_second_start_does_not_duplicate_the_company(demo_settings: Settings):
     """Startup runs the seeder every time; it must be idempotent."""
-    from tally_backend.db.session import create_engine, create_session_factory
-    from tally_backend.services.demo import ensure_demo_account
+    from tally_backend.services.demo import ensure_demo_company
 
     application = create_app(demo_settings)
     async with LifespanRunner(application):
         hub = application.state.hub
         factory = application.state.session_factory
-        await ensure_demo_account(factory, demo_settings, hub)
-        await ensure_demo_account(factory, demo_settings, hub)
+        await ensure_demo_company(factory, demo_settings, hub)
+        await ensure_demo_company(factory, demo_settings, hub)
 
         async with factory() as session:
             orgs = (
                 await session.execute(select(Organisation).where(Organisation.is_demo.is_(True)))
             ).scalars().all()
             assert len(orgs) == 1
+            companies = (
+                await session.execute(select(Company).where(Company.org_id == orgs[0].id))
+            ).scalars().all()
+            assert len(companies) == 1
 
-    # Silence the unused-import warning while keeping the names available for
-    # anyone extending this test.
-    assert create_engine and create_session_factory
 
+async def test_the_retired_shared_login_is_shut(demo_app, demo_settings: Settings):
+    """Its password was published; a deployment that had it must not keep it open."""
+    from tally_backend.services.demo import ensure_demo_company
 
-async def test_the_app_is_told_a_demo_exists_and_can_enter_it(demo_app):
-    """The app must not carry the demo password; the server hands out the session."""
+    email, password = "demo@tallyflow.in", "a-published-password"
+    async with demo_app.state.session_factory() as session:
+        org = await session.scalar(select(Organisation).where(Organisation.is_demo.is_(True)))
+        user = User(email=email, password_hash=hash_password(password))
+        session.add(user)
+        await session.flush()
+        session.add(Membership(org_id=org.id, user_id=user.id, role=Role.ADMIN))
+        session.add(
+            RefreshToken(
+                user_id=user.id,
+                token_hash="a" * 64,
+                family_id="family",
+                expires_at=utc_now() + timedelta(days=30),
+            )
+        )
+        await session.commit()
+
+    await ensure_demo_company(
+        demo_app.state.session_factory, demo_settings, demo_app.state.hub
+    )
+
+    async with demo_app.state.session_factory() as session:
+        user = await session.scalar(select(User).where(User.email == email))
+        assert user.is_active is False
+        token = await session.scalar(select(RefreshToken).where(RefreshToken.user_id == user.id))
+        assert token.revoked_at is not None
+
     async with AsyncClient(
         transport=ASGITransport(app=demo_app), base_url="http://test"
     ) as client:
-        config = await client.get("/v1/public/config")
-        assert config.status_code == 200
-        assert config.json()["demo_available"] is True
-
-        entered = await client.post("/v1/auth/demo")
-        assert entered.status_code == 200, entered.text
-
-        client.headers["Authorization"] = f"Bearer {entered.json()['access_token']}"
-        me = await client.get("/v1/auth/me")
-        assert me.json()["subscription"]["is_demo"] is True
+        login = await client.post("/v1/auth/login", json={"email": email, "password": password})
+        assert login.status_code in (401, 403)
+        assert (await client.post("/v1/auth/demo")).status_code == 404
 
 
-async def test_a_server_without_a_demo_offers_no_door_into_one(client):
-    """The ordinary fixture has no demo configured, which is most deployments."""
-    assert (await client.get("/v1/public/config")).json()["demo_available"] is False
-    assert (await client.post("/v1/auth/demo")).status_code == 404
+async def test_older_apps_are_told_there_is_no_demo_login(demo_app):
+    """Installed builds from before 0.9 draw "Explore the demo" when this is true."""
+    async with AsyncClient(
+        transport=ASGITransport(app=demo_app), base_url="http://test"
+    ) as client:
+        assert (await client.get("/v1/public/config")).json()["demo_available"] is False
+
+
+async def test_a_server_without_a_demo_lends_nothing(client, signed_up):
+    """The ordinary fixture has the demo turned off, which is most deployments."""
+    companies = await client.get("/v1/companies", headers=signed_up["headers"])
+    assert companies.json() == []

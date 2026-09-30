@@ -64,6 +64,15 @@ final Provider<AsyncValue<Company?>> activeCompanyProvider =
   });
 });
 
+/// Whether the books on screen are the lent demo rather than anybody's own.
+///
+/// Asked of the *company*, not of the account: the same person sees the demo
+/// today and their own books tomorrow, and a label that followed the account
+/// would either stay on their real figures or be missing from the invented ones.
+final Provider<bool> activeCompanyIsDemoProvider = Provider<bool>(
+  (Ref ref) => ref.watch(activeCompanyProvider).valueOrNull?.isDemo ?? false,
+);
+
 /// Convenience for screens that cannot render without a company.
 final Provider<String?> activeCompanyIdResolvedProvider = Provider<String?>(
   (Ref ref) => ref.watch(activeCompanyProvider).valueOrNull?.id,

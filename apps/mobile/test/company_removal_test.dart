@@ -62,17 +62,26 @@ class _FakeCompanyRepository implements CompanyRepository {
       _first;
 }
 
-AppUser _user({UserRole role = UserRole.admin, bool demo = false}) => AppUser(
+const Company _demo = Company(
+  id: 'company-demo',
+  name: 'Shree Balaji Electricals & Hardware',
+  tallyName: 'Shree Balaji Electricals & Hardware',
+  connectorId: 'connector-demo',
+  baseCurrency: 'INR',
+  isActive: true,
+  isDemo: true,
+);
+
+AppUser _user({UserRole role = UserRole.admin}) => AppUser(
       id: 'user-1',
       email: 'owner@bhatiastores.in',
       orgId: 'org-1',
       orgName: 'Bhatia Supermarket',
       role: role,
       subscription: OrgSubscription.fromJson(<String, Object?>{
-        'status': demo ? 'active' : 'active',
-        'allows_changes': !demo,
+        'status': 'active',
+        'allows_changes': true,
         'allows_data': true,
-        'is_demo': demo,
       }),
     );
 
@@ -89,6 +98,7 @@ Future<ProviderContainer> _pump(
   WidgetTester tester, {
   required _FakeCompanyRepository repository,
   AppUser? user,
+  List<Company> companies = const <Company>[_first, _second],
 }) async {
   SharedPreferences.setMockInitialValues(<String, Object>{});
   final SharedPreferences preferences = await SharedPreferences.getInstance();
@@ -98,7 +108,7 @@ Future<ProviderContainer> _pump(
       sharedPreferencesProvider.overrideWithValue(preferences),
       companyRepositoryProvider.overrideWithValue(repository),
       companiesProvider
-          .overrideWith((Ref ref) async => <Company>[_first, _second]),
+          .overrideWith((Ref ref) async => companies),
       authControllerProvider.overrideWith(() => _SignedIn(user ?? _user())),
     ],
   );
@@ -173,17 +183,19 @@ void main() {
     expect(find.byTooltip('Remove ${_first.name}'), findsNothing);
   });
 
-  testWidgets('the demo cannot be taken apart by whoever is looking at it',
+  testWidgets('the lent demo company offers no way to remove it',
       (WidgetTester tester) async {
-    // Everyone shares the demo account, so one visitor unlinking its company
-    // would empty the showroom for everybody else. The server refuses it; this
-    // is the app not drawing a button that can only 402.
+    // Every new account is looking at the same demo, so one of them removing
+    // it would empty it for everybody else. The server refuses it; this is the
+    // app not drawing a button that can only be refused -- for an admin, who
+    // would otherwise see one.
     await _pump(
       tester,
       repository: _FakeCompanyRepository(),
-      user: _user(demo: true),
+      companies: <Company>[_demo],
     );
 
-    expect(find.byTooltip('Remove ${_first.name}'), findsNothing);
+    expect(find.text(_demo.name), findsOneWidget);
+    expect(find.byTooltip('Remove ${_demo.name}'), findsNothing);
   });
 }

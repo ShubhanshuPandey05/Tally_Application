@@ -9,6 +9,7 @@ class Company {
     required this.isActive,
     this.financialYearFrom,
     this.booksFrom,
+    this.isDemo = false,
   });
 
   final String id;
@@ -32,6 +33,12 @@ class Company {
   /// Null until the first sync has asked Tally.
   final DateTime? booksFrom;
 
+  /// Invented books, lent while this account has no company of its own -- so
+  /// a new signup waiting for approval explores the product rather than an
+  /// empty screen. Read-only: the server refuses every change to it, and the
+  /// app draws no control that could only be refused.
+  final bool isDemo;
+
   factory Company.fromJson(Map<String, Object?> json) => Company(
         id: json['id'] as String? ?? '',
         name: json['name'] as String? ?? '',
@@ -41,6 +48,7 @@ class Company {
         isActive: json['is_active'] as bool? ?? true,
         financialYearFrom: DateTime.tryParse(json['financial_year_from'] as String? ?? ''),
         booksFrom: DateTime.tryParse(json['books_from'] as String? ?? ''),
+        isDemo: json['is_demo'] as bool? ?? false,
       );
 }
 

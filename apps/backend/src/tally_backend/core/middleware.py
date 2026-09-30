@@ -78,7 +78,7 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     #: Endpoints that trade a guessable secret for a session. These are the ones
     #: worth brute-forcing, and no legitimate client signs in ten times a minute.
-    _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register", "/v1/auth/demo")
+    _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register")
 
     def _bucket_for(self, path: str) -> tuple[str, int]:
         """The counter this request belongs in, and the ceiling for it.

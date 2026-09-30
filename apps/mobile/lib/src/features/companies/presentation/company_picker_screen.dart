@@ -55,7 +55,9 @@ class CompanyPickerScreen extends ConsumerWidget {
                     // this list is tapped to switch books several times a day,
                     // and a destructive action on the same gesture as the
                     // routine one is a mis-swipe away from unlinking a company.
-                    trailing: canRemove
+                    // Never on the demo: it is lent, not linked, and leaves
+                    // on its own when the first real company arrives.
+                    trailing: canRemove && !company.isDemo
                         ? IconButton(
                             tooltip: 'Remove ${company.name}',
                             icon: const Icon(Icons.more_vert),

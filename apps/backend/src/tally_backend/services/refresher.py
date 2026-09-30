@@ -41,7 +41,7 @@ from ..db.models import (
 )
 from ..hub import ConnectorHub
 from .dashboard import voucher_params
-from .demo import ensure_demo_account
+from .demo import ensure_demo_company
 from .reads import FetchMode, ReadService
 from .sync import SyncCoordinator
 
@@ -111,7 +111,7 @@ class SnapshotRefresher:
                 # The demo's books have to keep ending today or "today's sales"
                 # reads zero forever and the dashboard becomes a museum piece.
                 # Cheap on every tick but the first one after midnight.
-                await ensure_demo_account(self._session_factory, self._settings, self._hub)
+                await ensure_demo_company(self._session_factory, self._settings, self._hub)
                 refreshed = await self.sweep()
                 if refreshed:
                     logger.info("refreshed %d company dataset(s)", refreshed)

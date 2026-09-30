@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../app/theme.dart';
-import '../../auth/application/auth_controller.dart';
+import '../../companies/application/company_providers.dart';
 
 /// Says, on the screen carrying the figures, that the figures are invented.
 ///
@@ -12,14 +12,14 @@ import '../../auth/application/auth_controller.dart';
 /// out for themselves that the receivables are made up has spent the first
 /// minute of the demo doubting the software rather than reading it.
 ///
-/// Renders nothing at all on a real account, so it costs a signed-in customer
-/// a single boolean.
+/// Renders nothing at all on a real company, so it costs a customer looking at
+/// their own books a single boolean.
 class DemoNotice extends ConsumerWidget {
   const DemoNotice({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final bool isDemo = ref.watch(authControllerProvider).user?.isDemo ?? false;
+    final bool isDemo = ref.watch(activeCompanyIsDemoProvider);
     if (!isDemo) return const SizedBox.shrink();
 
     final ThemeData theme = Theme.of(context);
@@ -38,8 +38,8 @@ class DemoNotice extends ConsumerWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Demo account — a sample business, invented figures. '
-                'Nothing here is anyone\'s real books.',
+                'Demo company — a sample business with invented figures. '
+                'Your own companies replace it once your Tally PC is connected.',
                 style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
               ),
             ),

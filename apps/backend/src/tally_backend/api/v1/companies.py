@@ -14,6 +14,7 @@ from sqlalchemy import select
 from ...core.errors import ConflictError, NotFound
 from ...db.models import Company, CompanySyncState, Role
 from ...services.audit import record
+from ...services.demo import demo_company_for, is_demo_company
 from ...services.entitlements import check_company_limit, require_data
 from ..deps import (
     CompanyDep,
@@ -164,7 +165,9 @@ async def _begin_history(
 
 
 @router.get("/companies", response_model=list[CompanyResponse])
-async def list_companies(principal: PrincipalDep, session: SessionDep) -> list[CompanyResponse]:
+async def list_companies(
+    principal: PrincipalDep, session: SessionDep, settings: SettingsDep
+) -> list[CompanyResponse]:
     """The companies this caller may open.
 
     Filtered here as well as in ``deps.get_company``, because the two answer
@@ -177,6 +180,17 @@ async def list_companies(principal: PrincipalDep, session: SessionDep) -> list[C
     # Same reasoning one level up: a suspended account must not be told the
     # names of its own companies and then refused on every one of them.
     require_data(principal.org)
+
+    # An organisation with no company of its own is lent the demo, and has
+    # nothing else to list. Checked first because it is the whole answer: the
+    # first real company linked makes this None, and the demo is gone from the
+    # very response that shows the new one.
+    lent = await demo_company_for(session, settings, principal.org_id)
+    if lent is not None:
+        state = await session.get(CompanySyncState, lent.id)
+        return [
+            CompanyResponse.build(lent, state.books_from if state else None, is_demo=True)
+        ]
 
     query = (
         select(Company)
@@ -214,7 +228,11 @@ async def list_companies(principal: PrincipalDep, session: SessionDep) -> list[C
 @router.get("/companies/{company_id}", response_model=CompanyResponse)
 async def get_company_detail(company: CompanyDep, session: SessionDep) -> CompanyResponse:
     state = await session.get(CompanySyncState, company.id)
-    return CompanyResponse.build(company, state.books_from if state else None)
+    return CompanyResponse.build(
+        company,
+        state.books_from if state else None,
+        is_demo=await is_demo_company(session, company),
+    )
 
 
 @router.delete("/companies/{company_id}", status_code=status.HTTP_204_NO_CONTENT)

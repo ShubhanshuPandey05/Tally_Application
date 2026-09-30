@@ -16,8 +16,10 @@ void main() {
   Widget harness() {
     return ProviderScope(
       overrides: <Override>[
-        // A company is chosen, which is all the button asks about.
+        // A company is chosen, and it is somebody's own rather than the lent
+        // demo -- the two things the button asks about.
         activeCompanyIdResolvedProvider.overrideWithValue('company-1'),
+        activeCompanyIsDemoProvider.overrideWithValue(false),
       ],
       child: MaterialApp(
         theme: ThemeData(

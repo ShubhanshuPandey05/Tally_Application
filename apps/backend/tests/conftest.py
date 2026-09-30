@@ -38,6 +38,11 @@ from tally_backend.main import create_app
 @pytest.fixture
 def settings(tmp_path) -> Settings:
     return Settings(
+        # Never a `.env`. Settings reads one from the working directory, so the
+        # suite run from `apps/backend` used to pick up a developer's own file
+        # -- seeding their portal owner, lending their demo company -- and pass
+        # or fail differently from the same suite run by `run.py check`.
+        _env_file=None,
         environment="dev",
         database_url=f"sqlite+aiosqlite:///{tmp_path / 'test.db'}",
         # Drains are driven explicitly in the queue tests. A background

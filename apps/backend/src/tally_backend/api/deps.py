@@ -12,6 +12,13 @@ member sees only the ones granted to them in ``company_access``. Both answer 404
 for the same reason: the reply must not reveal that the company exists. And
 before either, the organisation's own subscription has to be live — a suspended
 account is refused with 402 whether the company id is real or invented.
+
+There is exactly one exception to the first boundary, and it is written here
+rather than anywhere else so that it is the only one: the **demo company** is
+lent to every organisation that has no company of its own yet. It is lent for
+*reading* -- this dependency refuses any other method against it, which makes
+every write route safe by construction, including the ones not written yet --
+and it stops being lent the moment the borrower links a real company.
 """
 
 from __future__ import annotations
@@ -41,6 +48,7 @@ from ..db.models import (
 from ..hub import ConnectorHub
 from ..services.auth import AuthService
 from ..services.dashboard import DashboardService
+from ..services.demo import demo_company_for
 from ..services.entitlements import (
     Entitlement,
     require_changes,
@@ -199,10 +207,18 @@ async def visible_company_ids(session: AsyncSession, principal: Principal) -> se
     return set(rows.scalars().all())
 
 
+#: Methods a borrowed demo company answers. Everything else changes something,
+#: and a company every new signup is looking at must not be changeable by any
+#: one of them.
+_READ_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
+
 async def get_company(
     company_id: str,
+    request: Request,
     session: SessionDep,
     principal: PrincipalDep,
+    settings: SettingsDep,
 ) -> Company:
     # Before the lookup, so a suspended account is refused identically whether
     # the company id is real or invented -- and so every report, export and sync
@@ -211,6 +227,22 @@ async def get_company(
     require_data(principal.org)
 
     company = await session.get(Company, company_id)
+    if company is not None and company.org_id != principal.org_id:
+        lent = await demo_company_for(session, settings, principal.org_id)
+        if lent is not None and lent.id == company.id:
+            if request.method not in _READ_METHODS:
+                raise PermissionDenied(
+                    f"refusing {request.method} on the demo company",
+                    user_message=(
+                        "This is the demo company, so nothing in it can be changed. "
+                        "Connect your own TallyPrime to work with your books."
+                    ),
+                )
+            # Not checked against `company_access`: the demo is nobody's to
+            # grant, and a staff member of a new business is as entitled to
+            # look at it as its admin.
+            return company
+
     # 404 for both "missing" and "not yours": a 403 here would confirm the id
     # belongs to somebody, which is an enumeration oracle.
     if company is None or company.org_id != principal.org_id:

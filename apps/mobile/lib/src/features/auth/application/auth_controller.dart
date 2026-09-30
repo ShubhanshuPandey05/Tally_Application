@@ -39,14 +39,6 @@ class AuthState {
 final NotifierProvider<AuthController, AuthState> authControllerProvider =
     NotifierProvider<AuthController, AuthState>(AuthController.new);
 
-/// Whether this backend offers a demo account to sign into.
-///
-/// Read once on the sign-in screen. Auto-disposed rather than kept, because it
-/// is only ever asked before anybody is signed in.
-final FutureProvider<bool> demoAvailableProvider = FutureProvider<bool>(
-  (Ref ref) => ref.watch(authRepositoryProvider).demoAvailable(),
-);
-
 
 class AuthController extends Notifier<AuthState> {
   @override
@@ -113,9 +105,6 @@ class AuthController extends Notifier<AuthState> {
             password: password,
             deviceName: _deviceName,
           ));
-
-  Future<bool> signInAsDemo() =>
-      _attempt(() => _repository.signInAsDemo(deviceName: _deviceName));
 
   Future<bool> signUp({
     required String email,
