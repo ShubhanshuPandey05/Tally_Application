@@ -1,9 +1,14 @@
 import { useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../api.js';
+import { DailyBars } from '../components/charts.jsx';
 import { Empty, Loading, StatusPill, useLoad } from '../components/ui.jsx';
 import { fmtAgo, fmtCount, fmtDate } from '../format.js';
 import './overview.css';
+
+/** The window the home screen's usage figures cover. The Usage page can change
+    it; here it is fixed, so the same glance means the same thing every day. */
+const USAGE_DAYS = 30;
 
 /**
  * The landing screen: is there work, and is the fleet up.
@@ -19,6 +24,10 @@ export default function Overview({ me, onCounts }) {
     (signal) => api('/accounts?status=pending&limit=8', { signal }),
     [],
   );
+
+  // Its own request, and its own failure: the queue above it is what the page
+  // is for, and a slow usage read must not hold a signup back from being seen.
+  const usage = useLoad((signal) => api(`/usage?days=${USAGE_DAYS}`, { signal }), []);
 
   const data = stats.data;
   useEffect(() => {
@@ -139,7 +148,111 @@ export default function Overview({ me, onCounts }) {
           </div>
         )}
       </section>
+
+      <UsageGlance usage={usage} />
     </>
+  );
+}
+
+/**
+ * Is the product being used -- the second thing worth knowing on arrival.
+ *
+ * A glance, not the Usage page: one row of counts, one chart, and the accounts
+ * doing the most. Everything that needs a filter or a second look lives behind
+ * the link. Counts of what people did, never what they saw.
+ */
+function UsageGlance({ usage }) {
+  const data = usage.data;
+  return (
+    <section className="card">
+      <div className="card-pad row-between">
+        <div className="stack">
+          <h2>Usage</h2>
+          <span className="muted" style={{ fontSize: 13 }}>
+            Who has been opening the app over the last {USAGE_DAYS} days.
+          </span>
+        </div>
+        <Link className="btn btn-sm" to="/usage">
+          Open usage
+        </Link>
+      </div>
+      <hr className="divider" />
+
+      {usage.loading && !data ? (
+        <Loading />
+      ) : usage.error ? (
+        <Empty title="Could not load usage">{usage.error.message}</Empty>
+      ) : (
+        <div className="card-pad glance">
+          <div className="glance-figures">
+            <Figure value={data.headline.active_today} label="Active today" />
+            <Figure value={data.headline.active_7d} label="Active in 7 days" />
+            <Figure
+              value={data.headline.active_30d}
+              label="Active in 30 days"
+              note={
+                data.headline.people
+                  ? `of ${fmtCount(data.headline.people)} people`
+                  : null
+              }
+            />
+            <Figure value={data.headline.report_views} label="Reports opened" />
+            <Figure value={data.headline.entries_created} label="Entries made" />
+            <Figure value={data.headline.logins} label="Sign-ins" />
+          </div>
+
+          <div className="glance-split">
+            <div className="stack" style={{ gap: 12 }}>
+              <h3>People active each day</h3>
+              <DailyBars
+                rows={data.series}
+                field="active_users"
+                unit="people active"
+                height={140}
+                detail={[
+                  { field: 'active_accounts', label: 'accounts' },
+                  { field: 'report_views', label: 'reports opened' },
+                  { field: 'entries_created', label: 'entries made' },
+                ]}
+              />
+            </div>
+
+            <div className="stack" style={{ gap: 8 }}>
+              <h3>Most active accounts</h3>
+              {data.top_accounts.length === 0 ? (
+                <span className="muted" style={{ fontSize: 13 }}>
+                  Nobody has used the app in this period.
+                </span>
+              ) : (
+                <ul className="glance-list">
+                  {data.top_accounts.slice(0, 5).map((account) => (
+                    <li key={account.id}>
+                      <Link className="glance-name" to={`/accounts?open=${account.id}`}>
+                        {account.name}
+                      </Link>
+                      <span className="muted nowrap">
+                        {fmtCount(account.active_days)}
+                        <span className="dim"> of {USAGE_DAYS} days</span>
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function Figure({ value, label, note }) {
+  return (
+    <div className="glance-figure">
+      <span className="glance-value">{fmtCount(value)}</span>
+      <span className="stat-label">{label}</span>
+      {note ? <span className="stat-note">{note}</span> : null}
+    </div>
   );
 }
 

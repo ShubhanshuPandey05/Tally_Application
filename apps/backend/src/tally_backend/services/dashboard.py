@@ -289,7 +289,7 @@ class DashboardService:
             stock_result, why(STOCK, "Could not read stock from Tally.")
         )
         sections["activity"] = self._activity_section(
-            vouchers, vouchers_result, no_vouchers, period=period
+            vouchers, vouchers_result, no_vouchers, today=today, period=period
         )
 
         payload: dict[str, Any] = {
@@ -443,6 +443,7 @@ class DashboardService:
         result: DataResult | None,
         error: str,
         *,
+        today: date,
         period: tuple[date, date] | None = None,
     ) -> Section:
         if result is None:
@@ -453,12 +454,19 @@ class DashboardService:
             if period is None
             else [v for v in vouchers if period[0] <= v.date <= period[1]]
         )
+        # With no period the screen is "Today", and the count has to be today's.
+        # It was the length of everything read -- last month and this one, the
+        # window the trend chart needs -- under a tile captioned "today", so
+        # Today showed 256 vouchers beside a week of 44. The *recent* list stays
+        # on the whole window on purpose: "what happened since yesterday" is the
+        # question it answers, and on a quiet morning today alone is empty.
+        counted = scoped if period is not None else [v for v in vouchers if v.date == today]
         return Section(
             "activity",
             ok=True,
             data={
                 "recent": an.recent_transactions(scoped),
-                "voucher_count": len(scoped),
+                "voucher_count": len(counted),
             },
             meta=result.meta(),
         )

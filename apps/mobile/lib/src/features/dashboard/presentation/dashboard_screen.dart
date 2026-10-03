@@ -321,7 +321,12 @@ class _DashboardBody extends ConsumerWidget {
               ),
             ),
           if (dashboard.activity.hasData)
-            _Padded(child: ActivitySection(summary: dashboard.activity.data!)),
+            _Padded(
+              child: ActivitySection(
+                summary: dashboard.activity.data!,
+                scoped: dashboard.period != null,
+              ),
+            ),
         ],
       ),
     );
@@ -385,7 +390,7 @@ class _DashboardBody extends ConsumerWidget {
 /// The period switcher, pinned under the app bar.
 ///
 /// The five windows an owner actually asks for, as a row of pills, with the
-/// calendar for anything else. It is always on screen because every figure
+/// calendar for anything else -- the week and the quarter among them. It is always on screen because every figure
 /// below it means something different depending on which pill is lit -- and a
 /// custom range takes a pill of its own so a chosen window can never be lit
 /// while the row still reads "Today".
@@ -406,32 +411,28 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
   final ValueChanged<PeriodSelection?> onSelect;
   final VoidCallback onCustom;
 
-  /// The pills, shortest first: a subset of the sheet's presets, because eight
-  /// pills is a row nobody reads. In a closed year the shorter windows are
-  /// meaningless -- there is no "today" in a year that ended -- so it shows
-  /// that year's quarters instead.
+  /// The pills: a subset of the sheet's presets, because eight pills is a row
+  /// nobody reads. Today, yesterday, this month, last month and the year are
+  /// the comparisons an owner makes without thinking; the week, the quarter
+  /// and the rest are one tap further, in the sheet behind the calendar. In a
+  /// closed year the short windows are meaningless -- there is no "today" in a
+  /// year that ended -- so it shows that year's quarters instead.
+  ///
+  /// The labels are the sheet's own, in full. "Month" was enough while it had
+  /// no neighbour; beside "Last month" it has to say which month it is.
   List<PeriodPreset> _pills() {
     final List<PeriodPreset> presets = periodPresetsFor(year);
     if (!year.isCurrent) return presets;
     const Set<String> wanted = <String>{
       'Today',
-      'This week',
+      'Yesterday',
       'This month',
-      'This quarter',
+      'Last month',
     };
     return <PeriodPreset>[
       for (final PeriodPreset preset in presets)
         if (wanted.contains(preset.label) || preset.label == year.label) preset,
     ];
-  }
-
-  /// "This month" is three pills' worth of width for one word of meaning, so
-  /// the row drops the "This" -- and puts the capital back, because a pill that
-  /// reads "month" beside one that reads "Today" looks like a mistake.
-  static String _pillLabel(String label) {
-    if (!label.startsWith('This ')) return label;
-    final String rest = label.substring(5);
-    return rest.isEmpty ? label : rest[0].toUpperCase() + rest.substring(1);
   }
 
   @override
@@ -455,7 +456,7 @@ class _PeriodBar extends StatelessWidget implements PreferredSizeWidget {
             Padding(
               padding: const EdgeInsets.only(right: 8),
               child: _PeriodPill(
-                label: _pillLabel(preset.label),
+                label: preset.label,
                 selected: !isCustom && active == preset.label,
                 onTap: () {
                   if (preset.label == 'Today') {

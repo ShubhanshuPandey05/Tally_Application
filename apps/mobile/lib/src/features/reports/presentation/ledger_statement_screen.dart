@@ -94,11 +94,11 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
         if ((state.valueOrNull?.data.entries.isNotEmpty ?? false) && company != null)
           IconButton(
             icon: const Icon(Icons.ios_share),
-            tooltip: 'Share as PDF',
+            tooltip: 'Preview and share',
             onPressed: () {
               final StatementDocument document =
                   _document(state.valueOrNull!.data, company);
-              ShareDocument.share(
+              ShareDocument.preview(
                 context,
                 fileName: document.fileName,
                 subject: '${widget.ledger} statement from ${company.name}',
@@ -290,6 +290,10 @@ class _StatementRow extends StatelessWidget {
     final ThemeData theme = Theme.of(context);
     final bool isDebit = entry.movement.side == MoneySide.debit;
     final String? key = entry.line.key;
+    final String detail = <String?>[
+      entry.line.voucherNumber == null ? null : 'No. ${entry.line.voucherNumber}',
+      entry.line.reference == null ? null : 'Ref #: ${entry.line.reference}',
+    ].whereType<String>().join(' · ');
 
     return InkWell(
       onTap: key == null
@@ -300,38 +304,30 @@ class _StatementRow extends StatelessWidget {
               ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+        // No party name: every row on this screen is the same account, which
+        // is already the title. The row spends its width on what tells one
+        // voucher from the next.
         child: Row(
           children: <Widget>[
-            SizedBox(
-              width: 44,
-              child: Text(
-                '${entry.line.date.day}/${entry.line.date.month}',
-                style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
-              ),
-            ),
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: <Widget>[
                   Text(
-                    entry.line.party ?? entry.line.voucherType ?? 'Voucher',
+                    '${_shortDate(entry.line.date)} | '
+                    '${entry.line.voucherType ?? 'Voucher'}',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium
-                        ?.copyWith(fontWeight: FontWeight.w600),
+                    style: theme.textTheme.bodyMedium,
                   ),
-                  Text(
-                    <String?>[
-                      entry.line.voucherType,
-                      entry.line.voucherNumber == null
-                          ? null
-                          : '#${entry.line.voucherNumber}',
-                    ].whereType<String>().join(' · '),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style:
-                        theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
-                  ),
+                  if (detail.isNotEmpty)
+                    Text(
+                      detail,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: theme.textTheme.labelSmall
+                          ?.copyWith(color: context.mutedColor),
+                    ),
                 ],
               ),
             ),
@@ -341,7 +337,9 @@ class _StatementRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   '${MoneyFormat.full(entry.movement)} ${isDebit ? 'Dr' : 'Cr'}',
-                  style: theme.textTheme.bodyMedium?.merge(AppTheme.amount),
+                  style: theme.textTheme.bodyMedium?.merge(AppTheme.amount).copyWith(
+                        color: isDebit ? context.positiveColor : context.negativeColor,
+                      ),
                 ),
                 Text(
                   MoneyFormat.withSide(entry.running),
@@ -356,6 +354,16 @@ class _StatementRow extends StatelessWidget {
     );
   }
 }
+
+/// `04 Jul 26` -- the year matters here, since a statement can span two.
+String _shortDate(DateTime value) =>
+    '${value.day.toString().padLeft(2, '0')} ${_months[value.month - 1]} '
+    '${(value.year % 100).toString().padLeft(2, '0')}';
+
+const List<String> _months = <String>[
+  'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+  'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+];
 
 String _isoDate(DateTime value) =>
     '${value.year.toString().padLeft(4, '0')}-'

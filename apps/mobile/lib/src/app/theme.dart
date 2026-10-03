@@ -4,14 +4,14 @@ import 'package:flutter/services.dart';
 /// The three skins a customer can choose between, in the order they appear in
 /// the picker.
 ///
-/// [dim] is the default rather than [light] or [dark], and rather than
-/// following the system. A shop owner opens this app on a phone at the counter
-/// and again at home in the evening; a soft dark reads comfortably in both, and
-/// a theme that flips with the system clock changes the look of their books
-/// halfway through the day for no reason they asked for.
+/// [light] is the default, and the other two are there only for somebody who
+/// goes and picks one. It is not the system setting either way: a theme that
+/// flips with the system clock changes the look of somebody's books halfway
+/// through the day for no reason they asked for.
 ///
-/// [dark] exists separately because "dim" is not dark enough on an OLED phone
-/// in a dark room, which is exactly when someone reaches for it.
+/// [dim] is the soft dark, and [dark] exists separately because dim is not
+/// dark enough on an OLED phone in a dark room, which is exactly when someone
+/// reaches for it.
 enum AppThemeMode {
   light('Light'),
   dim('Dim'),
@@ -26,7 +26,7 @@ enum AppThemeMode {
   /// move an existing customer to a different theme.
   static AppThemeMode fromName(String? name) => AppThemeMode.values.firstWhere(
         (AppThemeMode mode) => mode.name == name,
-        orElse: () => AppThemeMode.dim,
+        orElse: () => AppThemeMode.light,
       );
 
   bool get isLight => this == AppThemeMode.light;
@@ -106,11 +106,14 @@ class AppTheme {
           const Color(0xFFF4F5F7),
           const Color(0xFFE8E9ED),
         ),
+      // A slate, well clear of Dark. It used to sit at 0xFF1A1D23, which on
+      // a phone screen was the same skin as Dark with the brightness nudged
+      // -- two entries in the picker for one look.
       AppThemeMode.dim => (
-          const Color(0xFF1A1D23),
-          const Color(0xFF232730),
-          const Color(0xFF2C313B),
-          const Color(0xFF363B46),
+          const Color(0xFF2A2E38),
+          const Color(0xFF343944),
+          const Color(0xFF3E4450),
+          const Color(0xFF4A505D),
         ),
       AppThemeMode.dark => (
           const Color(0xFF08090B),
@@ -120,7 +123,13 @@ class AppTheme {
         ),
     };
     final Color onPage = isLight ? ink : const Color(0xFFF2F3F7);
-    final Color muted = isLight ? const Color(0xFF6B6E78) : const Color(0xFF9BA1AE);
+    // Dim's grey text is a step lighter than Dark's: its cards are lighter,
+    // and the same grey on them falls under a readable contrast.
+    final Color muted = switch (mode) {
+      AppThemeMode.light => const Color(0xFF6B6E78),
+      AppThemeMode.dim => const Color(0xFFB0B6C2),
+      AppThemeMode.dark => const Color(0xFF9BA1AE),
+    };
 
     final ColorScheme scheme = ColorScheme.fromSeed(
       seedColor: accent,
@@ -128,7 +137,11 @@ class AppTheme {
     ).copyWith(
       primary: isLight ? accent : const Color(0xFF8AA4FF),
       onPrimary: isLight ? Colors.white : const Color(0xFF0E0F13),
-      primaryContainer: isLight ? accentSoft : const Color(0xFF23304F),
+      primaryContainer: switch (mode) {
+        AppThemeMode.light => accentSoft,
+        AppThemeMode.dim => const Color(0xFF34436E),
+        AppThemeMode.dark => const Color(0xFF23304F),
+      },
       surface: page,
       onSurface: onPage,
       surfaceContainerHighest: surface,
@@ -366,9 +379,15 @@ class AppTheme {
 
 /// Semantic colours and surfaces, resolved against the current theme.
 extension MoneyColors on BuildContext {
-  Color get positiveColor => AppTheme.positive;
-  Color get negativeColor => AppTheme.negative;
-  Color get cautionColor => AppTheme.caution;
+  // On the two dark skins these are the lighter tints the portal uses there.
+  // The light-page values are deep enough to read on white and too deep to
+  // read on a grey card -- "19 days overdue" in 0xFFC4314B on Dim is under
+  // half the contrast body text needs.
+  Color get positiveColor => _isDark ? const Color(0xFF3FBF8A) : AppTheme.positive;
+  Color get negativeColor => _isDark ? const Color(0xFFF07088) : AppTheme.negative;
+  Color get cautionColor => _isDark ? const Color(0xFFE0A049) : AppTheme.caution;
+
+  bool get _isDark => Theme.of(this).brightness == Brightness.dark;
 
   Color get mutedColor => Theme.of(this).colorScheme.onSurfaceVariant;
 

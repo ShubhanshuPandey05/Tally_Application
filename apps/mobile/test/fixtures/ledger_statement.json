@@ -42,6 +42,7 @@
         },
         "narration": null,
         "party": "Reliance Retail",
+        "reference": null,
         "running": {
           "amount": "11800.00",
           "currency": "INR",

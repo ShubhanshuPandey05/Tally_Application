@@ -20,11 +20,11 @@
       rel="stylesheet"
       href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap"
     />
-    <!-- Before first paint, so a Light or Dark choice does not flash Dim. -->
+    <!-- Before first paint, so a Dim or Dark choice does not flash Light. -->
     <script>
       try {
         var t = localStorage.getItem('tallyflow.portal.theme');
-        if (t === 'light' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
+        if (t === 'dim' || t === 'dark') document.documentElement.setAttribute('data-theme', t);
       } catch (e) {}
     </script>
   </head>

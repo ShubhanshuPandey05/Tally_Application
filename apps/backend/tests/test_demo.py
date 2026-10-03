@@ -250,6 +250,39 @@ async def test_the_dashboard_has_figures_without_a_connector(
     assert body["freshness"]["is_stale"] is False
 
 
+async def test_todays_voucher_count_is_todays_and_not_the_whole_window(
+    demo_client: AsyncClient,
+):
+    """The tile says "today", so the number under it has to be today's.
+
+    It was the length of everything the dashboard reads -- last month and this
+    one -- which put 256 vouchers on Today beside 44 for the whole week.
+    """
+    company_id = await _demo_id(demo_client)
+    today = date.today()
+
+    plain = await demo_client.get(f"/v1/companies/{company_id}/dashboard")
+    one_day = await demo_client.get(
+        f"/v1/companies/{company_id}/dashboard",
+        params={"from_date": today.isoformat(), "to_date": today.isoformat()},
+    )
+    week = await demo_client.get(
+        f"/v1/companies/{company_id}/dashboard",
+        params={
+            "from_date": (today - timedelta(days=6)).isoformat(),
+            "to_date": today.isoformat(),
+        },
+    )
+
+    def count(response) -> int:
+        return response.json()["sections"]["activity"]["data"]["voucher_count"]
+
+    assert count(plain) == count(one_day)
+    assert count(plain) <= count(week)
+    # The recent rows still reach back, so a quiet morning is not an empty card.
+    assert plain.json()["sections"]["activity"]["data"]["recent"]
+
+
 async def test_reports_are_populated(demo_client: AsyncClient):
     company_id = await _demo_id(demo_client)
     today = date.today()

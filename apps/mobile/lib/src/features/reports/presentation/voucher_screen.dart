@@ -69,8 +69,8 @@ class VoucherScreen extends ConsumerWidget {
           if (state.valueOrNull != null && company != null)
             IconButton(
               icon: const Icon(Icons.ios_share),
-              tooltip: 'Share as PDF',
-              onPressed: () => ShareDocument.share(
+              tooltip: 'Preview and share',
+              onPressed: () => ShareDocument.preview(
                 context,
                 fileName: _document(state.valueOrNull!.data, company).fileName,
                 subject: _subject(state.valueOrNull!.data, company),

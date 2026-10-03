@@ -36,7 +36,7 @@ class ReportsScreen extends ConsumerWidget {
                 children: const <Widget>[
                   _ReportGroup(
                     tint: AppTheme.tileBlue,
-                    heading: 'Money',
+                    heading: 'Outstanding',
                     entries: <_ReportEntry>[
                       _ReportEntry(
                         icon: Icons.call_received,

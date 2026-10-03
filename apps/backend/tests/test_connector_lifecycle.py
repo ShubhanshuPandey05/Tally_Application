@@ -169,3 +169,60 @@ async def test_rotating_an_unknown_connector_is_a_404(
         headers=linked_company["headers"],
     )
     assert response.status_code == 404
+
+
+async def test_a_removed_company_can_be_added_again(
+    client: AsyncClient, linked_company, fake_connector
+) -> None:
+    """Removing is a soft delete, and the row left behind must not block the way back.
+
+    Discovery used to count that row as linked, so the phone showed "already
+    connected" with the tap disabled -- for books the owner had just removed.
+    """
+    headers = linked_company["headers"]
+    name = linked_company["tally_name"]
+    fake_connector.set("companies.list", [{"name": name, "guid": "abc"}])
+    discover = f"/v1/connectors/{linked_company['connector_id']}/discover"
+
+    before = (await client.get(discover, headers=headers)).json()
+    assert before[0]["linked"] is True
+
+    removed = await client.delete(
+        f"/v1/companies/{linked_company['company_id']}", headers=headers
+    )
+    assert removed.status_code == 204
+
+    after = (await client.get(discover, headers=headers)).json()
+    assert after[0]["linked"] is False
+    assert after[0]["company_id"] is None
+
+    again = await client.post(
+        f"/v1/connectors/{linked_company['connector_id']}/companies",
+        json={"tally_name": name},
+        headers=headers,
+    )
+    assert again.status_code == 201, again.text
+    # The same row, so its history and snapshots come back with it.
+    assert again.json()["id"] == linked_company["company_id"]
+
+    listed = (await client.get("/v1/companies", headers=headers)).json()
+    assert [c["id"] for c in listed] == [linked_company["company_id"]]
+
+
+async def test_a_removed_pc_leaves_the_list(client: AsyncClient, linked_company) -> None:
+    """Removing a PC has to look as though it worked.
+
+    The row stays in the database for the audit trail, but it can never be
+    revived, so listing it left a dead line nobody could act on.
+    """
+    headers = linked_company["headers"]
+    before = (await client.get("/v1/connectors", headers=headers)).json()
+    assert [c["id"] for c in before] == [linked_company["connector_id"]]
+
+    removed = await client.delete(
+        f"/v1/connectors/{linked_company['connector_id']}", headers=headers
+    )
+    assert removed.status_code == 204
+
+    after = (await client.get("/v1/connectors", headers=headers)).json()
+    assert after == []

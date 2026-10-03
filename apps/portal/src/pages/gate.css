@@ -28,3 +28,121 @@
 .gate-brand p { margin: 2px 0 0; font-size: 13px; }
 
 .gate-card .btn { padding: 10px 14px; }
+
+/* ---- Sign-in ------------------------------------------------------ */
+
+/* Two halves: what this place is, and the form. The first half is the app's
+   one dark card at the size of a page, and it is dark on every skin -- it is
+   the product's face rather than a surface of this screen, so its colours are
+   written out instead of taken from the skin's tokens. */
+.signin {
+  min-height: 100%;
+  display: grid;
+  grid-template-columns: minmax(0, 1.05fr) minmax(0, 1fr);
+}
+
+.signin-aside {
+  background: #15171c;
+  color: #f2f3f7;
+  padding: 40px 48px;
+  display: flex;
+  flex-direction: column;
+  gap: 32px;
+}
+
+.signin-brand { display: flex; align-items: center; gap: 12px; }
+.signin-brand img { border-radius: 10px; flex: none; }
+.signin-brand strong { font-size: 16px; letter-spacing: -.01em; }
+.signin-brand span { font-size: 12.5px; color: #9ba1ae; }
+
+.signin-pitch {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 30px;
+  max-width: 520px;
+}
+.signin-pitch h1 { font-size: 34px; line-height: 1.12; letter-spacing: -.03em; }
+/* Phone only: the list under it says the same thing at more length. */
+.signin-sub { display: none; margin: 0; font-size: 14px; line-height: 1.5; color: #9ba1ae; }
+
+.signin-jobs { list-style: none; margin: 0; padding: 0; display: grid; gap: 20px; }
+.signin-jobs li { display: flex; gap: 14px; align-items: flex-start; }
+.signin-jobs strong { font-size: 14.5px; }
+.signin-jobs li .stack span { font-size: 13px; color: #9ba1ae; }
+
+/* The app's icon tile: the one place colour lives. */
+.signin-tile {
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-sm);
+  display: grid;
+  place-items: center;
+  color: #fff;
+  flex: none;
+}
+.signin-tile svg { width: 18px; height: 18px; }
+
+.signin-foot { margin: 0; font-size: 12.5px; color: #7d8391; }
+
+.signin-main {
+  display: grid;
+  place-items: center;
+  padding: 32px 24px;
+  background: var(--surface);
+}
+
+.signin-form {
+  width: min(360px, 100%);
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.signin-form h2 { font-size: 24px; }
+.signin-form p { margin: 0; }
+.signin-form .input { padding: 11px 13px; }
+.signin-form .btn-primary { padding: 11px 14px; margin-top: 4px; }
+
+/* Show / Hide sits inside the field rather than beside it, so the box keeps
+   the width of the one above. */
+.signin-secret { position: relative; display: block; }
+.signin-secret .input { padding-right: 66px; }
+.signin-secret .btn {
+  position: absolute;
+  right: 5px;
+  top: 50%;
+  transform: translateY(-50%);
+}
+
+/* On a phone the panel becomes a header: the mark and the name, and the form
+   straight under them. The three jobs are for somebody who has not seen this
+   place before, and they are at a desk. */
+/* On a phone: the dark panel is a hero -- mark, headline, one line -- and the
+   form is a sheet drawn up over its foot, as the app's own sheets are. It was
+   a thin strip over a bare form, which read as a page that had not loaded its
+   styles. The three jobs become the one line; the list is for a desk. */
+@media (max-width: 860px) {
+  .signin {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: auto 1fr;
+    /* Shows through the sheet's rounded corners. */
+    background: #15171c;
+  }
+  .signin-aside { padding: 26px 24px 56px; gap: 30px; }
+  .signin-pitch { gap: 10px; max-width: none; }
+  .signin-pitch h1 { font-size: 27px; }
+  .signin-sub { display: block; }
+  .signin-jobs, .signin-foot { display: none; }
+
+  .signin-main {
+    place-items: start center;
+    margin-top: -26px;
+    padding: 30px 24px 32px;
+    border-radius: 26px 26px 0 0;
+  }
+  .signin-form { width: min(420px, 100%); }
+  /* 16px, or iOS zooms the page the moment a field is tapped. */
+  .signin-form .input { font-size: 16px; padding: 13px 14px; }
+  .signin-form .btn-primary { padding: 13px 14px; font-size: 14.5px; }
+}

@@ -2,10 +2,14 @@ import 'package:decimal/decimal.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tallyflow/src/core/documents/amount_in_words.dart';
 import 'package:tallyflow/src/core/documents/document_style.dart';
+import 'package:tallyflow/src/core/documents/ledger_group_document.dart';
+import 'package:tallyflow/src/core/documents/party_bills_document.dart';
 import 'package:tallyflow/src/core/documents/statement_document.dart';
 import 'package:tallyflow/src/core/documents/voucher_document.dart';
+import 'package:tallyflow/src/core/money/money.dart';
 import 'package:tallyflow/src/core/network/api_client.dart';
 import 'package:tallyflow/src/features/reports/domain/drilldown.dart';
+import 'package:tallyflow/src/features/reports/domain/reports.dart';
 
 import 'support/fixtures.dart';
 
@@ -183,6 +187,46 @@ void main() {
         periodLabel: 'Last 90 days',
         from: DateTime(2026, 1, 1),
         to: DateTime(2026, 3, 31),
+      ).build();
+
+      expect(bytes.length, greaterThan(1000));
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+  });
+
+  group('party bills document', () {
+    test('builds a page from the response the backend really sends', () async {
+      final GroupOutstandingReport report = GroupOutstandingReport.fromJson(
+        fixture('outstanding_group_receivable').envelopeData,
+      );
+      final GroupParty party = report.parties.first;
+
+      final List<int> bytes = await PartyBillsDocument(
+        party: party.party,
+        heading: report.group,
+        bills: party.bills,
+        total: party.net,
+        overdue: Money.zero,
+        advances: party.advances,
+        companyName: 'JSR Prime Solution',
+        asOf: DateTime(2026, 3, 15),
+      ).build();
+
+      expect(bytes.length, greaterThan(1000));
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+    });
+  });
+
+  group('ledger group document', () {
+    test('builds a page from the response the backend really sends', () async {
+      final LedgerReport report = LedgerReport.fromJson(fixture('ledgers').envelopeData);
+
+      final List<int> bytes = await LedgerGroupDocument(
+        group: 'Bank Accounts',
+        lines: report.ledgers,
+        total: report.ledgers.first.closing,
+        companyName: 'JSR Prime Solution',
+        asOf: DateTime(2026, 3, 15),
       ).build();
 
       expect(bytes.length, greaterThan(1000));

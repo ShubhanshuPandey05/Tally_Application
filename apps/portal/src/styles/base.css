@@ -9,11 +9,11 @@
    customer use the app, and two nearly-identical blues read as a
    mistake rather than as a family.
 
-   Three skins, like the app: Light, Dim and Dark, with DIM THE DEFAULT
-   -- not the system setting. The app decided that for a reason that
-   holds here too: a theme that flips with the system clock changes
-   the look of a screen halfway through a working day for nobody's
-   benefit.
+   Three skins, like the app: Light, Dim and Dark, with LIGHT THE
+   DEFAULT and the other two only for somebody who picks one -- never
+   the system setting. The app decided that for a reason that holds
+   here too: a theme that flips with the system clock changes the look
+   of a screen halfway through a working day for nobody's benefit.
 
    One idea is the portal's own and survives the change: COLOUR
    ENCODES ATTENTION. Amber appears in exactly one circumstance --
@@ -21,24 +21,23 @@
    from across the room. `--stop` marks an ERROR log line.
    ================================================================== */
 
-:root,
 :root[data-theme="dim"] {
   color-scheme: dark;
 
   /* Dim. The app's four greys: page, card, container, line. */
-  --bg:        #1a1d23;
-  --surface:   #232730;
-  --surface-2: #2c313b;
-  --surface-3: #363b46;
-  --line:      #363b46;
+  --bg:        #2a2e38;
+  --surface:   #343944;
+  --surface-2: #3e4450;
+  --surface-3: #4a505d;
+  --line:      #4a505d;
   --ink:       #f2f3f7;
-  --ink-2:     #9ba1ae;
-  --ink-3:     #7d8391;
+  --ink-2:     #b0b6c2;
+  --ink-3:     #9299a6;
 
   /* The app's dark-skin primary. Readable as text and as a button fill. */
   --accent:      #8aa4ff;
   --accent-ink:  #0e0f13;
-  --accent-soft: #23304f;
+  --accent-soft: #34436e;
   /* Chart marks. Not `--accent`: that blue is too light to hold a bar's
      shape on a dark surface (validated -- see components/charts.jsx). */
   --chart:       #6887ff;
@@ -53,14 +52,8 @@
   --stop:      #f07088;
   --stop-soft: rgba(224, 68, 122, .16);
 
-  --off:      #9ba1ae;
-  --off-soft: #2c313b;
-
-  --tile-blue:   #2d5bff;
-  --tile-green:  #17a06b;
-  --tile-amber:  #e08a15;
-  --tile-violet: #7c4dff;
-  --tile-rose:   #e0447a;
+  --off:      #b0b6c2;
+  --off-soft: #3e4450;
 
   --ring: #8aa4ff;
   --shadow-1: 0 1px 2px rgba(0, 0, 0, .28);
@@ -99,6 +92,7 @@
   --shadow-2: 0 1px 3px rgba(0, 0, 0, .55), 0 12px 32px rgba(0, 0, 0, .5);
 }
 
+:root,
 :root[data-theme="light"] {
   color-scheme: light;
 
@@ -133,6 +127,15 @@
 }
 
 :root {
+  /* The app's icon-tile tints. The same on every skin, so they live here and
+     not in one skin's block -- where they were, and where they vanished from
+     the other two the day the default skin changed. */
+  --tile-blue:   #2d5bff;
+  --tile-green:  #17a06b;
+  --tile-amber:  #e08a15;
+  --tile-violet: #7c4dff;
+  --tile-rose:   #e0447a;
+
   /* The app's radii: 16 on cards, 12 on fields, 10 on tiles. */
   --r-sm: 10px;
   --r-md: 12px;
@@ -226,6 +229,9 @@ button, input, select, textarea {
   transition: background .12s, border-color .12s, opacity .12s;
   white-space: nowrap;
 }
+/* A link dressed as a button is still a button to the reader, and an
+   underline inside a pill reads as a rendering fault. */
+a.btn { text-decoration: none; }
 .btn:hover:not(:disabled) { background: var(--surface-2); }
 .btn:disabled { opacity: .5; cursor: not-allowed; }
 .btn:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
@@ -256,6 +262,12 @@ button, input, select, textarea {
   outline: 2px solid var(--ring);
   outline-offset: -1px;
   border-color: transparent;
+}
+/* Reads as fixed, not as an empty box waiting to be typed in. */
+.input:disabled, .select:disabled {
+  background: var(--surface-2);
+  color: var(--ink-3);
+  cursor: not-allowed;
 }
 .textarea { resize: vertical; min-height: 74px; }
 
@@ -337,7 +349,9 @@ button, input, select, textarea {
 
 /* ---- Tables ----------------------------------------------------- */
 
-.table-wrap { overflow-x: auto; }
+/* Takes the card's corners. The header cells are filled, and a filled
+   square cell inside a rounded card pokes through its top corners. */
+.table-wrap { overflow-x: auto; border-radius: inherit; }
 
 table.data {
   width: 100%;

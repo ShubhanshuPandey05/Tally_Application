@@ -81,14 +81,19 @@
   flex: none;
 }
 
+/* Two rows: who is signed in, then what they can do about it. On one row
+   the theme switch and Sign out left the name eleven characters, and a
+   sidebar that shows "Shub..." has stopped saying who is signed in. */
 .side-foot {
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 8px;
   padding: 10px 6px 2px;
   border-top: 1px solid var(--line);
   margin-top: 8px;
 }
+.side-actions { display: flex; align-items: center; gap: 6px; }
+.side-actions .btn { flex: 1 1 0; }
 
 .avatar {
   width: 30px;
@@ -158,8 +163,15 @@
 
 .page-head { display: flex; flex-direction: column; gap: 3px; }
 .page-head p { margin: 0; }
+/* A heading with an action beside it. Named explicitly because the column
+   direction above otherwise wins and stacks the button under a centred
+   title. */
+.page-head.row-between { flex-direction: row; align-items: flex-end; flex-wrap: wrap; }
 
-.menu-button { display: none; }
+/* `.btn` in front: the button's own `display` is declared at the same
+   weight in another stylesheet, and whichever loaded last used to win --
+   which put a menu button on a desktop that has no drawer to open. */
+.btn.menu-button { display: none; }
 .drawer-scrim { display: none; }
 
 /* ---- Narrow ------------------------------------------------------ */
@@ -191,7 +203,7 @@
     background: rgba(10, 14, 18, .4);
   }
 
-  .menu-button { display: inline-flex; }
+  .btn.menu-button { display: inline-flex; }
   .content { padding: 16px; }
   .topbar { padding: 8px 14px; }
 }

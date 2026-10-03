@@ -55,11 +55,19 @@ async def discover_companies(
             ),
         )
 
+    # Active rows only. Removing a company is a soft delete, so its row is
+    # still here -- and counting it as linked told the phone "already
+    # connected" about books the owner had just removed, with the tap that
+    # would have brought them back switched off. `link_company` revives that
+    # row; this has to leave the way to it open.
     linked = {
         row.tally_name: row.id
         for row in (
             await session.execute(
-                select(Company).where(Company.connector_id == connector.id)
+                select(Company).where(
+                    Company.connector_id == connector.id,
+                    Company.is_active.is_(True),
+                )
             )
         )
         .scalars()
@@ -119,6 +127,17 @@ async def link_company(
         existing.is_active = True
         existing.display_name = payload.display_name or existing.display_name
         await session.flush()
+        # Audited like a first link. The removal was, and a trail that shows
+        # books leaving but never coming back is one that reads as a breach.
+        await record(
+            session,
+            action="company.link",
+            org_id=principal.org_id,
+            user_id=principal.user.id,
+            company_id=existing.id,
+            detail={"tally_name": existing.tally_name, "relinked": True},
+            request=request,
+        )
         await _begin_history(session, sync, settings, existing.id)
         return CompanyResponse.build(existing)
 

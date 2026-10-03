@@ -54,6 +54,7 @@
         "kind": "purchase",
         "narration": null,
         "party": "SARA DISITIBUTOR",
+        "reference": null,
         "voucher_number": "3",
         "voucher_type": "Purchase"
       }

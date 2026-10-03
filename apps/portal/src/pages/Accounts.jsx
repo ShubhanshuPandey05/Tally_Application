@@ -14,12 +14,16 @@ import { fmtAgo, fmtDate } from '../format.js';
 import AccountDrawer from './AccountDrawer.jsx';
 import './accounts.css';
 
+// "All" first, and the default. It has a value of its own rather than the
+// empty string: the filter lives in the URL, an empty value is how a parameter
+// is removed from it, and a missing parameter used to mean Pending -- so
+// choosing All bounced straight back to the Pending tab.
 const TABS = [
+  { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'rejected', label: 'Rejected' },
-  { value: '', label: 'All' },
 ];
 
 /**
@@ -32,13 +36,22 @@ const TABS = [
 export default function Accounts({ me, onCounts }) {
   const toast = useToast();
   const [params, setParams] = useSearchParams();
-  const status = params.get('status') ?? 'pending';
+  const requested = params.get('status');
+  const status = TABS.some((tab) => tab.value === requested) ? requested : 'all';
   const openId = params.get('open') || '';
   const [search, setSearch] = useState(params.get('q') || '');
   const settled = useDebounced(search);
 
   const accounts = useLoad(
-    (signal) => api(`/accounts${query({ status, search: settled, limit: 200 })}`, { signal }),
+    (signal) =>
+      api(
+        `/accounts${query({
+          status: status === 'all' ? '' : status,
+          search: settled,
+          limit: 200,
+        })}`,
+        { signal },
+      ),
     [status, settled],
   );
 
@@ -109,7 +122,8 @@ export default function Accounts({ me, onCounts }) {
           ariaLabel="Filter by status"
           options={TABS}
           value={status}
-          onChange={(value) => setParam('status', value)}
+          // All is the default, so it is the one that leaves the URL clean.
+          onChange={(value) => setParam('status', value === 'all' ? '' : value)}
         />
         <span className="grow" />
         <input

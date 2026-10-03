@@ -358,10 +358,17 @@ def _seen_at(link) -> datetime | None:  # noqa: ANN001 - ConnectorLink or None
 async def list_connectors(
     principal: PrincipalDep, session: SessionDep, hub: HubDep
 ) -> list[ConnectorResponse]:
+    # Removed PCs are left out. The row is kept -- its companies and the audit
+    # trail hang off it -- but a revoked connector can never be revived, so one
+    # that stayed in the list was a line the owner could do nothing with, and
+    # "Remove this PC" looked as though it had not worked.
     rows = (
         (
             await session.execute(
-                select(Connector).where(Connector.org_id == principal.org_id)
+                select(Connector).where(
+                    Connector.org_id == principal.org_id,
+                    Connector.status != ConnectorStatus.REVOKED,
+                )
             )
         )
         .scalars()

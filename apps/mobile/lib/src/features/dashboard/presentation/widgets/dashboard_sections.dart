@@ -692,9 +692,13 @@ class _SubHeading extends StatelessWidget {
 
 /// "What happened since yesterday?"
 class ActivitySection extends StatelessWidget {
-  const ActivitySection({super.key, required this.summary});
+  const ActivitySection({super.key, required this.summary, this.scoped = true});
 
   final ActivitySummary summary;
+
+  /// False on the Today view, where the count is today's and the rows below it
+  /// reach back further -- so the caption has to say which the number is.
+  final bool scoped;
 
   @override
   Widget build(BuildContext context) {
@@ -723,7 +727,9 @@ class ActivitySection extends StatelessWidget {
 
     return SectionCard(
       title: 'Recent activity',
-      subtitle: '${summary.voucherCount} vouchers in the period',
+      subtitle: scoped
+          ? '${countOf(summary.voucherCount, 'voucher')} in the period'
+          : '${countOf(summary.voucherCount, 'voucher')} today',
       icon: Icons.history,
       tint: AppTheme.tileViolet,
       action: 'Day book',

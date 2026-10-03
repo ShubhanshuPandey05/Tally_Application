@@ -57,7 +57,7 @@ function Item({ to, icon, label, badge, end = false }) {
 }
 
 /**
- * Light, Dim or Dark -- the app's three skins, with Dim the default.
+ * Light, Dim or Dark -- the app's three skins, with Light the default.
  *
  * Not "follow the system", which this used to offer: the app decided against
  * it because a theme that flips with the OS clock changes the look of a screen
@@ -65,7 +65,7 @@ function Item({ to, icon, label, badge, end = false }) {
  * the same reason it should share its rules. Stored per browser, like the app
  * stores it per device -- the same person may want light on a desk monitor.
  */
-const SKINS = ['dim', 'light', 'dark'];
+const SKINS = ['light', 'dim', 'dark'];
 const SKIN_LABEL = { dim: 'Dim', light: 'Light', dark: 'Dark' };
 const SKIN_GLYPH = { dim: '◐', light: '☀', dark: '☾' };
 
@@ -73,9 +73,9 @@ function readSkin() {
   try {
     const stored = localStorage.getItem('tallyflow.portal.theme');
     // 'system' from before this change reads as the default.
-    return SKINS.includes(stored) ? stored : 'dim';
+    return SKINS.includes(stored) ? stored : 'light';
   } catch {
-    return 'dim';
+    return 'light';
   }
 }
 
@@ -96,12 +96,13 @@ function ThemeToggle() {
   return (
     <button
       type="button"
-      className="btn btn-ghost btn-sm"
-      title={`${SKIN_LABEL[skin]}. Click for ${SKIN_LABEL[next]}.`}
+      className="btn btn-sm"
+      title={`Click for ${SKIN_LABEL[next]}.`}
       aria-label={`Theme: ${SKIN_LABEL[skin]}`}
       onClick={() => setSkin(next)}
     >
-      <span aria-hidden="true" style={{ fontSize: 15 }}>{SKIN_GLYPH[skin]}</span>
+      <span aria-hidden="true" style={{ fontSize: 13 }}>{SKIN_GLYPH[skin]}</span>
+      {SKIN_LABEL[skin]}
     </button>
   );
 }
@@ -153,17 +154,21 @@ export default function Shell({ me, pending, onSignOut, children }) {
         </nav>
 
         <div className="side-foot">
-          <div className="avatar" aria-hidden="true">{initials(me.full_name, me.email)}</div>
-          <div className="stack grow">
-            <strong className="truncate">{me.full_name || me.email}</strong>
-            <span className="dim truncate" style={{ fontSize: 11.5 }}>
-              {owner ? 'Owner' : 'Partner'}
-            </span>
+          <div className="row">
+            <div className="avatar" aria-hidden="true">{initials(me.full_name, me.email)}</div>
+            <div className="stack grow">
+              <strong className="truncate">{me.full_name || me.email}</strong>
+              <span className="dim truncate" style={{ fontSize: 11.5 }}>
+                {owner ? 'Owner' : 'Partner'}
+              </span>
+            </div>
           </div>
-          <ThemeToggle />
-          <button type="button" className="btn btn-ghost btn-sm" onClick={onSignOut}>
-            Sign out
-          </button>
+          <div className="side-actions">
+            <ThemeToggle />
+            <button type="button" className="btn btn-sm" onClick={onSignOut}>
+              Sign out
+            </button>
+          </div>
         </div>
       </aside>
 

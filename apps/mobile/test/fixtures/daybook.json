@@ -24,6 +24,7 @@
         "kind": "purchase",
         "narration": null,
         "party": "SARA DISITIBUTOR",
+        "reference": null,
         "voucher_number": "3",
         "voucher_type": "Purchase"
       },
@@ -40,6 +41,7 @@
         "kind": "sales",
         "narration": null,
         "party": "Reliance Retail",
+        "reference": null,
         "voucher_number": "1",
         "voucher_type": "Sales"
       },
@@ -56,6 +58,7 @@
         "kind": "sales",
         "narration": null,
         "party": "Local Kirana",
+        "reference": null,
         "voucher_number": "2",
         "voucher_type": "Sales"
       }

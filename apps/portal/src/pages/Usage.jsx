@@ -180,7 +180,10 @@ function AccountTable({ title, subtitle, rows, empty, days, quiet = false }) {
               {rows.map((account) => (
                 <tr key={account.id}>
                   <td>
-                    <div className="row">
+                    {/* Name over status, as on the Overview queue. Side by
+                        side, a long name was squeezed into four lines by its
+                        own pill. */}
+                    <div className="stack">
                       <Link className="usage-account" to={`/accounts?open=${account.id}`}>
                         {account.name}
                       </Link>

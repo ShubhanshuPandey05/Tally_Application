@@ -15,6 +15,7 @@ import '../../dashboard/presentation/widgets/dashboard_sections.dart';
 import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/reports.dart';
+import 'widgets/bill_row.dart';
 import 'widgets/report_scaffold.dart';
 
 /// Outstanding for one ledger group -- Tally's Group Outstanding.
@@ -149,13 +150,20 @@ class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
               for (final GroupParty party in report.parties)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-                  child: _GroupPartyCard(party: party, kind: report.kind),
+                  child: _GroupPartyCard(
+                    key: ValueKey<String>(party.party),
+                    party: party,
+                    onOpen: () => _openParty(context, party.party),
+                  ),
                 ),
             ]
           else
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
-              child: _GroupTree(report: report),
+              child: _GroupTree(
+                report: report,
+                onOpenParty: (String party) => _openParty(context, party),
+              ),
             ),
           if (report.ungroupedPartyCount > 0)
             Padding(
@@ -167,12 +175,32 @@ class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
     );
   }
 
+  /// The party's open bills on a page of their own, read from this same
+  /// report and date so the figures match the card that was tapped.
+  void _openParty(BuildContext context, String party) => context.push(
+        Uri(
+          path: Routes.partyOutstanding,
+          queryParameters: <String, String>{
+            'kind': widget.kind == OutstandingKind.payable ? 'payable' : 'receivable',
+            'party': party,
+            'from': 'group',
+            if (widget.group != null) 'group': widget.group!,
+            if (_asOf != null) 'on': _isoDate(_asOf!),
+          },
+        ).toString(),
+      );
+
   static bool _isToday(DateTime date) {
     final DateTime now = DateTime.now();
     return date.year == now.year && date.month == now.month && date.day == now.day;
   }
 
   static String _formatDate(DateTime date) => '${date.day}/${date.month}/${date.year}';
+
+  static String _isoDate(DateTime value) =>
+      '${value.year.toString().padLeft(4, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-'
+      '${value.day.toString().padLeft(2, '0')}';
 }
 
 class _GroupSummaryCard extends StatelessWidget {
@@ -304,44 +332,93 @@ class _NetBreakdown extends StatelessWidget {
   }
 }
 
-class _GroupPartyCard extends StatelessWidget {
-  const _GroupPartyCard({required this.party, required this.kind});
+/// A party under the group: the tile opens a page with only its open bills,
+/// and the arrow folds those bills open here. Same two targets as on
+/// Receivables, so a card behaves the same wherever it is met.
+class _GroupPartyCard extends StatefulWidget {
+  const _GroupPartyCard({super.key, required this.party, required this.onOpen});
 
   final GroupParty party;
-  final OutstandingKind kind;
+  final VoidCallback onOpen;
+
+  @override
+  State<_GroupPartyCard> createState() => _GroupPartyCardState();
+}
+
+class _GroupPartyCardState extends State<_GroupPartyCard> {
+  bool _open = false;
 
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
+    final GroupParty party = widget.party;
 
     return Card(
       clipBehavior: Clip.antiAlias,
-      child: Theme(
-        // The default expansion tile divider fights the card border.
-        data: theme.copyWith(dividerColor: Colors.transparent),
-        child: ExpansionTile(
-          tilePadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 4),
-          title: Text(
-            party.party,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyLarge?.copyWith(fontWeight: FontWeight.w600),
-          ),
-          subtitle: Text(
-            _subtitle(party),
-            style: theme.textTheme.bodySmall?.copyWith(
-              color: party.isOverdue ? context.negativeColor : context.mutedColor,
+      child: Column(
+        children: <Widget>[
+          InkWell(
+            onTap: widget.onOpen,
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
+              child: Row(
+                children: <Widget>[
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: <Widget>[
+                        Text(
+                          party.party,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge
+                              ?.copyWith(fontWeight: FontWeight.w600),
+                        ),
+                        Text(
+                          _subtitle(party),
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: party.isOverdue
+                                ? context.negativeColor
+                                : context.mutedColor,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    MoneyFormat.compact(party.net),
+                    style: theme.textTheme.titleSmall,
+                  ),
+                  IconButton(
+                    tooltip: _open ? 'Hide bills' : 'Show bills',
+                    onPressed: () => setState(() => _open = !_open),
+                    icon: AnimatedRotation(
+                      turns: _open ? 0.5 : 0,
+                      duration: const Duration(milliseconds: 200),
+                      child: const Icon(Icons.expand_more),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ),
-          trailing: Text(
-            MoneyFormat.compact(party.net),
-            style: theme.textTheme.titleSmall,
+          AnimatedSize(
+            duration: const Duration(milliseconds: 200),
+            alignment: Alignment.topCenter,
+            child: _open
+                ? Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Column(
+                      children: <Widget>[
+                        for (final OutstandingBill bill in party.bills) BillRow(bill: bill),
+                        _PartyStatementLink(party: party.party),
+                      ],
+                    ),
+                  )
+                : const SizedBox(width: double.infinity),
           ),
-          children: <Widget>[
-            for (final OutstandingBill bill in party.bills) _BillRow(bill: bill),
-            _PartyStatementLink(party: party.party),
-          ],
-        ),
+        ],
       ),
     );
   }
@@ -368,9 +445,10 @@ class _GroupPartyCard extends StatelessWidget {
 /// "Electronics Supplier" says it is a group and not a party. Sub-groups with
 /// nothing outstanding are left out, because a row of ₹0 reads as a figure.
 class _GroupTree extends StatefulWidget {
-  const _GroupTree({required this.report});
+  const _GroupTree({required this.report, required this.onOpenParty});
 
   final GroupOutstandingReport report;
+  final ValueChanged<String> onOpenParty;
 
   @override
   State<_GroupTree> createState() => _GroupTreeState();
@@ -417,9 +495,7 @@ class _GroupTreeState extends State<_GroupTree> {
             depth: depth + 1,
             label: party.party,
             amount: party.net,
-            onTap: () => context.push(
-              '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.party)}',
-            ),
+            onTap: () => widget.onOpenParty(party.party),
           ),
         for (final _GroupNode group in groups) ..._rows(group, depth + 1),
       ],
@@ -534,60 +610,6 @@ class _TreeRow extends StatelessWidget {
   }
 }
 
-class _BillRow extends StatelessWidget {
-  const _BillRow({required this.bill});
-
-  final OutstandingBill bill;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  bill.billName ?? 'Bill',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
-                ),
-                Text(
-                  bill.isOverdue
-                      ? '${bill.daysOverdue} days overdue'
-                      : ageingLabel(bill.ageingBucket),
-                  style: theme.textTheme.bodySmall?.copyWith(
-                    color: bill.isOverdue ? context.negativeColor : context.mutedColor,
-                  ),
-                ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Text(
-                MoneyFormat.full(bill.amount),
-                style: theme.textTheme.bodyMedium?.merge(AppTheme.amount),
-              ),
-              if (bill.isAdvance)
-                Text(
-                  'Advance',
-                  style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-}
-
 /// The report is incomplete and says so.
 ///
 /// A party whose ledger was not in this read cannot be placed in any group. The
@@ -622,8 +644,7 @@ class _UngroupedNotice extends StatelessWidget {
 ///
 /// Bills answer "what is outstanding"; the ledger answers "and what have they
 /// been paying like". Kept as an explicit action at the foot of the expansion
-/// rather than a tap on the party row, which already has a job -- opening and
-/// closing the bills.
+/// because the party row already has a job -- opening the page of open bills.
 class _PartyStatementLink extends StatelessWidget {
   const _PartyStatementLink({required this.party});
 

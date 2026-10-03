@@ -813,6 +813,7 @@ def _row_out(voucher: Voucher) -> dict[str, Any]:
         "kind": str(voucher.kind),
         "party": voucher.party_name,
         "narration": voucher.narration,
+        "reference": voucher.reference,
         "amount": money_out(voucher_value(voucher)),
     }
 

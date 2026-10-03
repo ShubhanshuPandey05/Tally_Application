@@ -414,6 +414,74 @@ async def test_only_an_owner_can_create_portal_accounts(
     assert allowed.json()["partner"]["must_change_password"] is True
 
 
+async def test_a_portal_person_can_rename_themselves_and_nothing_else(
+    app, client: AsyncClient, platform_owner
+) -> None:
+    partner = await make_partner(app, client, "mine@partner.in")
+    renamed = await client.patch(
+        "/v1/portal/me",
+        json={"full_name": "  Asha Rao ", "role": "owner"},
+        headers=partner["headers"],
+    )
+    assert renamed.status_code == 200
+    assert renamed.json()["full_name"] == "Asha Rao"
+    # The extra field is ignored rather than honoured: a role is granted.
+    assert renamed.json()["role"] == "partner"
+
+    blank = await client.patch(
+        "/v1/portal/me", json={"full_name": "   "}, headers=partner["headers"]
+    )
+    assert blank.status_code == 409
+
+
+async def test_an_owner_can_reissue_a_partners_password(
+    app, client: AsyncClient, platform_owner
+) -> None:
+    """A generated password, shown once, that must be replaced -- as on creation."""
+    created = await client.post(
+        "/v1/portal/partners",
+        json={"email": "forgot@partner.in"},
+        headers=platform_owner["headers"],
+    )
+    partner_id = created.json()["partner"]["id"]
+    first = created.json()["temporary_password"]
+
+    reset = await client.post(
+        f"/v1/portal/partners/{partner_id}/reset-password",
+        headers=platform_owner["headers"],
+    )
+    assert reset.status_code == 200
+    second = reset.json()["temporary_password"]
+    assert second != first
+    assert reset.json()["partner"]["must_change_password"] is True
+
+    old = await client.post(
+        "/v1/portal/auth/login", json={"email": "forgot@partner.in", "password": first}
+    )
+    assert old.status_code == 401
+    new = await client.post(
+        "/v1/portal/auth/login", json={"email": "forgot@partner.in", "password": second}
+    )
+    assert new.status_code == 200
+
+
+async def test_only_an_owner_resets_passwords_and_never_their_own(
+    app, client: AsyncClient, platform_owner
+) -> None:
+    partner = await make_partner(app, client, "mine@partner.in")
+    refused = await client.post(
+        f"/v1/portal/partners/{platform_owner['user']['id']}/reset-password",
+        headers=partner["headers"],
+    )
+    assert refused.status_code == 403
+
+    own = await client.post(
+        f"/v1/portal/partners/{platform_owner['user']['id']}/reset-password",
+        headers=platform_owner["headers"],
+    )
+    assert own.status_code == 409
+
+
 async def test_the_last_owner_cannot_be_removed(
     client: AsyncClient, platform_owner
 ) -> None:

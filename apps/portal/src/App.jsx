@@ -96,7 +96,7 @@ export default function App() {
           <Route path="/accounts" element={<Accounts me={me} onCounts={refreshPending} />} />
           <Route
             path="/partners"
-            element={me.role === 'owner' ? <Partners /> : <Navigate to="/" replace />}
+            element={me.role === 'owner' ? <Partners me={me} /> : <Navigate to="/" replace />}
           />
           <Route
             path="/logs/backend"

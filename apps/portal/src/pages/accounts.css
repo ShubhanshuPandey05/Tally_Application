@@ -39,6 +39,9 @@
   gap: 2px;
   padding: 10px 12px;
   background: var(--surface-2);
+  /* Ruled as well as filled. On the light skin the fill is the page's own
+     grey, so a fact placed straight on the page had no edge at all. */
+  border: 1px solid var(--line);
   border-radius: var(--r-sm);
 }
 .fact-label {
@@ -81,3 +84,14 @@
   word-break: break-all;
   user-select: all;
 }
+
+/* The two forms on Settings, side by side where there is room. */
+.settings-forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 420px));
+  gap: 18px;
+  align-items: start;
+}
+
+/* Row actions on a table: small, and never wrapping under each other. */
+.row-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }

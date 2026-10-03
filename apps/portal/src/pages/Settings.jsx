@@ -1,5 +1,6 @@
+import { useState } from 'react';
 import { api } from '../api.js';
-import { Pill, useLoad } from '../components/ui.jsx';
+import { Pill, useLoad, useToast } from '../components/ui.jsx';
 import { fmtCount, fmtDateTime, initials } from '../format.js';
 import ChangePassword from './ChangePassword.jsx';
 import './accounts.css';
@@ -44,9 +45,15 @@ export default function Settings({ me, onUpdated }) {
 
       {me.role === 'owner' ? <Diagnostics /> : null}
 
-      <div className="stack" style={{ gap: 10 }}>
-        <h2>Change password</h2>
-        <ChangePassword onDone={onUpdated} />
+      <div className="settings-forms">
+        <div className="stack" style={{ gap: 10 }}>
+          <h2>Your name</h2>
+          <ChangeName me={me} onDone={onUpdated} />
+        </div>
+        <div className="stack" style={{ gap: 10 }}>
+          <h2>Change password</h2>
+          <ChangePassword onDone={onUpdated} />
+        </div>
       </div>
 
       <p className="hint" style={{ maxWidth: 620 }}>
@@ -55,6 +62,66 @@ export default function Settings({ me, onUpdated }) {
         reaches anybody&rsquo;s books.
       </p>
     </>
+  );
+}
+
+/**
+ * The name shown beside your decisions.
+ *
+ * The email is not here to edit. It is the identity an owner granted access
+ * to, and a portal account that can re-point itself at another inbox is one
+ * that can be handed to somebody nobody approved.
+ */
+function ChangeName({ me, onDone }) {
+  const toast = useToast();
+  const [name, setName] = useState(me.full_name || '');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+  const unchanged = name.trim() === (me.full_name || '');
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      onDone(await api('/me', { method: 'PATCH', body: { full_name: name.trim() } }));
+      toast('Name changed.');
+    } catch (failure) {
+      setError(failure.message);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <form className="card card-pad" style={{ display: 'grid', gap: 14 }} onSubmit={submit}>
+      <label className="field">
+        <span className="label">Full name</span>
+        <input
+          className="input"
+          autoComplete="name"
+          required
+          maxLength={200}
+          value={name}
+          onChange={(event) => setName(event.target.value)}
+        />
+        <span className="hint">Shown in the sidebar and on the Partners list.</span>
+      </label>
+      <label className="field">
+        <span className="label">Email</span>
+        <input className="input" value={me.email} disabled readOnly />
+        <span className="hint">Your sign-in. An owner can add a new one, not change this.</span>
+      </label>
+      {error ? <p className="error-text">{error}</p> : null}
+      <button
+        className="btn btn-primary"
+        type="submit"
+        disabled={busy || unchanged || !name.trim()}
+      >
+        {busy ? <span className="spinner" /> : null}
+        {busy ? 'Saving…' : 'Save name'}
+      </button>
+    </form>
   );
 }
 

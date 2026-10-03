@@ -99,7 +99,7 @@ export default function ChangePassword({ forced = false, onDone }) {
 
   if (!forced) {
     return (
-      <form className="card card-pad" style={{ display: 'grid', gap: 14, maxWidth: 420 }} onSubmit={submit}>
+      <form className="card card-pad" style={{ display: 'grid', gap: 14 }} onSubmit={submit}>
         {form}
       </form>
     );

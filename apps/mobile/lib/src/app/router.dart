@@ -19,11 +19,13 @@ import '../features/reports/presentation/daybook_screen.dart';
 import '../features/reports/presentation/group_outstanding_screen.dart';
 import '../features/reports/presentation/ledgers_screen.dart';
 import '../features/reports/presentation/outstanding_screen.dart';
+import '../features/reports/presentation/party_outstanding_screen.dart';
 import '../features/reports/presentation/reports_screen.dart';
 import '../features/reports/presentation/slow_moving_screen.dart';
 import '../features/reports/presentation/register_screen.dart';
 import '../features/reports/presentation/stock_item_screen.dart';
 import '../features/reports/presentation/stock_screen.dart';
+import '../features/reports/presentation/ledger_group_screen.dart';
 import '../features/reports/presentation/ledger_statement_screen.dart';
 import '../features/reports/presentation/voucher_screen.dart';
 import '../features/reports/domain/reports.dart';
@@ -47,6 +49,7 @@ class Routes {
   static const String daybook = '/reports/daybook';
   static const String outstanding = '/reports/outstanding';
   static const String groupOutstanding = '/reports/outstanding/group';
+  static const String partyOutstanding = '/reports/outstanding/party';
   static const String stock = '/reports/stock';
   static const String ledgers = '/reports/ledgers';
   static const String slowMoving = '/reports/slow-moving';
@@ -66,6 +69,7 @@ class Routes {
   // contain slashes, ampersands and full stops that a path would have to fight.
   static const String voucher = '/reports/voucher';
   static const String ledgerStatement = '/reports/ledger-statement';
+  static const String ledgerGroup = '/reports/ledgers/group';
   static const String register = '/reports/register';
   static const String stockMovement = '/reports/stock/movement';
   static const String team = '/team';
@@ -198,6 +202,19 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       // does not care, but the ordering means a later change to either -- a
       // path parameter on `outstanding`, say -- cannot silently swallow this.
       GoRoute(
+        path: Routes.partyOutstanding,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => PartyOutstandingScreen(
+          kind: state.uri.queryParameters['kind'] == 'payable'
+              ? OutstandingKind.payable
+              : OutstandingKind.receivable,
+          party: state.uri.queryParameters['party'] ?? '',
+          asOf: DateTime.tryParse(state.uri.queryParameters['on'] ?? ''),
+          fromGroup: state.uri.queryParameters['from'] == 'group',
+          group: state.uri.queryParameters['group'],
+        ),
+      ),
+      GoRoute(
         path: Routes.groupOutstanding,
         parentNavigatorKey: _rootKey,
         builder: (BuildContext context, GoRouterState state) => GroupOutstandingScreen(
@@ -226,6 +243,13 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
           // hand-typed or stale link on a screen that can explain itself.
           on: DateTime.tryParse(state.uri.queryParameters['on'] ?? '') ??
               DateTime.now(),
+        ),
+      ),
+      GoRoute(
+        path: Routes.ledgerGroup,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => LedgerGroupScreen(
+          group: state.uri.queryParameters['group'] ?? '',
         ),
       ),
       GoRoute(

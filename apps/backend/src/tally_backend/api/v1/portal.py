@@ -70,6 +70,7 @@ from ..portal_schemas import (
     StatusChangeRequest,
     UpdateAccountRequest,
     UpdatePartnerRequest,
+    UpdatePortalProfileRequest,
 )
 
 router = APIRouter(prefix="/portal", tags=["portal"])
@@ -110,6 +111,29 @@ async def portal_me(
     principal: PlatformPrincipalDep, session: SessionDep
 ) -> PortalUserResponse:
     return await _portal_user_response(session, principal.user)
+
+
+@router.patch("/me", response_model=PortalUserResponse)
+async def update_portal_profile(
+    payload: UpdatePortalProfileRequest,
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    request: Request,
+) -> PortalUserResponse:
+    """Change your own display name. Nothing else about the account is yours to set."""
+    user = principal.user
+    name = payload.full_name.strip()
+    if not name:
+        raise ConflictError(
+            "portal name cannot be blank", user_message="Enter a name."
+        )
+    user.full_name = name
+    await session.flush()
+
+    await record(
+        session, action="portal.update_profile", user_id=user.id, request=request
+    )
+    return await _portal_user_response(session, user)
 
 
 @router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
@@ -467,7 +491,8 @@ async def update_partner(
         )
 
     if payload.full_name is not None:
-        partner.full_name = payload.full_name
+        # A blank name clears it; the list then falls back to the email.
+        partner.full_name = payload.full_name.strip() or None
     if payload.is_active is not None:
         partner.is_active = payload.is_active
     partner.role = role
@@ -485,6 +510,52 @@ async def update_partner(
         request=request,
     )
     return await _portal_user_response(session, partner)
+
+
+@router.post(
+    "/partners/{partner_id}/reset-password", response_model=PartnerCreatedResponse
+)
+async def reset_partner_password(
+    partner_id: str,
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    request: Request,
+) -> PartnerCreatedResponse:
+    """Issue somebody a new temporary password. Owner-only.
+
+    The same shape as creating them: a generated password, shown once, that has
+    to be replaced on first sign-in. An owner never *chooses* another person's
+    password -- one they picked is one they still know after handing it over.
+
+    Not for yourself. That path asks for the current password, which is the
+    check that the person at the keyboard is still the person signed in.
+    """
+    principal.require(PlatformRole.OWNER)
+    partner = await session.get(PlatformUser, partner_id)
+    if partner is None:
+        raise NotFound(f"portal user {partner_id}", user_message="That person was not found.")
+    if partner.id == principal.user.id:
+        raise ConflictError(
+            "portal owner tried to reset their own password",
+            user_message="Change your own password in Settings.",
+        )
+
+    password = generate_temporary_password()
+    partner.password_hash = hash_password(password)
+    partner.must_change_password = True
+    await session.flush()
+
+    await record(
+        session,
+        action="portal.reset_partner_password",
+        user_id=principal.user.id,
+        detail={"partner_id": partner.id, "email": partner.email},
+        request=request,
+    )
+    return PartnerCreatedResponse(
+        partner=await _portal_user_response(session, partner),
+        temporary_password=password,
+    )
 
 
 # --------------------------------------------------------------------------

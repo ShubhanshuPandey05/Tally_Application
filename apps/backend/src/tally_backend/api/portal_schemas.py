@@ -64,6 +64,13 @@ class PortalChangePasswordRequest(BaseModel):
     new_password: str = Field(min_length=10, max_length=200)
 
 
+class UpdatePortalProfileRequest(BaseModel):
+    #: The only thing a portal person may change about themselves besides the
+    #: password. Not the email -- that is the identity an owner granted access
+    #: to -- and never the role.
+    full_name: str = Field(min_length=1, max_length=200)
+
+
 class CreatePartnerRequest(BaseModel):
     email: EmailStr
     full_name: str | None = Field(default=None, max_length=200)

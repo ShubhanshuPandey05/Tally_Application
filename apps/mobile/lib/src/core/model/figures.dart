@@ -121,6 +121,7 @@ class TransactionLine {
     this.voucherType,
     this.party,
     this.narration,
+    this.reference,
   });
 
   /// The voucher's identity, for opening its detail.
@@ -143,6 +144,10 @@ class TransactionLine {
   final String? party;
   final String? narration;
 
+  /// The voucher's own reference -- a supplier's bill number, an order number.
+  /// Null from an older backend and on any voucher entered without one.
+  final String? reference;
+
   factory TransactionLine.fromJson(Map<String, Object?> json) => TransactionLine(
         key: json['key'] as String?,
         date: DateTime.tryParse(json['date'] as String? ?? '') ?? DateTime.now(),
@@ -152,6 +157,7 @@ class TransactionLine {
         voucherType: json['voucher_type'] as String?,
         party: json['party'] as String?,
         narration: json['narration'] as String?,
+        reference: json['reference'] as String?,
       );
 }
 

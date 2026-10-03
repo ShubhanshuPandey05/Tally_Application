@@ -362,13 +362,14 @@ would wait out the whole deadline for a reply that was never coming.
 The app ships **Light, Dim and Dark**, chosen by the customer in Profile and
 stored on the device rather than on the account — the same owner may want light
 on the counter tablet and dark on the phone at night, and syncing the choice
-would make one of those wrong every time. **Dim is the default**, not the system
-setting: a theme that flips with the system clock changes the look of somebody's
-books halfway through the day for no reason they asked for.
+would make one of those wrong every time. **Light is the default** (decided
+2026-10-03; it was Dim), and the other two apply only once somebody picks one —
+never the system setting: a theme that flips with the system clock changes the
+look of somebody's books halfway through the day for no reason they asked for.
 
 **The management portal wears the same tokens** (decided 2026-09-30): the app's
 blue, its four greys per skin, its radii, Inter, and the same three skins with
-Dim the default, stored per browser. It had a pine-teal palette of its own, and
+Light the default, stored per browser. It had a pine-teal palette of its own, and
 a partner who has just watched a customer use the app should not then open what
 looks like a different product. Its one rule of its own survives — amber means
 something is waiting on a human, and nothing else is amber. Chart marks on Dim
@@ -630,6 +631,14 @@ Portal accounts are never self-service. The first one is seeded from
 `TALLYFLOW_PORTAL_BOOTSTRAP_*` at startup — once, only when no portal account
 exists at all, and flagged `must_change_password` because that value lives in a
 deployment manifest.
+
+A portal person may change their own name and password and nothing else — not
+the email, which is the identity an owner granted access to. An owner can
+rename anybody and **reissue** a password, never choose one: it is generated,
+shown once and must be replaced at the next sign-in, exactly as on creation,
+because a password an owner picked is one they still know after handing it
+over. None of this reaches a customer's sign-in; resetting that from the portal
+would be a way into their books.
 
 ### The support view
 

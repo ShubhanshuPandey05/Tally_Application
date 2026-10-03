@@ -13,6 +13,7 @@ import '../../dashboard/presentation/widgets/dashboard_sections.dart';
 import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/reports.dart';
+import 'widgets/bill_row.dart';
 import 'widgets/report_scaffold.dart';
 
 /// "Who owes me money?" -- grouped by party, worst first.
@@ -204,6 +205,8 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
               padding: const EdgeInsets.fromLTRB(16, 0, 16, 10),
               child: _PartyCard(
                 party: party,
+                kind: widget.kind,
+                asOf: _asOf,
                 expanded: _expanded.contains(party.party),
                 onToggle: () => setState(() {
                   if (!_expanded.remove(party.party)) _expanded.add(party.party);
@@ -225,17 +228,25 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
 
 /// A party, its total, and -- behind the arrow -- the bills that make it up.
 ///
-/// Two targets on one card because they answer different questions: the arrow
-/// lists what is outstanding right here, and the card itself opens the party's
-/// statement, which is where "and what have they been paying like" is answered.
+/// Two targets on one card: the arrow lists the bills right here, and the card
+/// itself opens a page holding only those bills. It used to open the party's
+/// ledger statement, which answers a different question -- every voucher in
+/// the window, settled or not -- and buried the six open bills somebody tapped
+/// to see among the receipts that had already cleared others.
 class _PartyCard extends StatelessWidget {
   const _PartyCard({
     required this.party,
+    required this.kind,
+    required this.asOf,
     required this.expanded,
     required this.onToggle,
   });
 
   final PartyBills party;
+  final OutstandingKind kind;
+
+  /// Carried to the party's page so it reads the same report, not today's.
+  final DateTime? asOf;
   final bool expanded;
   final VoidCallback onToggle;
 
@@ -250,7 +261,14 @@ class _PartyCard extends StatelessWidget {
         children: <Widget>[
           InkWell(
             onTap: () => context.push(
-              '${Routes.ledgerStatement}?ledger=${Uri.encodeQueryComponent(party.party)}',
+              Uri(
+                path: Routes.partyOutstanding,
+                queryParameters: <String, String>{
+                  'kind': kind == OutstandingKind.payable ? 'payable' : 'receivable',
+                  'party': party.party,
+                  if (asOf != null) 'on': _isoDate(asOf!),
+                },
+              ).toString(),
             ),
             child: Padding(
               padding: const EdgeInsets.fromLTRB(16, 10, 4, 10),
@@ -305,7 +323,7 @@ class _PartyCard extends StatelessWidget {
                     child: Column(
                       children: <Widget>[
                         for (final OutstandingBill bill in party.bills)
-                          _BillRow(bill: bill),
+                          BillRow(bill: bill),
                       ],
                     ),
                   )
@@ -317,72 +335,7 @@ class _PartyCard extends StatelessWidget {
   }
 }
 
-class _BillRow extends StatelessWidget {
-  const _BillRow({required this.bill});
-
-  final OutstandingBill bill;
-
-  @override
-  Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 6, 16, 6),
-      child: Row(
-        children: <Widget>[
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: <Widget>[
-                Text(
-                  bill.billName ?? 'Bill',
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: theme.textTheme.bodyMedium,
-                ),
-                if (_dates(bill) case final String dates)
-                  Text(
-                    dates,
-                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
-                  ),
-                if (bill.isOverdue)
-                  Text(
-                    '${bill.daysOverdue} days overdue',
-                    style: theme.textTheme.bodySmall?.copyWith(color: context.negativeColor),
-                  )
-                else if (_dates(bill) == null)
-                  Text(
-                    ageingLabel(bill.ageingBucket),
-                    style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
-                  ),
-              ],
-            ),
-          ),
-          const SizedBox(width: 12),
-          Column(
-            crossAxisAlignment: CrossAxisAlignment.end,
-            children: <Widget>[
-              Text(
-                MoneyFormat.full(bill.amount),
-                style: theme.textTheme.bodyMedium?.merge(AppTheme.amount),
-              ),
-              if (bill.isAdvance)
-                Text(
-                  'Advance',
-                  style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
-                ),
-            ],
-          ),
-        ],
-      ),
-    );
-  }
-
-  static String? _dates(OutstandingBill bill) {
-    String dmy(DateTime date) => '${date.day}/${date.month}/${date.year}';
-    final List<String> parts = <String>[
-      if (bill.billDate != null) 'bill ${dmy(bill.billDate!)}',
-      if (bill.dueDate != null) 'due ${dmy(bill.dueDate!)}',
-    ];
-    return parts.isEmpty ? null : parts.join(' · ');
-  }
-}
+String _isoDate(DateTime value) =>
+    '${value.year.toString().padLeft(4, '0')}-'
+    '${value.month.toString().padLeft(2, '0')}-'
+    '${value.day.toString().padLeft(2, '0')}';

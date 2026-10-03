@@ -78,6 +78,7 @@
         "kind": "sales",
         "narration": null,
         "party": "Reliance Retail",
+        "reference": null,
         "voucher_number": "1",
         "voucher_type": "Sales"
       },
@@ -94,6 +95,7 @@
         "kind": "sales",
         "narration": null,
         "party": "Local Kirana",
+        "reference": null,
         "voucher_number": "2",
         "voucher_type": "Sales"
       }
