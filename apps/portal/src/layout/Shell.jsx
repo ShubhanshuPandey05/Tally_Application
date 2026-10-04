@@ -121,7 +121,7 @@ export default function Shell({ me, pending, onSignOut, children }) {
     <div className={`shell${open ? ' is-open' : ''}`}>
       <aside className="sidebar">
         <div className="brand">
-          {/* The product's own mark -- the stacked TallyFlow, baked to
+          {/* The product's own mark -- the stacked Prime Analyst, baked to
               outlines by tools/brand -- rather than a tile of the portal's
               own, which read as a different product. */}
           <img
@@ -132,7 +132,7 @@ export default function Shell({ me, pending, onSignOut, children }) {
             height="30"
           />
           <div className="stack">
-            <strong>TallyFlow</strong>
+            <strong>Prime Analyst</strong>
             <span className="dim" style={{ fontSize: 11.5 }}>Partner Desk</span>
           </div>
         </div>

@@ -282,6 +282,8 @@ class LedgerStatement {
       );
 }
 
+Money? _moneyOrNull(Object? json) => json == null ? null : Money.fromJson(json);
+
 /// One month's column of a register.
 class MonthTotal {
   const MonthTotal({
@@ -289,6 +291,12 @@ class MonthTotal {
     required this.label,
     required this.total,
     required this.voucherCount,
+    this.cancelledCount = 0,
+    this.quantity,
+    this.itemValue,
+    this.igst,
+    this.cgst,
+    this.sgst,
   });
 
   final String month;
@@ -296,11 +304,31 @@ class MonthTotal {
   final Money total;
   final int voucherCount;
 
+  /// Cancelled vouchers of this kind in the month. Counted, and in no total.
+  final int cancelledCount;
+
+  /// Units sold or bought, and what the goods alone came to before tax. Both
+  /// null when the month's vouchers were stored without their stock lines --
+  /// which is "not known", not nothing sold.
+  final double? quantity;
+  final Money? itemValue;
+
+  /// Null from a backend that predates them.
+  final Money? igst;
+  final Money? cgst;
+  final Money? sgst;
+
   factory MonthTotal.fromJson(Map<String, Object?> json) => MonthTotal(
         month: json['month'] as String? ?? '',
         label: json['label'] as String? ?? '',
         total: Money.fromJson(json['total']),
         voucherCount: (json['voucher_count'] as num?)?.toInt() ?? 0,
+        cancelledCount: (json['cancelled_count'] as num?)?.toInt() ?? 0,
+        quantity: (json['quantity'] as num?)?.toDouble(),
+        itemValue: _moneyOrNull(json['item_value']),
+        igst: _moneyOrNull(json['igst']),
+        cgst: _moneyOrNull(json['cgst']),
+        sgst: _moneyOrNull(json['sgst']),
       );
 }
 

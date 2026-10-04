@@ -101,6 +101,22 @@ class ReportsRepository {
     );
   }
 
+  Future<Fresh<GodownReport>> godowns(
+    String companyId, {
+    FetchMode mode = FetchMode.auto,
+    CachePolicy cache = CachePolicy.keep,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/stock/godowns',
+      query: <String, Object?>{'mode': mode.wire},
+      cache: cache,
+    );
+    return Fresh<GodownReport>(
+      GodownReport.fromJson(body.envelopeData),
+      body.envelopeFreshness,
+    );
+  }
+
   Future<Fresh<LedgerReport>> ledgers(
     String companyId, {
     FetchMode mode = FetchMode.auto,

@@ -110,7 +110,7 @@ class Role(StrEnum):
 
 
 class PlatformRole(StrEnum):
-    """Authority over the *business* of TallyFlow, not over anybody's books.
+    """Authority over the *business* of Prime Analyst, not over anybody's books.
 
     Deliberately a second ladder rather than two more rungs on :class:`Role`.
     A channel partner outranks a shop's admin over that shop's subscription and
@@ -169,7 +169,7 @@ class PlatformUser(Base, TimestampMixin):
 
 
 class OrgStatus(StrEnum):
-    """Where an organisation sits with the people who run TallyFlow.
+    """Where an organisation sits with the people who run Prime Analyst.
 
     A signup does not provision itself. Anyone can install the app, create an
     account and sign in -- but until somebody in the management portal says how

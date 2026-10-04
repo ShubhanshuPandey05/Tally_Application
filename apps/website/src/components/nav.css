@@ -19,51 +19,35 @@
   height: 72px;
 }
 
-/* The wordmark badge: the name in Caveat over a rule, on a tile. One shape, so
-   it drops into a nav, a footer or a hero without being redrawn. */
+/* The symbol on its black tile, with the name beside it. One shape, so it
+   drops into a nav, a footer or a hero without being redrawn. */
 .logo {
   display: inline-flex;
-  flex-direction: column;
-  align-items: stretch;
-  gap: 2px;
-  padding: 7px 15px 10px;
-  border-radius: 13px;
-  /* background: #0e0f11; */
+  align-items: center;
+  gap: 10px;
   text-decoration: none;
 }
 
-/* Black on white, for surfaces that already carry a dark element. */
-.logo-light {
-  /* background: #fff; */
-  /* border: 1px solid var(--line); */
+.logo-mark {
+  width: 34px;
+  height: 34px;
+  flex: none;
 }
 
 .logo-word {
-  /* A handwriting face carries leading a logo has no following line to spend,
-     so the line box is pinned to the glyphs. */
-  font-family: 'Caveat', 'Segoe Script', cursive;
-  font-size: 27px;
-  font-weight: 700;
+  /* Heavy then light: the weight change is what separates the two words, so
+     the space between them can stay a normal one. */
+  font-family: 'Sora', 'Inter', system-ui, sans-serif;
+  font-size: 21px;
+  font-weight: 300;
   line-height: 1;
-  letter-spacing: 0;
-  color: #fff;
-}
-
-.logo-rule {
-  display: block;
-  height: 2px;
-  border-radius: 2px;
-  background: #fff;
-}
-
-.logo-light .logo-word,
-.logo-light .logo-rule {
+  letter-spacing: -0.02em;
   color: var(--ink);
-  background: var(--ink);
+  white-space: nowrap;
 }
 
-.logo-light .logo-word {
-  background: none;
+.logo-word b {
+  font-weight: 800;
 }
 
 /* The links sit in a soft grey pill, the same shape as the segmented controls

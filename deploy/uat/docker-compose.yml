@@ -1,4 +1,4 @@
-# TallyFlow UAT stack: Postgres + API + Caddy (automatic TLS).
+# Prime Analyst UAT stack: Postgres + API + Caddy (automatic TLS).
 #
 # One command brings up everything a pilot customer needs to reach:
 #

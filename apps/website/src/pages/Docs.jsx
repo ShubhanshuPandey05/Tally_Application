@@ -33,12 +33,12 @@ const TROUBLE = [
     'Wipe the screen, turn the monitor brightness up, and hold the phone about a hand’s width away. If the code has been on screen a long time it may have expired — press “Show a new code” on that page.',
   ],
   [
-    'The connector page shows no code and says it cannot reach TallyFlow',
+    'The connector page shows no code and says it cannot reach Prime Analyst',
     'That PC has no internet, or is pointed at the wrong server. The page prints the address it is dialling; the connection is the thing to fix, not the pairing.',
   ],
   [
     'The pairing screen stays on “Waiting for the PC…”',
-    'You are on the typed path, and the connector has not reached us yet. On the PC, open Start → TallyFlow → TallyFlow Connector. It says whether this computer is paired and connected.',
+    'You are on the typed path, and the connector has not reached us yet. On the PC, open Start → Prime Analyst → Prime Analyst Connector. It says whether this computer is paired and connected.',
   ],
   [
     '“Check Tally Connection” cannot reach Tally',
@@ -85,7 +85,7 @@ export default function Docs() {
       <div className="docs-hero">
         <div className="shell">
           <span className="label">Setup guide</span>
-          <h1>Getting TallyFlow running.</h1>
+          <h1>Getting Prime Analyst running.</h1>
           <p>
             Five steps, done once — on the PC where TallyPrime already runs, and on the
             phone you will use. About fifteen minutes, most of which is the first sync
@@ -117,7 +117,7 @@ export default function Docs() {
                 yet.
               </li>
               <li>
-                <b>The company you want to see, open in Tally.</b> TallyFlow can only
+                <b>The company you want to see, open in Tally.</b> Prime Analyst can only
                 read companies that are open in TallyPrime. That is deliberate: it is
                 what keeps you in control of what the app can see.
               </li>
@@ -205,8 +205,8 @@ export default function Docs() {
               screen.
             </p>
             <p>
-              You can reopen it at any time from <b>Start</b> → <b>TallyFlow</b> →{' '}
-              <b>TallyFlow Connector</b>. It is the page that answers most questions
+              You can reopen it at any time from <b>Start</b> → <b>Prime Analyst</b> →{' '}
+              <b>Prime Analyst Connector</b>. It is the page that answers most questions
               about this computer: whether it is talking to us, whether TallyPrime is
               answering, which companies it feeds and who can see them.
             </p>
@@ -270,7 +270,7 @@ export default function Docs() {
           <section id="verify">
             <h2>Checking it works</h2>
             <p>
-              The installer adds shortcuts under <b>Start → TallyFlow</b>:
+              The installer adds shortcuts under <b>Start → Prime Analyst</b>:
             </p>
             <ul>
               <li>
@@ -340,7 +340,7 @@ export default function Docs() {
 
             <h3>Removing the connector</h3>
             <p>
-              Settings → Apps → <b>TallyFlow Connector</b> → Uninstall. That takes away
+              Settings → Apps → <b>Prime Analyst Connector</b> → Uninstall. That takes away
               the startup entry, the program, the saved pairing and the logs — removing
               the product removes the credential with it.
             </p>

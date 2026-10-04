@@ -23,6 +23,7 @@ import '../../auth/domain/app_user.dart';
 import '../../companies/application/company_providers.dart';
 import '../../companies/application/financial_year_providers.dart';
 import '../../companies/domain/company.dart';
+import '../../settings/presentation/profile_button.dart';
 import '../../subscription/domain/subscription.dart';
 import '../../subscription/presentation/demo_notice.dart';
 import '../../sync/application/sync_providers.dart';
@@ -68,6 +69,9 @@ class DashboardScreen extends ConsumerWidget {
           return const _NoCompaniesScreen();
         }
         return Scaffold(
+          // Profile is the only way to sign out, so a screen that cannot load
+          // must still offer it.
+          appBar: AppBar(leading: const ProfileButton()),
           body: ErrorState(
             error: error,
             onRetry: () => ref.invalidate(companiesProvider),
@@ -113,6 +117,8 @@ class _Dashboard extends ConsumerWidget {
 
     return Scaffold(
       appBar: AppBar(
+        leading: const ProfileButton(),
+        titleSpacing: 0,
         title: CompanySwitcher(
             subtitle: company.tallyName != company.name ? company.tallyName : null),
         actions: <Widget>[
@@ -225,7 +231,24 @@ class _DashboardBody extends ConsumerWidget {
           const UpdateBanner(),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 0),
-            child: _Headline(dashboard: dashboard, periodLabel: periodLabel),
+            child: _Headline(
+              dashboard: dashboard,
+              periodLabel: periodLabel,
+              // The same window the pills above have lit, so the register
+              // opens on the figure that was tapped. Null is today -- see
+              // DashboardPeriodController.select.
+              onTap: () => context.push(
+                salesRegisterLink(
+                  ref.read(dashboardPeriodProvider(companyId)) ??
+                      PeriodSelection(
+                        ref
+                            .read(activeFinancialYearProvider)
+                            .confine(DateRange.today()),
+                        'Today',
+                      ),
+                ),
+              ),
+            ),
           ),
           const SizedBox(height: 9),
           Padding(
@@ -572,10 +595,11 @@ class _Padded extends StatelessWidget {
 /// a hole where the most important thing should be, which reads worse than a
 /// screen that simply starts with tiles.
 class _Headline extends StatelessWidget {
-  const _Headline({required this.dashboard, this.periodLabel});
+  const _Headline({required this.dashboard, this.periodLabel, this.onTap});
 
   final Dashboard dashboard;
   final String? periodLabel;
+  final VoidCallback? onTap;
 
   static const Color _dim = Color(0xFF9AA0AE);
 
@@ -592,6 +616,7 @@ class _Headline extends StatelessWidget {
         isPeriod ? sales.period?.changePct : _versusYesterday(sales);
 
     return HeroCard(
+      onTap: onTap,
       padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -940,7 +965,11 @@ class _NoCompaniesScreen extends ConsumerWidget {
 
     if (!subscription.allowsChanges) {
       return Scaffold(
-        appBar: AppBar(title: const Text('TallyFlow')),
+        appBar: AppBar(
+          leading: const ProfileButton(),
+          titleSpacing: 0,
+          title: const Text('Prime Analyst'),
+        ),
         body: EmptyState(
           icon: subscription.isAwaitingApproval
               ? Icons.hourglass_top_rounded
@@ -951,7 +980,7 @@ class _NoCompaniesScreen extends ConsumerWidget {
           // The server's wording, not a second version of it written here.
           message: user?.role.isAdmin ?? false
               ? subscription.message
-              : 'Ask an admin of this business to set up TallyFlow. '
+              : 'Ask an admin of this business to set up Prime Analyst. '
                   'Your reports appear here as soon as they do.',
         ),
       );
@@ -959,7 +988,11 @@ class _NoCompaniesScreen extends ConsumerWidget {
 
     if (!(user?.canManageConnectors ?? false)) {
       return Scaffold(
-        appBar: AppBar(title: const Text('TallyFlow')),
+        appBar: AppBar(
+          leading: const ProfileButton(),
+          titleSpacing: 0,
+          title: const Text('Prime Analyst'),
+        ),
         body: const EmptyState(
           icon: Icons.folder_off_outlined,
           title: 'No companies yet',
@@ -970,11 +1003,15 @@ class _NoCompaniesScreen extends ConsumerWidget {
     }
 
     return Scaffold(
-      appBar: AppBar(title: const Text('TallyFlow')),
+      appBar: AppBar(
+          leading: const ProfileButton(),
+          titleSpacing: 0,
+          title: const Text('Prime Analyst'),
+        ),
       body: EmptyState(
         icon: Icons.desktop_windows_outlined,
         title: 'Connect your Tally PC',
-        message: 'Install the TallyFlow Connector on the computer running '
+        message: 'Install the Prime Analyst Connector on the computer running '
             'TallyPrime. It reads your data and sends it here -- your PC never '
             'has to be exposed to the internet.',
         action: Column(

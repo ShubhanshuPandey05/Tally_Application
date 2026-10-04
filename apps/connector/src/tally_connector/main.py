@@ -89,7 +89,7 @@ async def diagnose(settings: ConnectorSettings) -> int:
     Runs entirely against Tally, so it works before pairing and while the
     backend is unreachable.
     """
-    print(f"TallyFlow Connector {__version__}")
+    print(f"Prime Analyst Connector {__version__}")
     print(f"Tally endpoint : {settings.tally_config().url}")
     print(f"Backend        : {settings.backend_url}")
     print(f"Paired         : {'yes' if settings.is_paired else 'no'}")
@@ -138,7 +138,7 @@ async def diagnose(settings: ConnectorSettings) -> int:
 
 async def verify(settings: ConnectorSettings, company: str | None) -> int:
     """Run the live accounting verification against TallyPrime."""
-    print(f"TallyFlow Connector {__version__} - live verification")
+    print(f"Prime Analyst Connector {__version__} - live verification")
     print(f"Tally endpoint : {settings.tally_config().url}")
     print_manifest()
 
@@ -163,7 +163,7 @@ async def alterid_probe(settings: ConnectorSettings, company: str | None) -> int
     depends on the answer, and it differs between TallyPrime builds -- see
     :mod:`tally_connector.alterid`.
     """
-    print(f"TallyFlow Connector {__version__} - master AlterID probe")
+    print(f"Prime Analyst Connector {__version__} - master AlterID probe")
     print(f"Tally endpoint : {settings.tally_config().url}")
     print()
 
@@ -308,7 +308,7 @@ def install(args: argparse.Namespace) -> int:
     else:
         print(f"Settings written to {config_path}.")
         print(
-            "This computer is not paired yet. Open TallyFlow Connector on it "
+            "This computer is not paired yet. Open Prime Analyst Connector on it "
             "(or run: tally-connector ui) and scan the code with the app."
         )
 
@@ -464,7 +464,7 @@ def status(args: argparse.Namespace) -> int:
     settings = load_settings(args.config)
     state = autostart.task_status()
 
-    print(f"TallyFlow Connector {__version__}")
+    print(f"Prime Analyst Connector {__version__}")
     print(f"Paired    : {'yes (' + settings.connector_id + ')' if settings.is_paired else 'no'}")
     print(f"Backend   : {settings.backend_url}")
     print(f"Startup   : {state or 'not registered'}")
@@ -568,7 +568,7 @@ def open_ui(args: argparse.Namespace) -> int:
         return 1
 
     # Checked before the window opens, never after. A window that opened and
-    # then said it could not reach anything reads to a shop owner as *TallyFlow*
+    # then said it could not reach anything reads to a shop owner as *Prime Analyst*
     # being down -- rather than as the connector on this machine not running,
     # which is the actual fact and has a completely different fix.
     if not _connector_is_up(settings.ui_port):
@@ -597,14 +597,14 @@ def open_ui(args: argparse.Namespace) -> int:
         print(f"The window would not start ({exc}).")
         return 1
 
-    print("Opening the TallyFlow Connector window.")
+    print("Opening the Prime Analyst Connector window.")
     return 0
 
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="tally-connector",
-        description="TallyFlow connector - the bridge between TallyPrime and TallyFlow.",
+        description="Prime Analyst connector - the bridge between TallyPrime and Prime Analyst.",
     )
     parser.add_argument("--version", action="version", version=__version__)
     parser.add_argument("--config", type=Path, help="path to connector.json")

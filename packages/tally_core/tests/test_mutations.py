@@ -351,7 +351,7 @@ def test_an_entry_awaiting_approval_reaches_no_total() -> None:
     """The reason optional entries are safe, asserted rather than assumed.
 
     An entry created from a phone shows in the Day Book and changes no figure,
-    in TallyFlow exactly as in TallyPrime. If ``is_effective`` ever stopped
+    in Prime Analyst exactly as in TallyPrime. If ``is_effective`` ever stopped
     excluding optional vouchers, the app would report a sale that Tally itself
     does not count -- and the two would disagree with nothing on screen saying
     why.

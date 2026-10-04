@@ -1,4 +1,4 @@
-# TallyFlow Management Portal
+# Prime Analyst Management Portal
 
 The internal console: who is waiting on a decision, what each account is
 entitled to, and — when a customer rings up — what their Tally PC has actually

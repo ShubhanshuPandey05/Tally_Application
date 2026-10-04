@@ -1,4 +1,4 @@
-# TallyFlow
+# Prime Analyst
 
 AI-powered mobile dashboard for TallyPrime. Reads are the product; the one
 write path lets a person create a voucher from their phone, and it arrives in
@@ -137,7 +137,7 @@ reaches Tally is always one.
 What a customer actually gets. `python run.py connector` builds it:
 
 ```
-apps\connector\dist\installer\TallyFlowConnector-Setup-<version>.exe
+apps\connector\dist\installer\PrimeAnalystConnector-Setup-<version>.exe
 ```
 
 It asks for the Connector ID and Secret from the app's pairing screen, writes
@@ -147,7 +147,7 @@ because one connector row per PC is what lets the app say *which* shop is
 offline:
 
 ```powershell
-TallyFlowConnector-Setup-0.1.0.exe /VERYSILENT /ID=<id> /SECRET=<secret>
+PrimeAnalystConnector-Setup-0.1.0.exe /VERYSILENT /ID=<id> /SECRET=<secret>
 ```
 
 Three decisions worth knowing about:
@@ -670,7 +670,8 @@ Both are unsigned. SmartScreen will warn on first download until the installer
 is code-signed; sign it before sending a link to a customer.
 
 Queries implemented: `companies.list`, `groups.list`, `ledgers.list`,
-`voucher_types.list`, `stock_items.list`, `vouchers.list`, `outstanding.bills`.
+`voucher_types.list`, `stock_items.list`, `godown_stock.list`, `vouchers.list`,
+`outstanding.bills`.
 
 ### Live verification
 

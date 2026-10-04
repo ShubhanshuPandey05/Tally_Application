@@ -181,8 +181,8 @@ void main() {
   group('a refused request', () {
     const String body = '''
 {"error":{"code":"update_required","message":"too old","retryable":false,
-"detail":{"update":{"version":"0.3.0","url":"/downloads/TallyFlow-0.3.0.apk",
-"sha256":"ABC","size_bytes":23583706,"file":"TallyFlow-0.3.0.apk",
+"detail":{"update":{"version":"0.3.0","url":"/downloads/PrimeAnalyst-0.3.0.apk",
+"sha256":"ABC","size_bytes":23583706,"file":"PrimeAnalyst-0.3.0.apk",
 "mandatory":true,"min_supported_version":"0.2.0","notes":"Wire change."}}}}
 ''';
 

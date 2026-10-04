@@ -5,7 +5,7 @@
 	<key>CFBundleDevelopmentRegion</key>
 	<string>$(DEVELOPMENT_LANGUAGE)</string>
 	<key>CFBundleDisplayName</key>
-	<string>TallyFlow</string>
+	<string>Prime Analyst</string>
 	<key>CFBundleExecutable</key>
 	<string>$(EXECUTABLE_NAME)</string>
 	<key>CFBundleIdentifier</key>
@@ -30,7 +30,7 @@
 	     sentence. Says what it is for and, just as importantly, what it is
 	     not: this app never writes to anybody's books. -->
 	<key>NSCameraUsageDescription</key>
-	<string>TallyFlow uses the camera only to scan the pairing code shown on your Tally PC.</string>
+	<string>Prime Analyst uses the camera only to scan the pairing code shown on your Tally PC.</string>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIMainStoryboardFile</key>

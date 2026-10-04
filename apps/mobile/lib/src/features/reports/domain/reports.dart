@@ -308,6 +308,50 @@ class StockReport {
   }
 }
 
+/// One godown and what it holds.
+class GodownHolding {
+  const GodownHolding({
+    required this.name,
+    required this.value,
+    required this.items,
+    this.quantity,
+    this.unit,
+    this.rate,
+  });
+
+  final String name;
+  final Money value;
+  final List<StockLine> items;
+
+  /// Null when the godown holds items counted in different units: pieces plus
+  /// metres is not a quantity of anything, and Tally leaves the cell blank too.
+  final double? quantity;
+  final String? unit;
+  final Money? rate;
+
+  factory GodownHolding.fromJson(Map<String, Object?> json) => GodownHolding(
+        name: json['name'] as String? ?? '',
+        value: Money.fromJson(json['value']),
+        items: _list(json['items'], StockLine.fromJson),
+        quantity: (json['quantity'] as num?)?.toDouble(),
+        unit: json['unit'] as String?,
+        rate: json['rate'] == null ? null : Money.fromJson(json['rate']),
+      );
+}
+
+/// Stock by the godown it sits in -- Tally's Godown Summary.
+class GodownReport {
+  const GodownReport({required this.value, required this.godowns});
+
+  final Money value;
+  final List<GodownHolding> godowns;
+
+  factory GodownReport.fromJson(Map<String, Object?> json) => GodownReport(
+        value: Money.fromJson(json['value']),
+        godowns: _list(json['godowns'], GodownHolding.fromJson),
+      );
+}
+
 class LedgerReport {
   const LedgerReport({required this.ledgers});
 

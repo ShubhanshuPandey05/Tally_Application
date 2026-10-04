@@ -64,5 +64,5 @@ class _VersionedAppState extends ConsumerState<_VersionedApp> {
   }
 
   @override
-  Widget build(BuildContext context) => const TallyFlowApp();
+  Widget build(BuildContext context) => const PrimeAnalystApp();
 }

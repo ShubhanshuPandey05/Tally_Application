@@ -57,6 +57,9 @@ final FutureProviderFamily<void, String> warmUpProvider =
     () => reports.ledgers(companyId, mode: cached, cache: keep),
     () => reports.register(companyId, kind: 'sales', range: year.toDate, cache: keep),
     () => reports.register(companyId, kind: 'purchase', range: year.toDate, cache: keep),
+    // The Summary tab's other two chips, so it opens offline like the rest.
+    () => reports.register(companyId, kind: 'receipt', range: year.toDate, cache: keep),
+    () => reports.register(companyId, kind: 'payment', range: year.toDate, cache: keep),
     () => reports.outstandingByGroup(
           companyId,
           kind: OutstandingKind.receivable,

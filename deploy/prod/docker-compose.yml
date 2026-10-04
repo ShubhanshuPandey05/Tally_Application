@@ -1,4 +1,4 @@
-# TallyFlow production stack: Postgres + API + Caddy, on one host.
+# Prime Analyst production stack: Postgres + API + Caddy, on one host.
 #
 #     cp prod.env.example prod.env      # then fill in the marked values
 #     docker compose --env-file prod.env up -d --build

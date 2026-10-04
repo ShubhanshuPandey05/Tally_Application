@@ -125,7 +125,7 @@ class _UpdateRequiredScreenState extends ConsumerState<UpdateRequiredScreen> {
                 ),
                 const SizedBox(height: 20),
                 Text(
-                  'Update TallyFlow to continue',
+                  'Update Prime Analyst to continue',
                   textAlign: TextAlign.center,
                   style: theme.textTheme.headlineSmall,
                 ),
@@ -183,7 +183,7 @@ class _UpdateRequiredScreenState extends ConsumerState<UpdateRequiredScreen> {
                   )
                 else
                   const Text(
-                    'Open the TallyFlow website to download the latest version.',
+                    'Open the Prime Analyst website to download the latest version.',
                     textAlign: TextAlign.center,
                   ),
                 if (_failed) ...<Widget>[

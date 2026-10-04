@@ -1,4 +1,4 @@
-"""Write the TallyFlow icon into every place a platform looks for one.
+"""Write the Prime Analyst icon into every place a platform looks for one.
 
     python tools/brand/generate.py
 
@@ -57,10 +57,10 @@ def _ios_jobs(square: str) -> list[tuple[str, Path, int]]:
 def windows_icon(app: str) -> None:
     """Pack the app tile into the .ico the connector's window is built with.
 
-    Every size is drawn rather than downsampled from one large image. The mark
-    falls back to a stacked monogram in a small square, and letting the shell
-    resample a 256px wordmark down to 16px produces a grey smudge instead --
-    which is the size the taskbar and Alt-Tab actually use.
+    Every size is drawn rather than downsampled from one large image. Letting
+    the shell resample a 256px tile down to 16px softens the straight edge
+    between the two halves into a grey seam -- and 16px is the size the taskbar
+    and Alt-Tab actually use.
 
     The **app** colourway, not the favicon's: this is a program on a taskbar
     beside other programs, the same place the phone app's black tile earns its

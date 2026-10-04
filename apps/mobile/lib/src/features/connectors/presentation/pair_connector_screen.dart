@@ -117,10 +117,10 @@ class _PairConnectorScreenState extends ConsumerState<PairConnectorScreen> {
                 // product is "you want me to open my accounts to the internet".
                 // The connector dials out; nothing is ever opened inward.
                 Text(
-                  'The connector runs on your PC and calls out to TallyFlow. '
+                  'The connector runs on your PC and calls out to Prime Analyst. '
                   'Nothing is opened up on your computer, and TallyPrime is '
                   'never exposed to the internet.\n\n'
-                  'TallyFlow can add new entries you make in the app, but it '
+                  'Prime Analyst can add new entries you make in the app, but it '
                   'cannot edit or delete anything already in your books.',
                   style: theme.textTheme.bodyMedium
                       ?.copyWith(color: context.mutedColor),
@@ -141,7 +141,7 @@ class _PairConnectorScreenState extends ConsumerState<PairConnectorScreen> {
         ),
         const SizedBox(height: 6),
         Text(
-          'Open TallyFlow Connector on the computer running TallyPrime. It '
+          'Open Prime Analyst Connector on the computer running TallyPrime. It '
           'shows a code for you to scan.',
           style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
           textAlign: TextAlign.center,
@@ -201,7 +201,7 @@ class _WaitingStep extends ConsumerWidget {
         Text('1. Install the connector', style: theme.textTheme.titleSmall),
         const SizedBox(height: 6),
         Text(
-          'Download TallyFlow Connector on the PC running TallyPrime and run '
+          'Download Prime Analyst Connector on the PC running TallyPrime and run '
           'the installer.',
           style: theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
         ),
@@ -323,7 +323,7 @@ class _StatusHeader extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   online
-                      ? 'Your PC is talking to TallyFlow.'
+                      ? 'Your PC is talking to Prime Analyst.'
                       : 'This screen updates on its own once the connector '
                           'starts on that computer.',
                   style: theme.textTheme.bodySmall

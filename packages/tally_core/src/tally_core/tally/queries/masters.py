@@ -16,6 +16,7 @@ from pydantic import model_validator
 from ...domain.masters import (
     Company,
     CompanyMarkers,
+    GodownStock,
     Ledger,
     LedgerGroup,
     StockItem,
@@ -674,3 +675,86 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                 )
             )
         return items
+
+
+# --------------------------------------------------------------------------
+# Stock by godown
+# --------------------------------------------------------------------------
+
+
+class GodownStockParams(QueryParams):
+    pass
+
+
+@register
+class GodownStockQuery(TallyQuery[GodownStockParams, list[GodownStock]]):
+    """Closing stock, split by the godown it sits in.
+
+    A stock item's own ``ClosingBalance`` is the company-wide figure and says
+    nothing about place. Tally keeps the per-place position on its ``Batch``
+    objects -- one per item, godown and batch, and an item with batches turned
+    off still has one, named "Primary Batch" -- so this walks those and folds
+    the batches of one item in one godown together.
+
+    **Not yet verified against a live TallyPrime.** Every other read in this
+    file was; this one was written from the TDL reference on a machine with no
+    Tally running. Before it ships, run ``tally-connector livecheck`` against a
+    company that uses godowns: its Stock section compares each item's godown
+    quantities with the item's own closing balance and fails if they disagree.
+
+    Balances are always current, like the stock summary's -- there is no period
+    to scope this to.
+    """
+
+    name = "godown_stock.list"
+    params_model = GodownStockParams
+    heavy = True
+
+    def build(self, params: GodownStockParams) -> str:
+        return build_export_envelope(
+            request_type="Collection",
+            request_id="TFGodownStock",
+            static_variables=StaticVariables(company=params.company),
+            collections=[
+                Collection(
+                    name="TFGodownStock",
+                    type="Batch",
+                    # Leaf fields by name, as everywhere else: a batch object
+                    # also carries its own inward and outward history.
+                    native_methods=[
+                        "Name",
+                        "Parent",
+                        "GodownName",
+                        "ClosingBalance",
+                        "ClosingValue",
+                    ],
+                )
+            ],
+        )
+
+    def parse(self, root: ET.Element, params: GodownStockParams) -> list[GodownStock]:
+        quantities: dict[tuple[str, str], float] = {}
+        values: dict[tuple[str, str], Money] = {}
+
+        for el in _iter_objects(root, "BATCH"):
+            item = find_text(el, "PARENT")
+            godown = find_text(el, "GODOWNNAME")
+            if not item or not godown:
+                continue
+            key = (godown, item)
+            quantities[key] = quantities.get(key, 0.0) + parse_float(
+                find_text(el, "CLOSINGBALANCE")
+            )
+            values[key] = values.get(key, Money.zero()) + Money.from_tally(
+                find_text(el, "CLOSINGVALUE")
+            )
+
+        return [
+            GodownStock(
+                godown=godown,
+                item_name=item,
+                quantity=quantity,
+                value=values[(godown, item)],
+            )
+            for (godown, item), quantity in quantities.items()
+        ]

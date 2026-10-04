@@ -1,6 +1,6 @@
 # CLAUDE.md
 
-**TallyFlow** — an AI-powered, mobile-first dashboard for TallyPrime.
+**Prime Analyst** — an AI-powered, mobile-first dashboard for TallyPrime.
 
 Think *"Google Analytics for Tally"*, not *"Remote Desktop for Tally"*. The user
 should never feel like they are using Tally; they should experience a modern SaaS
@@ -66,6 +66,15 @@ why the product is secure, cloud-independent and multi-tenant by default.
 `tally_core.protocol` is the backend↔connector wire contract. It lives in the
 shared package so neither side imports the other — a server deployment must not
 pull in a Windows desktop application.
+
+**The product was TallyFlow until 2026-10-03**, and the old name is still in
+the tree on purpose wherever changing it would strand an installed copy: the
+Android `applicationId`, the connector's install folder, data folder and
+scheduled task (`TallyFlow Connector`), the `TALLYFLOW_` environment prefix, the
+Dart and Python package names, storage keys, the `X-TallyFlow-Local` header and
+the hostnames. A new `applicationId` is a second app on the phone rather than an
+update, and a renamed data folder is a connector that has forgotten its pairing.
+Everything a person reads says Prime Analyst.
 
 **Stack:** Python 3.11+ (backend, connector), Flutter 3.24 (mobile), React
 (website, portal). Decided 2026-07-22. Do not propose alternatives.
@@ -387,21 +396,24 @@ their bottom padding and wrap their body in `ContentPane`, which caps a column o
 rows at a width where the eye can still track a name on the left to an amount on
 the right.
 
-**The mark** is `TallyFlow` in Caveat over a straight rule — one line where
-there is room for one, and stacked (`Tally` over `Flow`) in a square, which is
-every icon. The stacked form is baked to outlines by `tools/brand` rather than
-set in a font: a favicon cannot load one, and an app built to keep working
-through an outage must not render its own logo in a fallback face on exactly
-those days. The favicon wears the white tile and the app wears the black one,
-and swapping them is a mistake in both directions — a black square in a browser
-tab strip reads as a hole, and a white one on a home screen reads as a missing
-image.
+**The mark** is one circle cut in two, the halves slipped against each other,
+on a rounded tile (decided 2026-10-04; it was the name in a handwriting face).
+It is double entry drawn as a shape: a debit and a credit, the same size, making
+a whole. Where there is room the name sits beside it, heavy `Prime` then light
+`Analyst`. The geometry lives twice -- `tools/brand/icon.py` generates every
+icon from it and `BrandMark` paints it in the app -- because a favicon cannot
+load anything and an app built to keep working through an outage must draw its
+own logo on exactly those days. The favicon wears the white tile and the app
+wears the black one, and swapping them is a mistake in both directions — a
+black square in a browser tab strip reads as a hole, and a white one on a home
+screen reads as a missing image.
 
-It is deliberately not TallyPrime's mark. No script-word-over-swoosh-over-plain-
-second-word lockup: rebuilding that with "Flow" for "Prime" produces something a
-customer would take for an official Tally Solutions product, which is the exact
-claim the website's footer disclaims. If somebody asks for the logo to be moved
-closer to Tally's, that is what they are asking for and the answer is no.
+It carries no lettering, deliberately. The name shares a word with TallyPrime,
+and a wordmark in a tile invites setting "Prime" the way theirs is set, which
+produces something a customer would take for an official Tally Solutions
+product -- the exact claim the website's footer disclaims. If somebody asks for
+the logo to be moved closer to Tally's, that is what they are asking for and
+the answer is no.
 
 ### Pairing is a camera, not a keyboard
 

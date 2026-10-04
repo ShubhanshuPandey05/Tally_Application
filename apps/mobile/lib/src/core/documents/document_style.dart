@@ -175,7 +175,7 @@ class DocumentStyle {
         .replaceAll(RegExp(r'\s+'), '-')
         .replaceAll(RegExp(r'-{2,}'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
-    return safe.isEmpty ? 'tallyflow' : safe;
+    return safe.isEmpty ? 'prime-analyst' : safe;
   }
 
   /// The page frame: A4, narrow margins, and a footer on every page.

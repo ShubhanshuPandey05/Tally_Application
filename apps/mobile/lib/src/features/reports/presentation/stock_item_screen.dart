@@ -191,7 +191,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen>
   }
 }
 
-/// One voucher's effect on the item, with the direction stated rather than
+/// One voucher's effect on the item, with the direction shown rather than
 /// implied by a sign.
 class _MovementRow extends StatelessWidget {
   const _MovementRow({required this.move});
@@ -200,10 +200,13 @@ class _MovementRow extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // In and out are told by colour and by the arrow on the left, the same
+    // green and red the chart above uses. Only an adjustment keeps a word: it
+    // is grey, and grey on its own says nothing about what happened.
     final (Color colour, IconData icon, String label) = switch (move.direction) {
-      MovementDirection.inward => (context.positiveColor, Icons.south_west, 'In'),
-      MovementDirection.outward => (context.negativeColor, Icons.north_east, 'Out'),
-      MovementDirection.other => (context.mutedColor, Icons.swap_horiz, 'Adj'),
+      MovementDirection.inward => (context.positiveColor, Icons.south_west, ''),
+      MovementDirection.outward => (context.negativeColor, Icons.north_east, ''),
+      MovementDirection.other => (context.mutedColor, Icons.swap_horiz, 'Adj '),
     };
 
     final ThemeData theme = Theme.of(context);
@@ -258,11 +261,11 @@ class _MovementRow extends StatelessWidget {
               children: <Widget>[
                 // The quantity is what this screen is about, so it takes the
                 // place the amount holds on every other voucher row, and the
-                // value drops to the line beneath it. The direction is a word,
-                // not a sign: "-40" beside a sale is ambiguous about whether
-                // the shop lost stock or lost money.
+                // value drops to the line beneath it. The direction is a
+                // colour, not a sign: "-40" beside a sale is ambiguous about
+                // whether the shop lost stock or lost money.
                 Text(
-                  '$label ${MoneyFormat.quantity(move.quantity, move.unit)}',
+                  '$label${MoneyFormat.quantity(move.quantity, move.unit)}',
                   style: theme.textTheme.bodyMedium
                       ?.merge(AppTheme.amount)
                       .copyWith(color: colour),

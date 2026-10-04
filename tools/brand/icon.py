@@ -1,24 +1,26 @@
-"""The TallyFlow icon, in every shape the products need.
+"""The Prime Analyst icon, in every shape the products need.
+
+The mark is one circle cut in two with the halves slipped against each other:
+double entry drawn as a shape. A debit and a credit, the same size, making a
+whole.
 
 One drawing, four jobs:
 
-  * the website favicon    -- black wordmark on white, with a hairline, because
+  * the website favicon    -- ink and blue on white, with a hairline, because
                               a white tile on a white tab strip is not visible
-  * the app launcher icon  -- white wordmark on black, the colourway the app
+  * the app launcher icon  -- white and blue on black, the colourway the app
                               uses for its own tile everywhere else
   * an iOS square          -- iOS rounds the corners itself and rejects an alpha
                               channel, so that one is full-bleed
-  * an Android foreground  -- white wordmark on nothing, pulled in to the area
+  * an Android foreground  -- the two halves on nothing, pulled in to the area
                               the adaptive-icon mask is guaranteed to leave
 
-Stacked rather than set on one line: `TallyFlow` across a 32px favicon gives
-each letter about two pixels. Two lines roughly double the height per letter,
-which is the difference between a mark you can read and a smudge.
+No lettering, and so no font: the name was once set in the tile, and thirteen
+letters across a 32px favicon gave each one barely more than a pixel. Two arcs
+read at 16px.
 """
 
 from __future__ import annotations
-
-from mark import word
 
 BOX = 512.0
 
@@ -26,51 +28,47 @@ BOX = 512.0
 # screen does not change under somebody who already has the app installed.
 RADIUS = BOX * 0.2656
 
-# How much of the tile the wordmark may fill. Two lines of a script face need
-# the width, and the corners of a rounded square are dead space anyway.
-INSET = BOX * 0.135
-
-# Baseline to baseline, in em. Tighter than text leading on purpose: this is a
-# signature, not a paragraph, and the second word should read as tucked under
-# the first rather than as the next line of something.
-LEADING = 0.80
-
 # Android reserves the outer ring of an adaptive icon for the launcher's mask.
 # Only the middle 66 of 108 units is guaranteed to survive every OEM shape.
 SAFE = 66 / 108
 
 INK = "#0e0f11"
 
+# Two blues, because the half has to hold against the tile behind it: the app's
+# primary on white, and the lighter chart blue on black, where the primary is
+# too dark to read as a second half.
+BLUE_ON_WHITE = "#2d5bff"
+BLUE_ON_BLACK = "#6887ff"
 
-def _layout() -> str:
-    """Both words, placed in the BOX square."""
-    top_d, top_b = word("Tally")
-    bottom_d, bottom_b = word("Flow")
-    drop = LEADING * 1000
-
-    left = min(top_b[0], bottom_b[0])
-    right = max(top_b[2], bottom_b[2])
-    top = top_b[1]
-    bottom = drop + bottom_b[3]
-
-    width, height = right - left, bottom - top
-    room = BOX - 2 * INSET
-    scale = min(room / width, room / height)
-
-    x = (BOX - width * scale) / 2 - left * scale
-    y = (BOX - height * scale) / 2 - top * scale
-
-    def place(d: str, dy: float) -> str:
-        return (
-            f'<path transform="translate({x:.2f} {y + dy * scale:.2f}) '
-            f'scale({scale:.5f})" d="{d}"/>'
-        )
-
-    return place(top_d, 0) + place(bottom_d, drop)
+# One circle of this radius, cut down the middle. The left half sits low and
+# the right half high; the gap between their straight edges is what makes them
+# read as two pieces of one circle rather than as a circle with a step in it.
+# `BrandMark` in the app draws the same numbers -- change both or neither.
+HALF = 130
+LOWER = (250, 286)
+UPPER = (262, 226)
 
 
-def svg(*, fill: str, tile: str | None, rounded: bool, hairline: str | None, scale: float) -> str:
-    body = _layout()
+def _layout(fill: str, accent: str) -> str:
+    """Both halves, placed in the BOX square."""
+    lx, ly = LOWER
+    ux, uy = UPPER
+    return (
+        f'<path fill="{fill}" d="M{lx} {ly - HALF}A{HALF} {HALF} 0 0 0 {lx} {ly + HALF}Z"/>'
+        f'<path fill="{accent}" d="M{ux} {uy - HALF}A{HALF} {HALF} 0 0 1 {ux} {uy + HALF}Z"/>'
+    )
+
+
+def svg(
+    *,
+    fill: str,
+    accent: str,
+    tile: str | None,
+    rounded: bool,
+    hairline: str | None,
+    scale: float,
+) -> str:
+    body = _layout(fill, accent)
     if scale != 1.0:
         pad = BOX * (1 - scale) / 2
         body = f'<g transform="translate({pad:.2f} {pad:.2f}) scale({scale:.5f})">{body}</g>'
@@ -86,18 +84,18 @@ def svg(*, fill: str, tile: str | None, rounded: bool, hairline: str | None, sca
                 f' height="{BOX - 2 * inset:.0f}" rx="{RADIUS - inset:.1f}" fill="none"'
                 f' stroke="{hairline}" stroke-width="10"/>'
             )
-    parts.append(f'<g fill="{fill}">{body}</g></svg>')
+    parts.append(f"{body}</svg>")
     return "".join(parts)
 
 
 VARIANTS: dict[str, dict] = {
-    "favicon": dict(fill=INK, tile="#ffffff", rounded=True, hairline="#e2e3e8", scale=1.0),
-    "app": dict(fill="#ffffff", tile=INK, rounded=True, hairline=None, scale=1.0),
-    "app-square": dict(fill="#ffffff", tile=INK, rounded=False, hairline=None, scale=1.0),
+    "favicon": dict(fill=INK, accent=BLUE_ON_WHITE, tile="#ffffff", rounded=True, hairline="#e2e3e8", scale=1.0),
+    "app": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=True, hairline=None, scale=1.0),
+    "app-square": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, scale=1.0),
     # A maskable web icon is cropped to a circle by some launchers, so the mark
-    # is pulled in far enough that the corners of the wordmark are not clipped.
-    "app-maskable": dict(fill="#ffffff", tile=INK, rounded=False, hairline=None, scale=0.72),
-    "adaptive-fg": dict(fill="#ffffff", tile=None, rounded=False, hairline=None, scale=SAFE),
+    # is pulled in far enough that neither half is clipped.
+    "app-maskable": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, scale=0.72),
+    "adaptive-fg": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=None, rounded=False, hairline=None, scale=SAFE),
 }
 
 

@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales invoices with items, and purchases, sent from the app are now accepted by TallyPrime. Orders use your Main Location godown, so companies with several godowns accept them. The Sync speed and Entries settings in this window now take effect. Not mandatory: an older connector keeps working, but cannot receive these entries."
+    "notes": "Adds the Godown summary: closing stock by the godown it is kept in. The app needs this connector version to show that report; everything else works as before, and nothing needs to be set up again."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Works offline: your last figures stay on the phone, and opening the app without internet no longer signs you out. Reports open instantly instead of loading every time. Detailed reports no longer say \"Waiting for your first read\" when your Tally PC is off. New accounts can explore a sample company while waiting for approval."
+    "notes": "TallyFlow is now Prime Analyst. Same app, same account, same books - only the name and the icon have changed, and you stay signed in. New: a Summary tab with every month's sales, purchases, receipts and payments, a Godown summary report, and the sales card on Home opens the sales register for the period you are looking at. Profile has moved to the icon at the top left."
   }
 }

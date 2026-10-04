@@ -267,6 +267,71 @@ def test_register_rows_are_newest_first(vouchers) -> None:
     assert dates == sorted(dates, reverse=True)
 
 
+def test_register_months_carry_quantity_tax_and_cancelled_entries() -> None:
+    def sale(number: str, *, lines: bool, cancelled: bool = False) -> dict:
+        return {
+            "voucher_number": number,
+            "voucher_type": "Sales",
+            "kind": "sales",
+            "date": TODAY.isoformat(),
+            "is_cancelled": cancelled,
+            "ledger_entries": [
+                {"ledger_name": "Ram Traders", "amount": _money("1180.00", "debit")},
+                {"ledger_name": "Sales", "amount": _money("1000.00", "credit")},
+                {"ledger_name": "Output CGST 9%", "amount": _money("90.00", "credit")},
+                {"ledger_name": "SGST Payable", "amount": _money("90.00", "credit")},
+            ],
+            "inventory_entries": [
+                {"item_name": "Rice", "quantity": -10.0, "amount": _money("1000.00", "credit")}
+            ]
+            if lines
+            else [],
+        }
+
+    everything = an.parse_vouchers(
+        [sale("1", lines=True), sale("2", lines=True), sale("3", lines=True, cancelled=True)]
+    )
+    report = an.register(
+        an.effective(everything),
+        VoucherTypeKind.SALES,
+        since=TODAY,
+        until=TODAY,
+        cancelled=[v for v in everything if v.is_cancelled],
+    )
+    month = report["months"][0]
+
+    # The cancelled sale is counted, and adds to nothing.
+    assert month["voucher_count"] == 2
+    assert month["cancelled_count"] == 1
+    assert month["total"]["amount"] == "2360.00"
+    assert month["quantity"] == 20.0
+    assert month["item_value"]["amount"] == "2000.00"
+    assert month["cgst"]["amount"] == "180.00"
+    assert month["sgst"]["amount"] == "180.00"
+    assert month["igst"]["amount"] == "0.00"
+
+
+def test_a_month_synced_without_stock_lines_reports_no_quantity() -> None:
+    """Old slices are stored without their lines. That is "not known", and a
+    quantity of zero beside real sales would say nothing was sold."""
+    voucher = {
+        "voucher_number": "1",
+        "voucher_type": "Sales",
+        "kind": "sales",
+        "date": TODAY.isoformat(),
+        "ledger_entries": [
+            {"ledger_name": "Ram Traders", "amount": _money("500.00", "debit")},
+            {"ledger_name": "Sales", "amount": _money("500.00", "credit")},
+        ],
+    }
+    report = an.register(
+        an.parse_vouchers([voucher]), VoucherTypeKind.SALES, since=TODAY, until=TODAY
+    )
+
+    assert report["months"][0]["quantity"] is None
+    assert report["months"][0]["item_value"] is None
+
+
 # --------------------------------------------------------------------------
 # Stock movement
 # --------------------------------------------------------------------------

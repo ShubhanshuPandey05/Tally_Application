@@ -2,7 +2,7 @@
   "name": "tallyflow-portal",
   "version": "0.1.0",
   "private": true,
-  "description": "TallyFlow management portal: onboarding, subscriptions, and the support view.",
+  "description": "Prime Analyst management portal: onboarding, subscriptions, and the support view.",
   "type": "module",
   "scripts": {
     "dev": "vite",

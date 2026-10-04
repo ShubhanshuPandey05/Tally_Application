@@ -31,8 +31,8 @@ export default function Usage({ me }) {
         <h1>Usage</h1>
         <p className="muted">
           {me.role === 'owner'
-            ? 'How much every account on the platform uses TallyFlow.'
-            : 'How much the accounts you look after use TallyFlow.'}
+            ? 'How much every account on the platform uses Prime Analyst.'
+            : 'How much the accounts you look after use Prime Analyst.'}
         </p>
       </div>
 

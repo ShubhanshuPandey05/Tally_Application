@@ -21,8 +21,8 @@ export default function Nav() {
   return (
     <header className={`nav ${lined ? 'is-lined' : ''}`}>
       <div className="shell nav-inner">
-        <Link to="/" onClick={close} aria-label="TallyFlow home">
-          <Logo light />
+        <Link to="/" onClick={close} aria-label="Prime Analyst home">
+          <Logo />
         </Link>
 
         <nav className="nav-links" aria-label="Primary">

@@ -579,12 +579,42 @@ def sample_stock() -> list[dict[str, Any]]:
     ]
 
 
+def sample_godown_stock() -> list[dict[str, Any]]:
+    return [
+        {
+            "godown": "Shop",
+            "item_name": "Rice",
+            "quantity": 200.0,
+            "value": money("16000.00", "debit"),
+        },
+        {
+            "godown": "Shop",
+            "item_name": "Oil",
+            "quantity": -3.0,
+            "value": money("0.00", "debit"),
+        },
+        {
+            "godown": "Back Store",
+            "item_name": "Rice",
+            "quantity": 300.0,
+            "value": money("24000.00", "debit"),
+        },
+        {
+            "godown": "Back Store",
+            "item_name": "Sugar",
+            "quantity": 0.0,
+            "value": money("0.00", "debit"),
+        },
+    ]
+
+
 def load_all(fake: FakeConnector, today: date | None = None) -> None:
     fake.set("ledgers.list", sample_ledgers())
     fake.set("voucher_types.list", sample_voucher_types())
     fake.set("vouchers.list", sample_vouchers(today))
     fake.set("outstanding.bills", sample_bills(today))
     fake.set("stock_items.list", sample_stock())
+    fake.set("godown_stock.list", sample_godown_stock())
     fake.set("companies.list", [{"name": "Bhtia Supermarket", "guid": "abc"}])
 
 
@@ -605,6 +635,7 @@ class Samples:
     voucher_types = staticmethod(sample_voucher_types)
     bills = staticmethod(sample_bills)
     stock = staticmethod(sample_stock)
+    godown_stock = staticmethod(sample_godown_stock)
 
     @staticmethod
     def load(fake: FakeConnector, today: date | None = None) -> None:

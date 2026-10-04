@@ -148,7 +148,7 @@ async def bootstrap_owner(
             PlatformUser(
                 email=email,
                 password_hash=hash_password(password),
-                full_name="TallyFlow Owner",
+                full_name="Prime Analyst Owner",
                 role=PlatformRole.OWNER,
                 must_change_password=True,
             )

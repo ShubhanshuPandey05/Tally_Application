@@ -1,6 +1,6 @@
-# TallyFlow Connector
+# Prime Analyst Connector
 
-The small Windows program that lets the TallyFlow app read TallyPrime.
+The small Windows program that lets the Prime Analyst app read TallyPrime.
 
 It runs on the shop PC where Tally is installed and dials **out** to the
 backend over a WebSocket. Tally is never exposed to the internet, and no
@@ -21,13 +21,13 @@ only, and a test asserts that.
 
 ## Install
 
-Run `TallyFlowConnector-Setup-<version>.exe` on the shop PC. It installs
+Run `PrimeAnalystConnector-Setup-<version>.exe` on the shop PC. It installs
 per-user, so there is no UAC prompt, and registers a Scheduled Task that starts
 the connector at logon.
 
 Then pair it, which takes no typing:
 
-1. On the PC, open **TallyFlow Connector** (or run `tally-connector ui`). It
+1. On the PC, open **Prime Analyst Connector** (or run `tally-connector ui`). It
    shows a QR code.
 2. In the app: **Tally PCs → Add a PC → Scan the code on that PC**.
 
@@ -43,7 +43,7 @@ an ID and a secret for `tally-connector pair`.
 For an unattended rollout across many machines:
 
 ```powershell
-TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://api.tallyflow.app/v1/connector
+PrimeAnalystConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://api.tallyflow.app/v1/connector
 ```
 
 Each PC needs its **own** pairing. One connector row per machine is what lets
@@ -79,7 +79,7 @@ support calls without anyone reading a log.
 — `tally-connector-window.exe`, installed beside the two executables above. It
 is what somebody standing at the shop's PC can look at. It shows:
 
-* whether the connector is talking to TallyFlow, and whether TallyPrime is
+* whether the connector is talking to Prime Analyst, and whether TallyPrime is
   answering — two different problems with two different fixes;
 * which companies this PC feeds, when each last synced, and who in the business
   can see them;
@@ -165,7 +165,7 @@ re-pair for every shop.
 | Executables | `%LOCALAPPDATA%\Programs\TallyFlow Connector` |
 | Config + secret | `connector.json`, next to the executables |
 | Logs | `%LOCALAPPDATA%\TallyFlow Connector\logs` |
-| Startup task | Task Scheduler → `TallyFlow Connector` |
+| Startup task | Task Scheduler → `Prime Analyst Connector` |
 
 `connector.json` holds a credential that can read the company's books. Treat it
 like a password: it is not needed for support, and a log file is.

@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
 import '../core/model/figures.dart';
+import '../core/widgets/period_picker.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
@@ -16,6 +17,7 @@ import '../features/entries/domain/entry_draft.dart';
 import '../features/entries/presentation/new_entry_screen.dart';
 import '../features/entries/presentation/pending_entries_screen.dart';
 import '../features/reports/presentation/daybook_screen.dart';
+import '../features/reports/presentation/godown_screen.dart';
 import '../features/reports/presentation/group_outstanding_screen.dart';
 import '../features/reports/presentation/ledgers_screen.dart';
 import '../features/reports/presentation/outstanding_screen.dart';
@@ -30,6 +32,7 @@ import '../features/reports/presentation/ledger_statement_screen.dart';
 import '../features/reports/presentation/voucher_screen.dart';
 import '../features/reports/domain/reports.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/summary/presentation/summary_screen.dart';
 import '../features/team/presentation/change_password_screen.dart';
 import '../features/team/presentation/team_screen.dart';
 import 'shell.dart';
@@ -42,6 +45,7 @@ class Routes {
   static const String signUp = '/sign-up';
   static const String dashboard = '/';
   static const String reports = '/reports';
+  static const String summary = '/summary';
   static const String settings = '/settings';
   static const String companies = '/companies';
   static const String connectors = '/connectors';
@@ -72,6 +76,8 @@ class Routes {
   static const String ledgerGroup = '/reports/ledgers/group';
   static const String register = '/reports/register';
   static const String stockMovement = '/reports/stock/movement';
+  static const String godowns = '/reports/stock/godowns';
+  static const String godownItems = '/reports/stock/godowns/items';
   static const String team = '/team';
   static const String changePassword = '/change-password';
 }
@@ -93,6 +99,42 @@ String? voucherLink(TransactionLine line) {
       '${line.date.month.toString().padLeft(2, '0')}-'
       '${line.date.day.toString().padLeft(2, '0')}';
   return '${Routes.voucher}?key=${Uri.encodeQueryComponent(key)}&on=$on';
+}
+
+/// A sales or purchase register, opened on [period] rather than on the whole
+/// year.
+///
+/// The window rides in the link, like a voucher's date, so the register opens
+/// on the period the tapped figure was for and the Reports tab's plain link
+/// still opens on the year.
+String registerLink(String kind, PeriodSelection period) =>
+    '${Routes.register}?kind=$kind&${_periodQuery(period)}';
+
+String salesRegisterLink(PeriodSelection period) => registerLink('sales', period);
+
+/// The day book, opened on [period] and showing only vouchers of [kind].
+/// Receipts and payments have no register of their own, so this is where a
+/// month of them is read.
+String daybookLink(String kind, PeriodSelection period) =>
+    '${Routes.daybook}?kind=$kind&${_periodQuery(period)}';
+
+String _periodQuery(PeriodSelection period) =>
+    'from=${period.range.fromWire}&to=${period.range.toWire}'
+    '&label=${Uri.encodeQueryComponent(period.label)}';
+
+/// The window a register link asks for, or null when it names none -- or names
+/// one that does not parse, which opens the ordinary register rather than
+/// failing.
+PeriodSelection? _openingPeriod(Map<String, String> query) {
+  final DateTime? from = DateTime.tryParse(query['from'] ?? '');
+  final DateTime? to = DateTime.tryParse(query['to'] ?? '');
+  if (from == null || to == null || to.isBefore(from)) return null;
+  final DateRange range = DateRange(from, to);
+  final String? label = query['label'];
+  return PeriodSelection(
+    range,
+    label == null || label.isEmpty ? formatRangeLabel(range) : label,
+  );
 }
 
 final GlobalKey<NavigatorState> _rootKey = GlobalKey<NavigatorState>();
@@ -174,11 +216,18 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
                 const NoTransitionPage<void>(child: ReportsScreen()),
           ),
           GoRoute(
-            path: Routes.settings,
+            path: Routes.summary,
             pageBuilder: (BuildContext context, GoRouterState state) =>
-                const NoTransitionPage<void>(child: SettingsScreen()),
+                const NoTransitionPage<void>(child: SummaryScreen()),
           ),
         ],
+      ),
+      // Over the shell rather than inside it: Profile is reached from the
+      // avatar in the app bar, and is left with the back arrow.
+      GoRoute(
+        path: Routes.settings,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => const SettingsScreen(),
       ),
       GoRoute(
         path: Routes.pendingEntries,
@@ -196,7 +245,10 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.daybook,
         parentNavigatorKey: _rootKey,
-        builder: (BuildContext context, GoRouterState state) => const DaybookScreen(),
+        builder: (BuildContext context, GoRouterState state) => DaybookScreen(
+          kind: state.uri.queryParameters['kind'],
+          opening: _openingPeriod(state.uri.queryParameters),
+        ),
       ),
       // The longer path is declared first. Both are literal so today's matcher
       // does not care, but the ordering means a later change to either -- a
@@ -266,6 +318,7 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
           kind: state.uri.queryParameters['kind'] == 'purchase'
               ? 'purchase'
               : 'sales',
+          opening: _openingPeriod(state.uri.queryParameters),
         ),
       ),
       // Declared before `stock` for the same reason the group report is
@@ -277,6 +330,18 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         builder: (BuildContext context, GoRouterState state) => StockItemScreen(
           item: state.uri.queryParameters['item'] ?? '',
         ),
+      ),
+      GoRoute(
+        path: Routes.godownItems,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => GodownItemsScreen(
+          godown: state.uri.queryParameters['godown'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: Routes.godowns,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => const GodownScreen(),
       ),
       GoRoute(
         path: Routes.stock,
@@ -368,7 +433,7 @@ class _SplashScreen extends StatelessWidget {
           children: <Widget>[
             Icon(Icons.insights_rounded, size: 48, color: theme.colorScheme.primary),
             const SizedBox(height: 16),
-            Text('TallyFlow', style: theme.textTheme.headlineSmall),
+            Text('Prime Analyst', style: theme.textTheme.headlineSmall),
             const SizedBox(height: 24),
             const SizedBox(
               width: 22,

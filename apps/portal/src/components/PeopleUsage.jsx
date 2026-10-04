@@ -156,6 +156,6 @@ function describeAgent(agent) {
   if (/iphone|ipad/i.test(agent)) return 'iPhone or iPad';
   if (/windows/i.test(agent)) return 'Windows PC';
   if (/mac os/i.test(agent)) return 'Mac';
-  if (/dart/i.test(agent)) return 'TallyFlow app';
+  if (/dart/i.test(agent)) return 'Prime Analyst app';
   return 'Browser';
 }

@@ -110,7 +110,7 @@ class CompanyPickerScreen extends ConsumerWidget {
                 Icons.link_off,
                 color: Theme.of(sheetContext).colorScheme.error,
               ),
-              title: const Text('Remove from TallyFlow'),
+              title: const Text('Remove from Prime Analyst'),
               subtitle: const Text('Your books in TallyPrime are not touched'),
               onTap: () => Navigator.of(sheetContext).pop(true),
             ),
@@ -137,7 +137,7 @@ class CompanyPickerScreen extends ConsumerWidget {
         // product can touch their books, and a screen that does not say so on
         // a button labelled "Remove" is a screen nobody dares press.
         content: const Text(
-          'This company will no longer appear in TallyFlow, and its stored '
+          'This company will no longer appear in Prime Analyst, and its stored '
           'reports and history will be removed from your account.\n\n'
           'Nothing in TallyPrime is changed — your books, vouchers and masters '
           'stay exactly as they are, and you can connect this company again at '
@@ -173,7 +173,7 @@ class CompanyPickerScreen extends ConsumerWidget {
       ref.invalidate(companiesProvider);
       if (context.mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('${company.name} was removed from TallyFlow.')),
+          SnackBar(content: Text('${company.name} was removed from Prime Analyst.')),
         );
       }
     } on ApiException catch (error) {

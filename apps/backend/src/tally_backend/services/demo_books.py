@@ -1,6 +1,6 @@
 """The demo company's books: invented, coherent, and the same every time.
 
-A prospective customer should be able to open TallyFlow and see what it does
+A prospective customer should be able to open Prime Analyst and see what it does
 before they own a copy of TallyPrime, let alone install a connector. That means
 a set of books with nothing behind it -- no shop, no PC, no gateway.
 
@@ -47,6 +47,7 @@ from typing import Any
 
 from tally_core.domain.masters import (
     CompanyMarkers,
+    GodownStock,
     Ledger,
     LedgerGroup,
     StockItem,
@@ -331,6 +332,7 @@ class DemoBooks:
     groups: list[dict[str, Any]]
     ledgers: list[dict[str, Any]]
     stock_items: list[dict[str, Any]]
+    godown_stock: list[dict[str, Any]]
     voucher_types: list[dict[str, Any]]
     bills: list[dict[str, Any]]
     markers: dict[str, Any]
@@ -459,6 +461,7 @@ def build_books(*, books_from: date, upto: date) -> DemoBooks:
         groups=[g.model_dump(mode="json") for g in _groups()],
         ledgers=[led.model_dump(mode="json") for led in _ledgers(ledger)],
         stock_items=[item.model_dump(mode="json") for item in _stock(ledger)],
+        godown_stock=[row.model_dump(mode="json") for row in _godown_stock(ledger)],
         voucher_types=[vt.model_dump(mode="json") for vt in _voucher_types()],
         bills=[bill.model_dump(mode="json") for bill in _bills(ledger)],
         markers=_markers(ledger, upto).model_dump(mode="json"),
@@ -865,6 +868,36 @@ def _stock(books: _Books) -> list[StockItem]:
                 gst_rate=18.0,
             )
         )
+    return rows
+
+
+#: Where the demo keeps its stock: the counter, and a store room behind it.
+GODOWNS = ("Main Location", "Warehouse")
+
+
+def _godown_stock(books: _Books) -> list[GodownStock]:
+    """The same closing stock as :func:`_stock`, split across two godowns.
+
+    Folded from the one set of quantities rather than invented beside it, so
+    the godown summary and the stock summary add up to the same figure. Three
+    fifths sits in the warehouse; anything oversold is short at the counter,
+    which is where a sale is billed from.
+    """
+    rows: list[GodownStock] = []
+    for item in ITEMS:
+        quantity = books.quantities.get(item.name, Decimal(0))
+        stored = (quantity * 3 // 5) if quantity > 0 else Decimal(0)
+        for godown, held in zip(GODOWNS, (quantity - stored, stored), strict=True):
+            if held == 0:
+                continue
+            rows.append(
+                GodownStock(
+                    godown=godown,
+                    item_name=item.name,
+                    quantity=float(held),
+                    value=_money(_q(held * item.cost)),
+                )
+            )
     return rows
 
 

@@ -4,8 +4,8 @@ Caddy serves this directory at `https://<UAT_DOMAIN>/downloads/`.
 
 | File | Written by |
 |---|---|
-| `TallyFlowConnector-Setup-<version>.exe` | `python run.py connector` (Windows) |
-| `TallyFlow-<version>.apk`                | `python run.py release https://<UAT_DOMAIN>` |
+| `PrimeAnalystConnector-Setup-<version>.exe` | `python run.py connector` (Windows) |
+| `PrimeAnalyst-<version>.apk`                | `python run.py release https://<UAT_DOMAIN>` |
 | `manifest.json`                          | `python run.py publish` (both commands call it) |
 
 Both build commands stage their artefact here and regenerate the manifest, so

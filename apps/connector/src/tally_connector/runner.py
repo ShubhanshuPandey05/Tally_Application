@@ -128,7 +128,7 @@ class ConnectorRunner:
             # No page to show a code on, so there is nothing this process can do
             # but say how to pair from a command line.
             logger.error(
-                "This connector is not paired yet. Open the TallyFlow app, add this "
+                "This connector is not paired yet. Open the Prime Analyst app, add this "
                 "computer, then run: tally-connector pair --id <ID> --secret <SECRET>"
             )
             return EXIT_UNPAIRED
@@ -222,7 +222,7 @@ class ConnectorRunner:
                     else "This computer is being paired again."
                 )
                 return None
-            logger.error("Re-pair this computer from the TallyFlow app.")
+            logger.error("Re-pair this computer from the Prime Analyst app.")
             return EXIT_REJECTED
 
         logger.error("connector stopped: %s", exc)
@@ -302,7 +302,7 @@ class ConnectorRunner:
             )
         except PairingError as exc:
             logger.warning("could not get a pairing code: %s", exc)
-            self._report_pairing(f"Could not reach TallyFlow: {exc}")
+            self._report_pairing(f"Could not reach Prime Analyst: {exc}")
             return None
 
     async def _probe_tally_while_pairing(self, settings: ConnectorSettings) -> None:
@@ -364,7 +364,7 @@ class ConnectorRunner:
         Deliberately does not touch ``paired``. That answer comes from the
         settings on disk and from whether the backend has disowned this machine
         -- never from whether a code happens to be on screen, which would make
-        "we could not reach TallyFlow to get a code" render as "paired".
+        "we could not reach Prime Analyst to get a code" render as "paired".
         """
         if self._bridge is None:
             return
@@ -391,11 +391,11 @@ class ConnectorRunner:
         if session is None:
             return {
                 "ok": False,
-                "message": "Not connected to TallyFlow, so there is nothing to refresh yet.",
+                "message": "Not connected to Prime Analyst, so there is nothing to refresh yet.",
             }
         if await session.request_roster():
             return {"ok": True, "message": "Refreshed."}
-        return {"ok": False, "message": "Could not reach TallyFlow. Trying again shortly."}
+        return {"ok": False, "message": "Could not reach Prime Analyst. Trying again shortly."}
 
     async def _action_port(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:

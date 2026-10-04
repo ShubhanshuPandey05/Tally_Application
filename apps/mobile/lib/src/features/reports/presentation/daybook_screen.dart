@@ -8,6 +8,7 @@ import '../../../core/model/financial_year.dart';
 import '../../../core/widgets/period_scope.dart';
 import '../../../core/money/money_format.dart';
 import '../../../core/widgets/cards.dart';
+import '../../../core/widgets/choice_sheet_button.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../dashboard/presentation/widgets/dashboard_sections.dart';
@@ -28,7 +29,14 @@ const int _maxDaybookDays = 400;
 /// common cases, a custom range for everything else, clamped to what the
 /// backend will actually serve.
 class DaybookScreen extends ConsumerStatefulWidget {
-  const DaybookScreen({super.key});
+  const DaybookScreen({super.key, this.kind, this.opening});
+
+  /// The voucher class to open filtered to, when the screen is reached from a
+  /// figure that was about one -- a month of receipts on the Summary tab.
+  final String? kind;
+
+  /// The window to open on instead of today, for the same reason.
+  final PeriodSelection? opening;
 
   @override
   ConsumerState<DaybookScreen> createState() => _DaybookScreenState();
@@ -36,14 +44,28 @@ class DaybookScreen extends ConsumerStatefulWidget {
 
 class _DaybookScreenState extends ConsumerState<DaybookScreen>
     with YearScopedPeriod {
-  String? _kind;
+  late String? _kind = _kinds.containsKey(widget.kind) ? widget.kind : null;
+
+  /// The classes the day book can be narrowed to.
+  static const Map<String, String> _kinds = <String, String>{
+    'sales': 'Sales',
+    'purchase': 'Purchases',
+    'receipt': 'Receipts',
+    'payment': 'Payments',
+  };
 
   /// Today, in the year we are in. A closed year has no today, so it opens on
   /// the whole of it -- the day book of a year that ended is read from the top.
   @override
-  PeriodSelection initialPeriod(FinancialYear year) => year.isCurrent
-      ? PeriodSelection.today()
-      : PeriodSelection(year.toDate, year.label);
+  PeriodSelection initialPeriod(FinancialYear year) {
+    final PeriodSelection? opening = widget.opening;
+    if (opening != null && year.overlaps(opening.range)) {
+      return PeriodSelection(year.confine(opening.range), opening.label);
+    }
+    return year.isCurrent
+        ? PeriodSelection.today()
+        : PeriodSelection(year.toDate, year.label);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -92,22 +114,14 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen>
                 padding: const EdgeInsets.only(right: 8),
                 child: PeriodField(label: periodLabel, onTap: () => pickPeriod(maxDays: _maxDaybookDays)),
               ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: const Text('Sales only'),
-                  selected: _kind == 'sales',
-                  onSelected: (bool on) => setState(() => _kind = on ? 'sales' : null),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.only(right: 8),
-                child: FilterChip(
-                  label: const Text('Purchases only'),
-                  selected: _kind == 'purchase',
-                  onSelected: (bool on) =>
-                      setState(() => _kind = on ? 'purchase' : null),
-                ),
+              ChoiceSheetButton<String?>(
+                selected: _kind,
+                onSelected: (String? kind) => setState(() => _kind = kind),
+                choices: <SheetChoice<String?>>[
+                  const SheetChoice<String?>(null, 'All vouchers'),
+                  for (final MapEntry<String, String> kind in _kinds.entries)
+                    SheetChoice<String?>(kind.key, kind.value),
+                ],
               ),
             ],
           ),

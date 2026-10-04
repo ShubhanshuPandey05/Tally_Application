@@ -40,6 +40,7 @@ async def test_another_org_cannot_read_your_company(
         f"/v1/companies/{company_id}/reports/daybook?from_date=2026-01-01&to_date=2026-01-31",
         f"/v1/companies/{company_id}/reports/outstanding",
         f"/v1/companies/{company_id}/reports/stock",
+        f"/v1/companies/{company_id}/reports/stock/godowns",
         f"/v1/companies/{company_id}/reports/ledgers",
     ):
         response = await client.get(path, headers=attacker)

@@ -25,6 +25,7 @@ from decimal import Decimal
 from typing import Any
 
 from tally_core.domain.masters import (
+    GodownStock,
     Ledger,
     LedgerGroup,
     StockItem,
@@ -124,6 +125,10 @@ def parse_bills(payload: Any) -> list[OutstandingBill]:
 
 def parse_stock(payload: Any) -> list[StockItem]:
     return [StockItem.model_validate(item) for item in payload or []]
+
+
+def parse_godown_stock(payload: Any) -> list[GodownStock]:
+    return [GodownStock.model_validate(item) for item in payload or []]
 
 
 def parse_voucher_types(payload: Any) -> list[VoucherType]:
@@ -610,6 +615,79 @@ def inventory_summary(items: list[StockItem]) -> dict[str, Any]:
     }
 
 
+def godown_summary(rows: list[GodownStock], items: list[StockItem]) -> dict[str, Any]:
+    """Stock by godown: each place, what it holds, and what that is worth.
+
+    Tally's Godown Summary, in Tally's order -- godowns by name, items by name
+    under each. ``items`` supplies the units: a batch names its item but not
+    what the item is counted in.
+
+    A godown gets a quantity and a rate of its own only when everything in it
+    is counted in one unit. 10 pieces plus 150 metres is not 160 of anything,
+    which is why Tally leaves that cell blank too.
+    """
+    units = {item.name.strip().casefold(): item.base_unit for item in items}
+
+    by_godown: dict[str, list[GodownStock]] = defaultdict(list)
+    for row in rows:
+        # A batch that has been drawn down to nothing is still a batch in
+        # Tally. It is not stock, and a godown of zeroes is not a godown worth
+        # a heading.
+        if row.quantity == 0 and row.value.is_zero:
+            continue
+        by_godown[row.godown].append(row)
+
+    godowns: list[dict[str, Any]] = []
+    grand = Money.zero()
+    for name in sorted(by_godown, key=str.casefold):
+        held = sorted(by_godown[name], key=lambda r: r.item_name.casefold())
+        total = _sum([row.value for row in held])
+        grand = grand + total
+
+        held_units = {units.get(row.item_name.strip().casefold()) for row in held}
+        unit = next(iter(held_units)) if len(held_units) == 1 else None
+        quantity = sum(row.quantity for row in held) if unit is not None else None
+
+        godowns.append(
+            {
+                "name": name,
+                "value": money_out(magnitude(total)),
+                "quantity": quantity,
+                "unit": unit,
+                "rate": _unit_rate(total, quantity),
+                "items": [
+                    {
+                        "name": row.item_name,
+                        "quantity": row.quantity,
+                        "unit": units.get(row.item_name.strip().casefold()),
+                        "rate": _unit_rate(row.value, row.quantity),
+                        "value": money_out(magnitude(row.value)),
+                        "is_negative": row.quantity < 0,
+                    }
+                    for row in held
+                ],
+            }
+        )
+
+    return {
+        "value": money_out(magnitude(grand)),
+        "godown_count": len(godowns),
+        "godowns": godowns,
+    }
+
+
+def _unit_rate(value: Money, quantity: float | None) -> dict[str, Any] | None:
+    """Value per unit, or nothing when there is no honest answer.
+
+    Negative stock has no rate -- it is goods the books say were never
+    received, so there is no cost to divide.
+    """
+    if quantity is None or quantity <= 0 or value.is_zero:
+        return None
+    rate = (value.amount / Decimal(str(quantity))).quantize(TWO_PLACES)
+    return money_out(Money(amount=rate, side=Side.DEBIT, currency=value.currency))
+
+
 def _stock_line(item: StockItem) -> dict[str, Any]:
     return {
         "name": item.name,
@@ -897,6 +975,25 @@ _MONTH_NAMES = (
 )
 
 
+def _gst_head(ledger_name: str) -> str | None:
+    """Which GST head a ledger line belongs to, read off the ledger's name.
+
+    By name because nothing else is to hand: a voucher line carries the ledger
+    it posted to and not that ledger's duty head. Shops name these freely --
+    "Output CGST 9%", "CGST Payable", "Central Tax" -- but the head itself is
+    nearly always in the name, and a line that matches nothing is simply left
+    out of all three rather than guessed into one.
+    """
+    name = ledger_name.casefold()
+    if "igst" in name or "integrated" in name:
+        return "igst"
+    if "cgst" in name or "central tax" in name:
+        return "cgst"
+    if "sgst" in name or "utgst" in name or "state tax" in name:
+        return "sgst"
+    return None
+
+
 def register(
     vouchers: list[Voucher],
     kind: VoucherTypeKind,
@@ -904,6 +1001,7 @@ def register(
     since: date,
     until: date,
     limit: int = 500,
+    cancelled: list[Voucher] | None = None,
 ) -> dict[str, Any]:
     """A sales or purchase register: the vouchers, plus the two cuts of them an
     owner actually asks for -- by month and by party.
@@ -918,6 +1016,13 @@ def register(
 
     monthly: dict[str, Money] = defaultdict(Money.zero)
     counts: dict[str, int] = defaultdict(int)
+    quantities: dict[str, float] = defaultdict(float)
+    item_values: dict[str, Money] = defaultdict(Money.zero)
+    taxes: dict[tuple[str, str], Money] = defaultdict(Money.zero)
+    #: Months in which at least one voucher carried stock lines. A month with
+    #: none has no quantity to report -- old slices are synced without their
+    #: lines -- and that must not be sent as a quantity of zero.
+    with_lines: set[str] = set()
     total = Money.zero()
     for voucher in selected:
         value = voucher_value(voucher)
@@ -925,6 +1030,19 @@ def register(
         bucket = f"{voucher.date.year:04d}-{voucher.date.month:02d}"
         monthly[bucket] = monthly[bucket] + value
         counts[bucket] += 1
+        for line in voucher.inventory_entries:
+            with_lines.add(bucket)
+            quantities[bucket] += abs(line.quantity)
+            item_values[bucket] = item_values[bucket] + magnitude(line.amount)
+        for entry in voucher.ledger_entries:
+            head = _gst_head(entry.ledger_name)
+            if head is not None:
+                taxes[(bucket, head)] = taxes[(bucket, head)] + magnitude(entry.amount)
+
+    cancelled_counts: dict[str, int] = defaultdict(int)
+    for voucher in cancelled or []:
+        if voucher.kind is kind and since <= voucher.date <= until:
+            cancelled_counts[f"{voucher.date.year:04d}-{voucher.date.month:02d}"] += 1
 
     months = [
         {
@@ -932,6 +1050,14 @@ def register(
             "label": f"{_MONTH_NAMES[int(bucket[5:7]) - 1]} {bucket[:4]}",
             "total": money_out(magnitude(monthly[bucket])),
             "voucher_count": counts[bucket],
+            "cancelled_count": cancelled_counts[bucket],
+            "quantity": quantities[bucket] if bucket in with_lines else None,
+            "item_value": (
+                money_out(item_values[bucket]) if bucket in with_lines else None
+            ),
+            "igst": money_out(taxes[(bucket, "igst")]),
+            "cgst": money_out(taxes[(bucket, "cgst")]),
+            "sgst": money_out(taxes[(bucket, "sgst")]),
         }
         for bucket in sorted(monthly)
     ]

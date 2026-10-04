@@ -308,7 +308,7 @@ class PlatformPrincipal:
         if not self.role.allows(minimum):
             raise PermissionDenied(
                 f"platform role {self.role} < {minimum}",
-                user_message="Only a TallyFlow owner can do that.",
+                user_message="Only a Prime Analyst owner can do that.",
             )
 
     @property

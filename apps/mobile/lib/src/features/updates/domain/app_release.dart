@@ -81,7 +81,7 @@ class AppRelease {
 
   final String version;
 
-  /// Relative to the manifest (`/downloads/TallyFlow-0.2.0.apk`), so one
+  /// Relative to the manifest (`/downloads/PrimeAnalyst-0.2.0.apk`), so one
   /// manifest works behind whatever hostname a deployment happens to use.
   final String url;
   final String sha256;

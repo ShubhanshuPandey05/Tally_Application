@@ -1,4 +1,4 @@
-# TallyFlow Connector — Installer Guide
+# Prime Analyst Connector — Installer Guide
 
 How to build, run, verify, and remove the Windows connector installer.
 
@@ -28,7 +28,7 @@ That does three things:
 3. Inno Setup compiles all of it into:
 
 ```
-apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
+apps\connector\dist\installer\PrimeAnalystConnector-Setup-0.1.0.exe
 ```
 
 The version comes from `tally_connector.__version__`, so the file name can
@@ -54,7 +54,7 @@ built and only the installer step is skipped.
 
 ## 2. Run the installer (customer machine)
 
-Double-click `TallyFlowConnector-Setup-0.1.0.exe`.
+Double-click `PrimeAnalystConnector-Setup-0.1.0.exe`.
 
 **No administrator rights needed.** It is a per-user install
 (`PrivilegesRequired=lowest`), so there is no UAC prompt and the shop owner can
@@ -72,7 +72,7 @@ Setup:
 2. Writes the server address to a temp file (never onto a command line — any
    process on the machine can read another process's arguments)
 3. Runs `tally-connector.exe install --from-file …`, which writes
-   `connector.json` and registers the **"TallyFlow Connector"** scheduled task
+   `connector.json` and registers the **"Prime Analyst Connector"** scheduled task
 4. Starts the connector immediately, and at every logon thereafter
 5. Offers to open the connector's own window, which is where the code is
 
@@ -85,7 +85,7 @@ For a business rolling this out to twenty shop PCs, where nobody is going to
 walk between them with a phone:
 
 ```powershell
-TallyFlowConnector-Setup-0.1.0.exe /VERYSILENT /ID=<id> /SECRET=<secret>
+PrimeAnalystConnector-Setup-0.1.0.exe /VERYSILENT /ID=<id> /SECRET=<secret>
 ```
 
 Add `/SERVER=wss://…` to override the backend. Supplying `/ID` or `/SECRET` is
@@ -102,7 +102,7 @@ lets the app say *which* shop went offline.
 
 ## 3. Verify it works
 
-Two Start Menu shortcuts under **TallyFlow**:
+Two Start Menu shortcuts under **Prime Analyst**:
 
 - **Check Tally Connection** → runs `tally-connector diagnose`
 - **Connector Status** → runs `tally-connector status`
@@ -157,7 +157,7 @@ touches Task Scheduler, not `connector.json`.
 
 ## 6. Uninstalling
 
-Settings → Apps → **TallyFlow Connector** → Uninstall.
+Settings → Apps → **Prime Analyst Connector** → Uninstall.
 
 Removes the scheduled task, the process, `connector.json` (it holds the pairing
 secret, so removing the product removes the credential), and
@@ -192,7 +192,7 @@ Add `--no-autostart` to write the config only and leave Task Scheduler alone.
 | Installer says the server address is invalid | It must start with `wss://` or `ws://` |
 | `status`: *"This computer is not paired"* | Re-run the installer, or `tally-connector pair --id … --secret …` |
 | `status`: *"will not start on its own"* | Startup task missing — re-run the installer |
-| Task exists but is `Ready`, not `Running` | `schtasks /Run /TN "TallyFlow Connector"` |
+| Task exists but is `Ready`, not `Running` | `schtasks /Run /TN "Prime Analyst Connector"` |
 | *"Could not register the startup task"* | Pairing already saved and valid; start by hand with `tally-connector run` |
 | `diagnose` cannot reach Tally | TallyPrime not open, no company loaded, or port 9000 not enabled |
 | One dashboard section (usually sales) stays empty while the rest works | That section's read is overrunning its budget. Run `livecheck` and look at the **Timing** table — anything marked `SLOW` cannot reach the dashboard live |

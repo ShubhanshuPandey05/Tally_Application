@@ -63,7 +63,7 @@ export default function SignIn({ onSignedIn }) {
             height="40"
           />
           <div className="stack">
-            <strong>TallyFlow</strong>
+            <strong>Prime Analyst</strong>
             <span>Partner Desk</span>
           </div>
         </div>
@@ -154,7 +154,7 @@ export default function SignIn({ onSignedIn }) {
           </button>
 
           <p className="hint">
-            Portal accounts are created by a TallyFlow owner. There is no sign-up, and an
+            Portal accounts are created by a Prime Analyst owner. There is no sign-up, and an
             owner can reissue a forgotten password.
           </p>
         </form>

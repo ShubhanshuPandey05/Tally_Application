@@ -22,8 +22,8 @@ export default function App() {
   useEffect(() => {
     document.title =
       route === '/docs'
-        ? 'Setup guide — TallyFlow'
-        : 'TallyFlow — your TallyPrime numbers, on your phone';
+        ? 'Setup guide — Prime Analyst'
+        : 'Prime Analyst — your TallyPrime numbers, on your phone';
   }, [route]);
 
   return (

@@ -173,7 +173,7 @@ class _ScanConnectorScreenState extends ConsumerState<ScanConnectorScreen> {
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: <Widget>[
                 Text(
-                  'On the Tally PC, open TallyFlow Connector',
+                  'On the Tally PC, open Prime Analyst Connector',
                   style: theme.textTheme.titleSmall,
                   textAlign: TextAlign.center,
                 ),
@@ -248,7 +248,7 @@ class _ConfirmSheet extends StatelessWidget {
                   ? 'This computer will take over the connection, keeping its '
                       'companies and everything already synced.'
                   : 'This computer will be able to read the companies you '
-                      'connect to it. TallyFlow never writes to your books.',
+                      'connect to it. Prime Analyst never writes to your books.',
               style: theme.textTheme.bodyMedium
                   ?.copyWith(color: context.mutedColor),
             ),
@@ -310,7 +310,7 @@ class _CameraUnavailable extends StatelessWidget {
             Icon(Icons.no_photography_outlined, size: 40, color: context.mutedColor),
             const SizedBox(height: 14),
             Text(
-              denied ? 'TallyFlow cannot use the camera' : 'The camera is not available',
+              denied ? 'Prime Analyst cannot use the camera' : 'The camera is not available',
               style: theme.textTheme.titleSmall,
               textAlign: TextAlign.center,
             ),

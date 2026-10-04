@@ -55,7 +55,7 @@ class _UpdateBannerState extends ConsumerState<UpdateBanner> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: <Widget>[
                 Text(
-                  'TallyFlow ${release.version} is available',
+                  'Prime Analyst ${release.version} is available',
                   style: theme.textTheme.labelLarge?.copyWith(
                     color: theme.colorScheme.onPrimaryContainer,
                   ),

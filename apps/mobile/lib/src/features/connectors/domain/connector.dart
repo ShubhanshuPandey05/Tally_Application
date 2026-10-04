@@ -13,7 +13,7 @@ enum ConnectorStatus {
       };
 }
 
-/// A TallyFlow Connector installed on a shop's Windows PC.
+/// A Prime Analyst Connector installed on a shop's Windows PC.
 class Connector {
   const Connector({
     required this.id,
@@ -114,7 +114,7 @@ class PairingCode {
   /// second string, never shown, that is what actually collects the secret.
   final String code;
 
-  /// The TallyFlow server that PC is pointed at. Carried so the app can say
+  /// The Prime Analyst server that PC is pointed at. Carried so the app can say
   /// "that computer is set up against a different server" instead of failing
   /// with a code that looks perfectly valid.
   final String host;

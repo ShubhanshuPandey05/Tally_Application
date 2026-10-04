@@ -37,8 +37,8 @@ MANIFEST_URL = "https://example.test/downloads/manifest.json"
 def manifest(version: str = "0.2.0", *, sha: str | None = None, **extra) -> dict:
     entry = {
         "version": version,
-        "file": f"TallyFlowConnector-Setup-{version}.exe",
-        "url": f"/downloads/TallyFlowConnector-Setup-{version}.exe",
+        "file": f"PrimeAnalystConnector-Setup-{version}.exe",
+        "url": f"/downloads/PrimeAnalystConnector-Setup-{version}.exe",
         "sha256": sha if sha is not None else INSTALLER_SHA,
         "size_bytes": len(INSTALLER_BYTES),
         "mandatory": False,
@@ -249,7 +249,7 @@ def test_the_installer_launch_always_reaches_the_exit(tmp_path, monkeypatch, con
     """
     started = _stub_handover(monkeypatch, console=console)
     manager = manager_for(serving(manifest()), tmp_path)
-    installer = tmp_path / "TallyFlowConnector-Setup-0.2.0.exe"
+    installer = tmp_path / "PrimeAnalystConnector-Setup-0.2.0.exe"
     installer.write_bytes(INSTALLER_BYTES)
 
     with pytest.raises(_Exited) as exit_code:
@@ -375,5 +375,5 @@ def test_a_relative_release_url_resolves_against_the_manifest():
 
     release = Release.from_manifest(manifest("0.2.0")["connector"])
     assert urljoin(MANIFEST_URL, release.url) == (
-        "https://example.test/downloads/TallyFlowConnector-Setup-0.2.0.exe"
+        "https://example.test/downloads/PrimeAnalystConnector-Setup-0.2.0.exe"
     )

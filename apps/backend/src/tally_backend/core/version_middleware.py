@@ -136,7 +136,7 @@ class ClientVersionMiddleware(BaseHTTPMiddleware):
             "error": {
                 "code": "update_required",
                 "message": (
-                    "This version of TallyFlow can no longer read your data "
+                    "This version of Prime Analyst can no longer read your data "
                     "correctly. Please install the update to continue."
                 ),
                 # Not retryable: retrying the same request from the same build

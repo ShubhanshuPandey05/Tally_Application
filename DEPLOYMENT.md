@@ -1,4 +1,4 @@
-# Deploying TallyFlow
+# Deploying Prime Analyst
 
 Step-by-step for the things that live on servers: the **backend API**
 (`apps/backend`), the **marketing website** (`apps/website`) and the
@@ -494,8 +494,8 @@ dist/
   index.html
   assets/…
   downloads/
-    TallyFlowConnector-Setup-0.1.0.exe
-    TallyFlow-0.1.0.apk
+    PrimeAnalystConnector-Setup-0.1.0.exe
+    PrimeAnalyst-0.1.0.apk
 ```
 
 Copy the signed installer (Part C) and, if you distribute one, the APK into
@@ -506,8 +506,8 @@ Copy the signed installer (Part C) and, if you distribute one, the APK into
 Generate the checksum you publish from the file you actually upload:
 
 ```powershell
-Get-FileHash .\TallyFlowConnector-Setup-0.1.0.exe -Algorithm SHA256
-(Get-Item .\TallyFlowConnector-Setup-0.1.0.exe).Length / 1MB
+Get-FileHash .\PrimeAnalystConnector-Setup-0.1.0.exe -Algorithm SHA256
+(Get-Item .\PrimeAnalystConnector-Setup-0.1.0.exe).Length / 1MB
 ```
 
 A published checksum that doesn't match the file is worse than none — it teaches
@@ -572,7 +572,7 @@ build) or exclude the path: `--exclude downloads/`.
 
 ```bash
 curl -sI https://tallyflow.app | head -1
-curl -sI https://tallyflow.app/downloads/TallyFlowConnector-Setup-0.1.0.exe | head -1
+curl -sI https://tallyflow.app/downloads/PrimeAnalystConnector-Setup-0.1.0.exe | head -1
 ```
 
 Then open the site and check, in order: the download button hits a real file of
@@ -677,7 +677,7 @@ On Windows, with Inno Setup 6 installed (`winget install JRSoftware.InnoSetup`):
 
 ```powershell
 python run.py connector
-# -> apps\connector\dist\installer\TallyFlowConnector-Setup-<version>.exe
+# -> apps\connector\dist\installer\PrimeAnalystConnector-Setup-<version>.exe
 ```
 
 The version comes from `tally_connector.__version__`, so bump that — not the
@@ -689,12 +689,12 @@ customer on first download until it is signed and has built reputation:
 ```powershell
 signtool sign /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 `
   /f cert.pfx /p <password> `
-  apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
+  apps\connector\dist\installer\PrimeAnalystConnector-Setup-0.1.0.exe
 ```
 
 Test the signed installer on a clean Windows VM that has TallyPrime, using both
 paths: the wizard, and the silent rollout used for multi-branch customers —
-`TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret>`. The install
+`PrimeAnalystConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret>`. The install
 is per-user (no UAC), so run it as the account TallyPrime runs under.
 
 ## C3. Build the mobile app
@@ -718,7 +718,7 @@ builds cleanly, installs cleanly, and looks identical to a real one.
 
 It is not merely a Play Console rejection. The debug keystore's password is
 publicly documented (`android`), so **anyone can sign a package that Android will
-install over TallyFlow as an update.** For an app that reads a business's books,
+install over Prime Analyst as an update.** For an app that reads a business's books,
 that is a supply-chain hole, not a signing detail.
 
 Generate the upload keystore once:

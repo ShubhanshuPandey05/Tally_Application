@@ -16,10 +16,10 @@ AppRelease release({
 }) {
   return AppRelease(
     version: version,
-    url: '/downloads/TallyFlow-$version.apk',
+    url: '/downloads/PrimeAnalyst-$version.apk',
     sha256: 'abc123',
     sizeBytes: 23583706,
-    file: 'TallyFlow-$version.apk',
+    file: 'PrimeAnalyst-$version.apk',
     mandatory: mandatory,
     minSupportedVersion: floor,
   );
@@ -136,8 +136,8 @@ void main() {
     test('reads a full entry', () {
       final AppRelease parsed = AppRelease.fromJson(<String, Object?>{
         'version': '0.2.0',
-        'file': 'TallyFlow-0.2.0.apk',
-        'url': '/downloads/TallyFlow-0.2.0.apk',
+        'file': 'PrimeAnalyst-0.2.0.apk',
+        'url': '/downloads/PrimeAnalyst-0.2.0.apk',
         'sha256': 'ABC123',
         'size_bytes': 23583706,
         'build_number': 4,
@@ -163,7 +163,7 @@ void main() {
     test('optional fields fall back to safe defaults', () {
       final AppRelease parsed = AppRelease.fromJson(<String, Object?>{
         'version': '0.2.0',
-        'url': '/downloads/TallyFlow-0.2.0.apk',
+        'url': '/downloads/PrimeAnalyst-0.2.0.apk',
       });
       expect(parsed.mandatory, isFalse);
       expect(parsed.minSupportedVersion, '0.0.0');
@@ -177,7 +177,7 @@ void main() {
       final Uri resolved = Uri.parse('https://uat.example.test/downloads/manifest.json')
           .resolve(release(version: '0.2.0').url);
       expect(resolved.toString(),
-          'https://uat.example.test/downloads/TallyFlow-0.2.0.apk');
+          'https://uat.example.test/downloads/PrimeAnalyst-0.2.0.apk');
     });
   });
 }

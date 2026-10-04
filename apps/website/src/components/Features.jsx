@@ -55,7 +55,7 @@ export default function Features() {
           <h2>A dashboard for your books, not a copy of Tally.</h2>
           <p>
             You should not have to learn a menu path to find out how the day went.
-            TallyFlow answers the questions an owner actually asks, in the order they
+            Prime Analyst answers the questions an owner actually asks, in the order they
             ask them.
           </p>
         </div>

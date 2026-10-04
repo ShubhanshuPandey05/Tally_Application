@@ -1,35 +1,36 @@
 /*
- * The mark: the name in a handwriting face, over a rule, on a tile.
+ * The mark: one circle cut in two, the halves slipped against each other, on a
+ * tile, beside the name.
  *
- * Two constraints shaped this, and both are worth keeping.
+ * It is double entry drawn as a shape -- a debit and a credit, the same size,
+ * making a whole.
  *
- * The first: the mark before it -- bars in a squircle -- was the shape half the
+ * Two constraints shaped it, and both are worth keeping.
+ *
+ * The first: an earlier mark -- bars in a squircle -- was the shape half the
  * analytics industry already uses, and a logo that makes a reader think of
  * another product is doing the opposite of its job.
  *
- * The second: it is deliberately *not* a version of TallyPrime's own logo.
- * Theirs is a script "Tally" over a swoosh over a plain second word, and
- * rebuilding that lockup with "Flow" in place of "Prime" would produce a mark
- * readers would reasonably take for an official Tally Solutions product --
- * which is the exact claim the footer on this site disclaims. Hence a straight
- * rule rather than a swoosh, one handwriting face throughout rather than a
- * script word above a typeset one, and letterforms that look nothing like
- * theirs.
+ * The second: the symbol carries no lettering, on purpose. The name shares a
+ * word with TallyPrime, and a wordmark in a tile invites setting "Prime" the
+ * way theirs is set -- which would read as an official Tally Solutions
+ * product, the exact claim the footer on this site disclaims. The name sits
+ * beside the tile in a plain sans, heavy then light, nothing like theirs.
  *
- * `light` inverts it to black on white, for surfaces that already carry a dark
- * element and do not need a second black block.
- *
- * There is a second, stacked form -- `Tally` with `Flow` beneath it -- for
- * square icons, where a name across a 32px tile gives each letter about two
- * pixels. It is not a component: it has to render without a webfont, so it
- * lives as outlines in `tools/brand` and is generated into the favicon, the
- * touch icon and the app's launcher icons.
+ * The path data is the same as `tools/brand/icon.py`, which generates the
+ * favicon, the touch icon and the app's launcher icons. Change both or neither.
  */
-export default function Logo({ light = false }) {
+export default function Logo() {
   return (
-    <span className={`logo ${light ? 'logo-light' : ''}`} aria-label="TallyFlow">
-      <span className="logo-word">TallyFlow</span>
-      <span className="logo-rule" />
+    <span className="logo" aria-label="Prime Analyst">
+      <svg className="logo-mark" viewBox="0 0 512 512" aria-hidden="true">
+        <rect width="512" height="512" rx="136" fill="#0e0f11" />
+        <path fill="#fff" d="M250 156A130 130 0 0 0 250 416Z" />
+        <path fill="#6887ff" d="M262 96A130 130 0 0 1 262 356Z" />
+      </svg>
+      <span className="logo-word">
+        <b>Prime</b> Analyst
+      </span>
     </span>
   );
 }

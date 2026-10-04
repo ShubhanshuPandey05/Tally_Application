@@ -63,7 +63,7 @@ class PendingClaim:
     token: str
     expires_at: datetime
     #: The host the code was opened against. Carried into the QR so the app can
-    #: say "that PC is pointed at a different TallyFlow server" instead of
+    #: say "that PC is pointed at a different Prime Analyst server" instead of
     #: failing with a code that looks perfectly valid.
     api_host: str
 

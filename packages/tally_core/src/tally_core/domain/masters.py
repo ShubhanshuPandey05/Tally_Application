@@ -209,6 +209,22 @@ class StockItem(BaseModel):
         return self.closing_quantity < self.reorder_level
 
 
+class GodownStock(BaseModel):
+    """What one godown holds of one stock item, as a closing position.
+
+    One row per godown and item, with any batches already folded together: the
+    report this feeds answers "where is my stock", and a batch is a question
+    about expiry rather than about place.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    godown: str
+    item_name: str
+    quantity: float = 0.0
+    value: Money = Field(default_factory=Money.zero)
+
+
 class VoucherTypeKind(StrEnum):
     """Tally's parent voucher classes, normalised.
 

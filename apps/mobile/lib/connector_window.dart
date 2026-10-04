@@ -52,7 +52,7 @@ class _ConnectorApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'TallyFlow Connector',
+      title: 'Prime Analyst Connector',
       debugShowCheckedModeBanner: false,
       // Light, and not the app's dim default. This window is read at a counter
       // under shop lighting rather than on a phone in the evening, and the

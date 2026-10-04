@@ -9,7 +9,7 @@ export default function Access() {
           <span className="label">Getting access</span>
           <h2>Early access, activated by hand.</h2>
           <p>
-            TallyFlow is in use with a small number of businesses while the first
+            Prime Analyst is in use with a small number of businesses while the first
             reports settle. Registering in the app does not switch anything on by
             itself — we activate each account, and agree what it covers, with the
             person who will use it.

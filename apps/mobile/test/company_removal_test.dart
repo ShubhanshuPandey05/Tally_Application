@@ -13,7 +13,7 @@ import 'package:tallyflow/src/features/companies/domain/company.dart';
 import 'package:tallyflow/src/features/companies/presentation/company_picker_screen.dart';
 import 'package:tallyflow/src/features/subscription/domain/subscription.dart';
 
-/// Removing a company from TallyFlow.
+/// Removing a company from Prime Analyst.
 ///
 /// The dangerous misreading of this button is that it deletes a set of books,
 /// so most of what is pinned here is about how hard it is to reach and what it
@@ -140,7 +140,7 @@ void main() {
     await tester.tap(find.byTooltip('Remove ${_second.name}'));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Remove from TallyFlow'));
+    await tester.tap(find.text('Remove from Prime Analyst'));
     await tester.pumpAndSettle();
 
     // The sentence that decides whether anybody dares press the button.
@@ -165,7 +165,7 @@ void main() {
 
     await tester.tap(find.byTooltip('Remove ${_first.name}'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove from TallyFlow'));
+    await tester.tap(find.text('Remove from Prime Analyst'));
     await tester.pumpAndSettle();
     await tester.tap(find.widgetWithText(TextButton, 'Cancel'));
     await tester.pumpAndSettle();

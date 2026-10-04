@@ -547,3 +547,36 @@ def test_change_percentage_is_none_without_a_baseline() -> None:
         )
         == 50.0
     )
+
+
+def test_godown_summary_groups_stock_by_place(samples) -> None:
+    summary = an.godown_summary(
+        an.parse_godown_stock(samples.godown_stock()), an.parse_stock(samples.stock())
+    )
+
+    assert summary["value"]["amount"] == "40000.00"
+    # Tally's order: by name, not by size.
+    assert [g["name"] for g in summary["godowns"]] == ["Back Store", "Shop"]
+
+    back, shop = summary["godowns"]
+    # The drained batch of sugar is not stock, so it is not a row.
+    assert [i["name"] for i in back["items"]] == ["Rice"]
+    assert back["quantity"] == 300.0
+    assert back["unit"] == "KG"
+    assert back["rate"]["amount"] == "80.00"
+
+
+def test_a_godown_of_mixed_units_has_no_quantity_of_its_own(samples) -> None:
+    """Kilograms plus litres is not a quantity of anything."""
+    summary = an.godown_summary(
+        an.parse_godown_stock(samples.godown_stock()), an.parse_stock(samples.stock())
+    )
+    shop = summary["godowns"][1]
+
+    assert shop["quantity"] is None
+    assert shop["rate"] is None
+    assert shop["value"]["amount"] == "16000.00"
+
+    oil = shop["items"][0]
+    assert oil["is_negative"] is True
+    assert oil["rate"] is None

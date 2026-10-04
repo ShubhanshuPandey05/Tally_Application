@@ -94,7 +94,7 @@ class ConnectorState {
   final AccountState account;
   final String logDir;
 
-  /// How hard this computer lets TallyFlow work its TallyPrime: `gentle`,
+  /// How hard this computer lets Prime Analyst work its TallyPrime: `gentle`,
   /// `normal` or `fast`. Chosen here, on the machine being protected, and sent
   /// to the backend on the next handshake -- which is why changing it
   /// reconnects.
@@ -149,7 +149,7 @@ class PairingState {
   final String detail;
 }
 
-/// Whether TallyFlow is answering.
+/// Whether Prime Analyst is answering.
 class BackendState {
   const BackendState({
     required this.url,

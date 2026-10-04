@@ -2,7 +2,7 @@
 # Connector running command 
 # TALLY_CONNECTOR_CONNECTOR_ID=2cb25e291c44404aaba2fb0128a5628e TALLY_CONNECTOR_CONNECTOR_SECRET=UpnLchNTrUkDC2alwVE0JnbzfvSDqD-IpKq2qjtNPbI TALLY_CONNECTOR_BACKEND_URL=ws://127.0.0.1:8000/v1/connector ./.venv/Scripts/python.exe -m tally_connector.main run
 
-"""TallyFlow task runner: `python run.py <command>`.
+"""Prime Analyst task runner: `python run.py <command>`.
 
 One file, standard library only, so it works the same on a Windows laptop and on
 a Linux deploy box. Run it with the system Python -- it finds the virtualenv
@@ -482,7 +482,7 @@ def cmd_connector(_: list[str]) -> int:
         return usage_error("the connector installer can only be built on Windows")
 
     version = connector_version()
-    print(f"Building TallyFlow Connector {version}\n")
+    print(f"Building Prime Analyst Connector {version}\n")
 
     # cwd matters: the spec refers to entrypoint.py and src/ relatively.
     if run([python_bin(), "-m", "PyInstaller", "connector.spec", "--clean", "--noconfirm"],
@@ -509,7 +509,7 @@ def cmd_connector(_: list[str]) -> int:
            cwd=INSTALLER) != 0:
         return 1
 
-    output = CONNECTOR / "dist" / "installer" / f"TallyFlowConnector-Setup-{version}.exe"
+    output = CONNECTOR / "dist" / "installer" / f"PrimeAnalystConnector-Setup-{version}.exe"
     print(f"\nInstaller: {output}")
     print("Unsigned -- SmartScreen will warn on first download until it is")
     print("code-signed. Sign it before sending the link to a customer.")
@@ -586,8 +586,8 @@ def cmd_publish(_: list[str]) -> int:
     app_version, app_build = mobile_version()
 
     targets = [
-        ("connector", connector, None, f"TallyFlowConnector-Setup-{connector}.exe"),
-        ("android", app_version, app_build, f"TallyFlow-{app_version}.apk"),
+        ("connector", connector, None, f"PrimeAnalystConnector-Setup-{connector}.exe"),
+        ("android", app_version, app_build, f"PrimeAnalyst-{app_version}.apk"),
     ]
 
     entries: dict[str, object] = {}
@@ -698,7 +698,7 @@ def cmd_release(argv: list[str]) -> int:
     # fallback is exactly how a debug-signed APK reaches customers unnoticed:
     # it builds cleanly, installs cleanly, and looks identical. The debug
     # keystore's password is publicly documented, so anyone can sign a package
-    # Android will install *over* TallyFlow as an update.
+    # Android will install *over* Prime Analyst as an update.
     #
     # This is the last point at which that is catchable, so it is caught here
     # rather than left to whoever remembers.
@@ -738,7 +738,7 @@ def cmd_release(argv: list[str]) -> int:
         return usage_error(f"flutter reported success but {apk} is missing")
 
     print()
-    staged = DOWNLOADS / f"TallyFlow-{version}.apk"
+    staged = DOWNLOADS / f"PrimeAnalyst-{version}.apk"
     DOWNLOADS.mkdir(parents=True, exist_ok=True)
     shutil.copy2(apk, staged)
     print(f"Staged {staged.relative_to(ROOT)}")
@@ -844,7 +844,7 @@ def cmd_prod(argv: list[str]) -> int:
     connector = connector_version()
     mobile, build_number = mobile_version()
 
-    print("TallyFlow production release")
+    print("Prime Analyst production release")
     print(f"  branch     {branch}")
     print(f"  connector  {connector}")
     print(f"  app        {mobile}+{build_number}")

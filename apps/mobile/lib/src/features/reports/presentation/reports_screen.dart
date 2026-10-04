@@ -9,6 +9,7 @@ import '../../../app/theme.dart';
 import '../../../core/widgets/primitives.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
+import '../../settings/presentation/profile_button.dart';
 
 /// The report index.
 ///
@@ -23,7 +24,11 @@ class ReportsScreen extends ConsumerWidget {
     final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
 
     return Scaffold(
-      appBar: AppBar(title: const Text('Reports')),
+      appBar: AppBar(
+        leading: const ProfileButton(),
+        titleSpacing: 0,
+        title: const Text('Reports'),
+      ),
       body: ContentPane(
         child: companyId == null
             ? const EmptyState(
@@ -105,6 +110,12 @@ class ReportsScreen extends ConsumerWidget {
                         title: 'Stock summary',
                         subtitle: 'What I hold and what it is worth',
                         route: Routes.stock,
+                      ),
+                      _ReportEntry(
+                        icon: Icons.warehouse_outlined,
+                        title: 'Godown summary',
+                        subtitle: 'Where my stock is kept, godown by godown',
+                        route: Routes.godowns,
                       ),
                       _ReportEntry(
                         icon: Icons.warning_amber_outlined,

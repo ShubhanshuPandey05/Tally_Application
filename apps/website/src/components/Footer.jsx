@@ -33,9 +33,9 @@ export default function Footer() {
       </div>
 
       <div className="shell foot-bar">
-        <span>© {new Date().getFullYear()} TallyFlow</span>
+        <span>© {new Date().getFullYear()} Prime Analyst</span>
         <span>
-          TallyPrime is a trademark of Tally Solutions Pvt. Ltd. TallyFlow is an
+          TallyPrime is a trademark of Tally Solutions Pvt. Ltd. Prime Analyst is an
           independent product and is not affiliated with Tally Solutions.
         </span>
       </div>

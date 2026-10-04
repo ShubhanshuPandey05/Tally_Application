@@ -38,8 +38,8 @@ def write_manifest(path: Path, **entries) -> Path:
     for platform, values in entries.items():
         payload[platform] = {
             "version": values.get("version", "0.2.0"),
-            "file": f"TallyFlow-{values.get('version', '0.2.0')}.apk",
-            "url": f"/downloads/TallyFlow-{values.get('version', '0.2.0')}.apk",
+            "file": f"PrimeAnalyst-{values.get('version', '0.2.0')}.apk",
+            "url": f"/downloads/PrimeAnalyst-{values.get('version', '0.2.0')}.apk",
             "sha256": "a" * 64,
             "size_bytes": 23583706,
             "mandatory": values.get("mandatory", False),
@@ -266,7 +266,7 @@ async def test_an_app_below_the_floor_is_refused_with_426(settings, tmp_path) ->
     # the same response rather than fetching a manifest first.
     update = body["error"]["detail"]["update"]
     assert update["version"] == "0.3.0"
-    assert update["url"] == "/downloads/TallyFlow-0.3.0.apk"
+    assert update["url"] == "/downloads/PrimeAnalyst-0.3.0.apk"
     assert update["sha256"] == "a" * 64
 
 

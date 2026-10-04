@@ -139,7 +139,7 @@ def build_task_xml(
     return f"""<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <RegistrationInfo>
-    <Description>Keeps TallyPrime data available to the TallyFlow mobile app. \
+    <Description>Keeps TallyPrime data available to the Prime Analyst mobile app. \
 Reads only; never writes to Tally.</Description>
     <URI>\\{escape(TASK_NAME)}</URI>
   </RegistrationInfo>

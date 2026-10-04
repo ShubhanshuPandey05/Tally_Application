@@ -270,7 +270,7 @@ class _TitleBar extends StatelessWidget {
             mainAxisSize: MainAxisSize.min,
             children: <Widget>[
               const Text(
-                'TallyFlow Connector',
+                'Prime Analyst Connector',
                 style: TextStyle(
                   fontSize: 14.5,
                   fontWeight: FontWeight.w700,
@@ -334,11 +334,11 @@ class _NotRunning extends StatelessWidget {
             ),
             const SizedBox(height: 6),
             Text(
-              // Deliberately says which of the two things is wrong. "TallyFlow "
+              // Deliberately says which of the two things is wrong. "Prime Analyst "
               // "is down" and "the program on this PC is not started" have
               // completely different fixes, and only one of them is the shop's
               // to carry out.
-              'TallyFlow itself is unaffected. This window shows what the '
+              'Prime Analyst itself is unaffected. This window shows what the '
               'program on this PC is doing, and that program is not started. '
               'It starts on its own when you sign in to Windows; if it has not, '
               'restarting the computer is the fastest fix.',
@@ -395,7 +395,7 @@ class PairingPanel extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: <Widget>[
               const Text(
-                'Connect this computer to your TallyFlow account',
+                'Connect this computer to your Prime Analyst account',
                 style: TextStyle(fontSize: 17, fontWeight: FontWeight.w700, letterSpacing: -0.3),
               ),
               const SizedBox(height: 4),
@@ -424,7 +424,7 @@ class PairingPanel extends StatelessWidget {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: <Widget>[
-                        const _Step(1, 'Open TallyFlow on your phone and sign in.'),
+                        const _Step(1, 'Open Prime Analyst on your phone and sign in.'),
                         const _Step(2, 'Go to Computers, then Add a computer.'),
                         const _Step(3, 'Point the camera at this code.'),
                         const SizedBox(height: 18),
@@ -705,7 +705,7 @@ class _CompaniesTab extends StatelessWidget {
           child: account.companies.isEmpty
               ? _Empty(
                   account.isEmpty
-                      ? 'Waiting for TallyFlow to say which companies this '
+                      ? 'Waiting for Prime Analyst to say which companies this '
                           'computer is for.'
                       : 'No company on the account is set to read from this '
                           'computer yet. Add one in the app.',
@@ -721,7 +721,7 @@ class _CompaniesTab extends StatelessWidget {
         Text(
           // The one sentence that answers the question this window most often
           // gets opened for.
-          'Only people on your TallyFlow account can see these companies, and '
+          'Only people on your Prime Analyst account can see these companies, and '
           'only through the app. This computer answers nothing else.',
           style: TextStyle(
             fontSize: 11.5,
@@ -757,7 +757,7 @@ class _PeopleTab extends StatelessWidget {
                   ),
                 ),
           child: account.users.isEmpty
-              ? const _Empty('Waiting for TallyFlow to send the list.')
+              ? const _Empty('Waiting for Prime Analyst to send the list.')
               : Column(
                   children: <Widget>[
                     for (final RosterUser user in account.users) _UserRow(user),
@@ -796,7 +796,7 @@ class _TallyTab extends StatelessWidget {
   }
 }
 
-/// How hard this computer lets TallyFlow work its TallyPrime.
+/// How hard this computer lets Prime Analyst work its TallyPrime.
 ///
 /// The choice lives on the machine rather than in the app because the person
 /// who can see the till stuttering is the one standing at it. What each level
@@ -818,7 +818,7 @@ class _SyncSpeedTab extends StatelessWidget {
       name: 'gentle',
       title: 'Gentle',
       detail: 'Smallest reads, and the longest rests between them. Choose this '
-          'if TallyPrime feels slow while TallyFlow is catching up.',
+          'if TallyPrime feels slow while Prime Analyst is catching up.',
     ),
     _SpeedLevel(
       name: 'normal',
@@ -873,7 +873,7 @@ class _SyncSpeedTab extends StatelessWidget {
         Text(
           'TallyPrime answers one request at a time and pauses its own screen '
           'while it works, so this is what decides whether anyone at the '
-          'counter notices TallyFlow reading. Changing it reconnects, because '
+          'counter notices Prime Analyst reading. Changing it reconnects, because '
           'the setting travels with the connection.',
           style: TextStyle(
             fontSize: 11.5,
@@ -1012,7 +1012,7 @@ class _BackendCard extends StatelessWidget {
   Widget build(BuildContext context) {
     return _StatusCard(
       icon: Icons.cloud_outlined,
-      label: 'TallyFlow',
+      label: 'Prime Analyst',
       good: backend.connected,
       headline: backend.connected ? 'Connected' : 'Not connected',
       detail: backend.connected
@@ -1271,7 +1271,7 @@ class _MachineFacts extends StatelessWidget {
                 ? null
                 : TextButton(onPressed: onChangePort, child: const Text('Change')),
           ),
-          _FactRow(label: 'TallyFlow address', value: state.backend.url),
+          _FactRow(label: 'Prime Analyst address', value: state.backend.url),
           if (state.connectorId.isNotEmpty)
             _FactRow(label: 'Computer ID', value: state.connectorId),
           _FactRow(

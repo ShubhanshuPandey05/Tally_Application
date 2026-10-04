@@ -18,8 +18,32 @@
     "kind": "purchase",
     "months": [
       {
+        "cancelled_count": 0,
+        "cgst": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "igst": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
+        "item_value": null,
         "label": "Mar 2026",
         "month": "2026-03",
+        "quantity": null,
+        "sgst": {
+          "amount": "0.00",
+          "currency": "INR",
+          "display": "0.00 Dr",
+          "side": "debit",
+          "signed": "0.00"
+        },
         "total": {
           "amount": "212600.00",
           "currency": "INR",

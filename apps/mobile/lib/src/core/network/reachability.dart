@@ -1,6 +1,6 @@
 import 'package:flutter/foundation.dart';
 
-/// Whether this phone could reach the TallyFlow server on its last attempt.
+/// Whether this phone could reach the Prime Analyst server on its last attempt.
 ///
 /// A different question from `Freshness.connectorOnline`, which is about the
 /// shop's PC as seen *by the server*. When the phone itself has no signal the

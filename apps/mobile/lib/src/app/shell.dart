@@ -7,7 +7,12 @@ import '../features/entries/presentation/create_entry_button.dart';
 import 'router.dart';
 import 'theme.dart';
 
-/// The three places a user can be: their figures, their reports, their profile.
+/// The three places a user can be: their figures, their reports, and the year
+/// month by month.
+///
+/// Profile is not one of them. It is somewhere a person goes a few times a
+/// year, so it is the avatar at the top left of each of these screens -- see
+/// `ProfileButton` -- and the slot it held goes to something read every day.
 ///
 /// Kept to three deliberately. The dashboard already answers the questions the
 /// product exists for; a five-tab bar would just be Tally's menu tree wearing a
@@ -30,7 +35,7 @@ class HomeShell extends StatelessWidget {
   static const List<_Destination> _destinations = <_Destination>[
     _Destination(Routes.dashboard, Icons.grid_view_rounded, 'Home'),
     _Destination(Routes.reports, Icons.receipt_long_rounded, 'Reports'),
-    _Destination(Routes.settings, Icons.person_rounded, 'Profile'),
+    _Destination(Routes.summary, Icons.bar_chart_rounded, 'Summary'),
   ];
 
   int get _index {
@@ -63,7 +68,7 @@ class HomeShell extends StatelessWidget {
         ),
         // No bar to clear on a rail layout, so it sits where a desktop app
         // puts it rather than floating 72px above nothing.
-        floatingActionButton: _index == 2 ? null : const CreateEntryButton(),
+        floatingActionButton: const CreateEntryButton(),
       );
     }
 
@@ -74,9 +79,8 @@ class HomeShell extends StatelessWidget {
       body: child,
       // Above the bar rather than in the app bar: this is the action somebody
       // takes with a customer in front of them, and a thumb reaches the bottom
-      // right corner without the hand moving. Hidden on Profile, where there
-      // is nothing to record.
-      floatingActionButton: _index == 2 ? null : const CreateEntryButton(),
+      // right corner without the hand moving.
+      floatingActionButton: const CreateEntryButton(),
       bottomNavigationBar: _FloatingBar(
         index: _index,
         destinations: _destinations,
@@ -132,7 +136,7 @@ class _Rail extends StatelessWidget {
                   const BrandMark(size: 38),
                   if (expanded) ...<Widget>[
                     const SizedBox(width: 12),
-                    Text('TallyFlow', style: theme.textTheme.titleMedium),
+                    Text('Prime Analyst', style: theme.textTheme.titleMedium),
                   ],
                 ],
               ),

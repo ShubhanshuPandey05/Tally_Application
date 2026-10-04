@@ -47,7 +47,7 @@ export default function Hero() {
           <h1 style={{ marginTop: 18 }}>Your TallyPrime numbers, on your phone.</h1>
 
           <p className="hero-sub">
-            TallyFlow shows you sales, cash, receivables and stock from your own
+            Prime Analyst shows you sales, cash, receivables and stock from your own
             TallyPrime — without opening Tally, and without exposing it to the
             internet. It can only read. Nothing it does can change a voucher.
           </p>

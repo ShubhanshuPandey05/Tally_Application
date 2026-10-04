@@ -117,7 +117,7 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                     const SizedBox(height: 12),
                     TextButton(
                       onPressed: _busy ? null : () => context.go(Routes.signUp),
-                      child: const Text('New to TallyFlow? Create an account'),
+                      child: const Text('New to Prime Analyst? Create an account'),
                     ),
                     const SizedBox(height: 4),
                     // Said here because it is the question that stops people

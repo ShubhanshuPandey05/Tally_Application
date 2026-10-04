@@ -102,26 +102,26 @@ class Entitlement:
         """
         if self.is_demo:
             return (
-                "This is the TallyFlow demo, so nothing here can be changed. "
+                "This is the Prime Analyst demo, so nothing here can be changed. "
                 "Create your own account to connect your TallyPrime."
             )
         if self.is_expired and self.status is OrgStatus.ACTIVE:
             return (
-                "Your TallyFlow subscription has ended. Contact your TallyFlow "
+                "Your Prime Analyst subscription has ended. Contact your Prime Analyst "
                 "partner to renew it."
             )
         return {
             OrgStatus.PENDING: (
                 "Your business is waiting to be approved. You can sign in now, "
                 "and adding a Tally PC, a company or a colleague unlocks as soon "
-                "as your TallyFlow partner activates the account."
+                "as your Prime Analyst partner activates the account."
             ),
             OrgStatus.SUSPENDED: (
-                "This TallyFlow account has been suspended. Contact your "
-                "TallyFlow partner to restore it."
+                "This Prime Analyst account has been suspended. Contact your "
+                "Prime Analyst partner to restore it."
             ),
             OrgStatus.REJECTED: (
-                "This TallyFlow account was not activated. Contact your TallyFlow "
+                "This Prime Analyst account was not activated. Contact your Prime Analyst "
                 "partner if you think that is a mistake."
             ),
             OrgStatus.ACTIVE: "",
@@ -224,7 +224,7 @@ async def check_company_limit(session: AsyncSession, org: Organisation) -> None:
             user_message=(
                 f"Your plan covers {org.max_companies} "
                 f"{'company' if org.max_companies == 1 else 'companies'}. "
-                "Remove one, or contact your TallyFlow partner to add more."
+                "Remove one, or contact your Prime Analyst partner to add more."
             ),
             detail={"limit": org.max_companies, "used": current},
         )
@@ -240,7 +240,7 @@ async def check_user_limit(session: AsyncSession, org: Organisation) -> None:
             user_message=(
                 f"Your plan covers {org.max_users} "
                 f"{'person' if org.max_users == 1 else 'people'}. "
-                "Remove someone, or contact your TallyFlow partner to add more."
+                "Remove someone, or contact your Prime Analyst partner to add more."
             ),
             detail={"limit": org.max_users, "used": current},
         )

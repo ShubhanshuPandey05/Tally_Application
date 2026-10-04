@@ -5,7 +5,7 @@ import './faq.css';
 
 const ITEMS = [
   {
-    q: 'Can TallyFlow change anything inside Tally?',
+    q: 'Can Prime Analyst change anything inside Tally?',
     a: 'No. The connector only ever asks Tally to export. There is no code path that writes, so even someone holding your credentials has nothing to write with.',
   },
   {

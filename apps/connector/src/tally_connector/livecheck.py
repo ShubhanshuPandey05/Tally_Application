@@ -247,6 +247,34 @@ async def livecheck(client: TallyClient, company: str | None = None) -> int:
             else:
                 report.ok("quantity x rate reconciles with value for every priced item")
 
+        # The godown read has no other check on it: nothing else in the product
+        # reads Batch objects, and a per-place figure that does not add up to
+        # the item's own balance is a wrong report rather than a missing one.
+        placed = await run(tally, "godown_stock.list", {"company": target}, report)
+        if not placed:
+            report.skip("no stock is recorded against a godown")
+        else:
+            by_item: dict[str, float] = {}
+            for row in placed:
+                key = row.item_name.strip().casefold()
+                by_item[key] = by_item.get(key, 0.0) + row.quantity
+            adrift = [
+                f"{item.name}: godowns hold {by_item.get(item.name.strip().casefold(), 0.0)}, "
+                f"item says {item.closing_quantity}"
+                for item in items
+                if abs(
+                    by_item.get(item.name.strip().casefold(), 0.0) - item.closing_quantity
+                )
+                > 0.001
+            ]
+            if adrift:
+                report.fail(f"{len(adrift)} item(s) differ between godowns and the item:")
+                for line in adrift[:6]:
+                    print(f"         - {line}")
+            else:
+                godowns = len({row.godown for row in placed})
+                report.ok(f"godown quantities add up to every item's balance ({godowns} godown(s))")
+
         in_stock = [i for i in items if i.closing_quantity > 0]
         wrong_side = [
             i for i in in_stock if i.closing_value.side is not Side.DEBIT

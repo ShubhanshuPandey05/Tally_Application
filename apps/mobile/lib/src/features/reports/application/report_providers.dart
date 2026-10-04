@@ -74,6 +74,13 @@ final AutoDisposeFutureProviderFamily<Fresh<StockReport>, StockArgs> stockProvid
       ),
 );
 
+final AutoDisposeFutureProviderFamily<Fresh<GodownReport>, String> godownsProvider =
+    FutureProvider.autoDispose.family<Fresh<GodownReport>, String>(
+  (Ref ref, String companyId) => ref
+      .watch(reportsRepositoryProvider)
+      .godowns(companyId, cache: deviceFirst(ref)),
+);
+
 final AutoDisposeFutureProviderFamily<Fresh<LedgerReport>, LedgerArgs> ledgersProvider =
     FutureProvider.autoDispose.family<Fresh<LedgerReport>, LedgerArgs>(
   (Ref ref, LedgerArgs args) =>

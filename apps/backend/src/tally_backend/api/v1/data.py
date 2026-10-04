@@ -391,6 +391,46 @@ async def stock(
     )
 
 
+@router.get("/reports/stock/godowns", response_model=DataEnvelope)
+async def godown_summary(
+    company: CompanyDep,
+    sync: SyncDep,
+    principal: PrincipalDep,
+    session: SessionDep,
+    reads: ReadServiceDep,
+    request: Request,
+    mode: FetchModeParam = "auto",
+) -> DataEnvelope:
+    """Stock by the godown it sits in -- Tally's Godown Summary."""
+    resolved = await _resolved(sync, company, mode)
+    result = await reads.fetch(
+        company, dataset="godown_stock.list", mode=resolved, heavy=True
+    )
+    # Only for the units, so never worth a second export: a missing snapshot
+    # costs the report its "Mtr" and "Kg", not its figures.
+    try:
+        stock_result = await reads.fetch(
+            company, dataset="stock_items.list", mode=FetchMode.CACHED, heavy=True
+        )
+        items = an.parse_stock(stock_result.payload)
+    except AppError:
+        items = []
+
+    await record(
+        session,
+        action="report.godown_summary",
+        org_id=principal.org_id,
+        user_id=principal.user.id,
+        company_id=company.id,
+        request=request,
+    )
+
+    return DataEnvelope(
+        data=an.godown_summary(an.parse_godown_stock(result.payload), items),
+        meta=result.meta(),
+    )
+
+
 @router.get("/reports/ledgers", response_model=DataEnvelope)
 async def ledgers(
     company: CompanyDep,
@@ -710,11 +750,17 @@ async def register(
     result = await reads.fetch_vouchers(
         company, from_date=start, to_date=end, mode=FetchMode.CACHED
     )
-    vouchers = an.effective(an.parse_vouchers(result.payload))
     # Without this every shop that renamed "Sales" to "Tax Invoice" gets an
     # empty register rather than a wrong one, which is at least honest and
     # entirely useless.
-    vouchers = an.classify(vouchers, await voucher_kinds(reads, company, FetchMode.CACHED))
+    everything = an.classify(
+        an.parse_vouchers(result.payload),
+        await voucher_kinds(reads, company, FetchMode.CACHED),
+    )
+    vouchers = an.effective(everything)
+    # Counted beside each month, and in no total. Optional entries are not
+    # cancelled ones -- they are waiting for approval -- so they are left out.
+    cancelled = [v for v in everything if v.is_cancelled]
 
     await record(
         session,
@@ -727,7 +773,7 @@ async def register(
     )
 
     return DataEnvelope(
-        data=an.register(vouchers, kind, since=start, until=end),
+        data=an.register(vouchers, kind, since=start, until=end, cancelled=cancelled),
         meta=result.meta(),
     )
 

@@ -78,7 +78,7 @@ from .voucher_store import VoucherStore
 
 logger = logging.getLogger(__name__)
 
-DEMO_ORG_NAME = "TallyFlow Demo"
+DEMO_ORG_NAME = "Prime Analyst Demo"
 DEMO_CONNECTOR_NAME = "Demo Tally PC"
 
 
@@ -351,6 +351,7 @@ async def _publish(
     await reads.put_snapshot(company, dataset="groups.list", payload=books.groups)
     await reads.put_snapshot(company, dataset="ledgers.list", payload=books.ledgers)
     await reads.put_snapshot(company, dataset="stock_items.list", payload=books.stock_items)
+    await reads.put_snapshot(company, dataset="godown_stock.list", payload=books.godown_stock)
     await reads.put_snapshot(company, dataset="voucher_types.list", payload=books.voucher_types)
     await reads.put_snapshot(company, dataset="company.markers", payload=books.markers)
     # Ageing is computed against a date, so the bills carry the day they were

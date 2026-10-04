@@ -14,7 +14,7 @@ plugins {
 // loudly. The fallback exists so `flutter run --release` works on a fresh
 // checkout; it must never be what ships. The debug keystore's password is
 // publicly documented ("android"), so a debug-signed release means anyone can
-// build a package that Android will install *over* TallyFlow as an update. For
+// build a package that Android will install *over* Prime Analyst as an update. For
 // an app that reads a business's books that is not a signing detail, it is a
 // supply-chain hole.
 //

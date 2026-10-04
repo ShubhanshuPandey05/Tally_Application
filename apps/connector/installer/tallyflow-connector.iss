@@ -1,7 +1,7 @@
-; TallyFlow Connector -- Windows installer (Inno Setup 6).
+; Prime Analyst Connector -- Windows installer (Inno Setup 6).
 ;
 ; Build:  python run.py connector
-; Output: apps/connector/dist/installer/TallyFlowConnector-Setup-<version>.exe
+; Output: apps/connector/dist/installer/PrimeAnalystConnector-Setup-<version>.exe
 ;
 ; What this installer is responsible for:
 ;   1. copying two executables and the window that reports on them,
@@ -25,8 +25,8 @@
 ;   * the logon task runs as the person who installed it, which is the account
 ;     TallyPrime is running under.
 
-#define AppName          "TallyFlow Connector"
-#define AppPublisher     "TallyFlow"
+#define AppName          "Prime Analyst Connector"
+#define AppPublisher     "Prime Analyst"
 #define ExeName          "tally-connector.exe"
 #define ServiceExeName   "tally-connector-service.exe"
 ; The window, and the folder it is laid down in. A Flutter build is an
@@ -52,13 +52,19 @@ AppPublisher={#AppPublisher}
 ; Points at the site's setup guide, which is a page that exists. A dead
 ; support link in Add/Remove Programs is found by the one person already stuck.
 AppSupportURL=https://tallyflow.jsrprimesolution.com/docs
+; Still the old name, with the data folder and the scheduled task: an upgrade
+; reuses the folder it finds, so renaming this would only make new installs
+; live somewhere the setup guide and every existing PC do not.
 DefaultDirName={autopf}\TallyFlow Connector
-DefaultGroupName=TallyFlow
+DefaultGroupName=Prime Analyst
+; An upgrade would otherwise go on using the folder the first install made,
+; which is the old name -- and the setup guide tells people where to look.
+UsePreviousGroup=no
 DisableProgramGroupPage=yes
 DisableDirPage=yes
 PrivilegesRequired=lowest
 OutputDir=..\dist\installer
-OutputBaseFilename=TallyFlowConnector-Setup-{#AppVersion}
+OutputBaseFilename=PrimeAnalystConnector-Setup-{#AppVersion}
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
@@ -87,9 +93,9 @@ Source: "{#WindowBuild}\*"; DestDir: "{app}\{#WindowDir}"; \
 ; paired -- the code to scan.
 ; Points at the CLI rather than straight at the window: `ui` checks that the
 ; connector is actually running first, and a window that opened and then said it
-; could not reach anything reads as TallyFlow being down rather than as the
+; could not reach anything reads as Prime Analyst being down rather than as the
 ; program on this PC not being started.
-Name: "{group}\TallyFlow Connector";    Filename: "{app}\{#ExeName}"; Parameters: "ui"; \
+Name: "{group}\{#AppName}";           Filename: "{app}\{#ExeName}"; Parameters: "ui"; \
       Comment: "Open the connector's status and pairing window"
 Name: "{group}\Check Tally Connection"; Filename: "{app}\check-tally.cmd"; \
       Comment: "Test whether the connector can read TallyPrime on this computer"
@@ -97,6 +103,13 @@ Name: "{group}\Connector Status";       Filename: "{app}\check-tally.cmd"; Param
       Comment: "Is the background connector paired and running?"
 Name: "{group}\Connector Logs";         Filename: "{localappdata}\TallyFlow Connector\logs"
 Name: "{group}\Uninstall {#AppName}";   Filename: "{uninstallexe}"
+
+[InstallDelete]
+; The product was TallyFlow until 0.6.0, and its shortcuts lived in a Start menu
+; folder of that name. Inno only ever writes shortcuts, it never retires them,
+; so without this an updated PC shows the old folder beside the new one and
+; both open the same window. Per-user install, so {userprograms} is where it is.
+Type: filesandordirs; Name: "{userprograms}\TallyFlow"
 
 [Run]
 ; The pairing details go through a file in {tmp}, never on the command line:
@@ -116,7 +129,7 @@ Filename: "{app}\{#ExeName}"; Parameters: "install"; \
 ; the customer has to do. Skipped on an upgrade, which is already paired and has
 ; no code to show, and on a silent rollout, where nobody is standing there.
 Filename: "{app}\{#ExeName}"; Parameters: "ui"; \
-      Description: "Show the pairing code for the TallyFlow app"; \
+      Description: "Show the pairing code for the Prime Analyst app"; \
       Flags: postinstall skipifsilent nowait; Check: not IsUpgrade
 Filename: "{app}\check-tally.cmd"; Description: "Check the connection to TallyPrime now"; \
       Flags: postinstall skipifsilent nowait unchecked
@@ -195,7 +208,7 @@ begin
     for anything: the connector shows a code when it starts, and the app reads
     it. That is the whole point of the change. }
   PairPage := CreateInputQueryPage(wpWelcome,
-    'Connect to your TallyFlow account',
+    'Connect to your Prime Analyst account',
     'Pairing details for this computer.',
     'These were supplied on the command line. Leave the ID and secret blank' + #13#10 +
     'to pair this computer by scanning the code it shows after setup.');
@@ -207,7 +220,7 @@ begin
   { Pre-seeded from the command line so a business with twenty shop PCs can
     push this out per machine instead of typing a secret twenty times:
 
-      TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret>
+      PrimeAnalystConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret>
 
     Each machine still needs its own pair -- one connector row per PC is what
     lets the app say which shop went offline. }

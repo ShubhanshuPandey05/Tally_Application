@@ -89,13 +89,13 @@ BEGIN
     BEGIN
         BLOCK "040904e4"
         BEGIN
-            VALUE "CompanyName", "TallyFlow" "\0"
-            VALUE "FileDescription", "TallyFlow Connector" "\0"
+            VALUE "CompanyName", "Prime Analyst" "\0"
+            VALUE "FileDescription", "Prime Analyst Connector" "\0"
             VALUE "FileVersion", VERSION_AS_STRING "\0"
             VALUE "InternalName", "tally-connector-window" "\0"
-            VALUE "LegalCopyright", "Copyright (C) 2026 TallyFlow. All rights reserved." "\0"
+            VALUE "LegalCopyright", "Copyright (C) 2026 Prime Analyst. All rights reserved." "\0"
             VALUE "OriginalFilename", "tally-connector-window.exe" "\0"
-            VALUE "ProductName", "TallyFlow Connector" "\0"
+            VALUE "ProductName", "Prime Analyst Connector" "\0"
             VALUE "ProductVersion", VERSION_AS_STRING "\0"
         END
     END

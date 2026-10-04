@@ -174,5 +174,5 @@ class AuthController extends Notifier<AuthState> {
   /// person's books.
   Future<void> _forgetReads() => ref.read(readCacheProvider).clear();
 
-  static const String _deviceName = 'TallyFlow Mobile';
+  static const String _deviceName = 'Prime Analyst Mobile';
 }

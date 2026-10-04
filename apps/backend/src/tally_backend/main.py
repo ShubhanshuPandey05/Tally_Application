@@ -141,7 +141,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await connector_logs.start()
 
         logger.info(
-            "TallyFlow backend %s ready (instance=%s, env=%s, routing=%s)",
+            "Prime Analyst backend %s ready (instance=%s, env=%s, routing=%s)",
             __version__,
             settings.instance_id,
             settings.environment,
@@ -164,7 +164,7 @@ def create_app(settings: Settings | None = None) -> FastAPI:
             await engine.dispose()
 
     app = FastAPI(
-        title="TallyFlow API",
+        title="Prime Analyst API",
         version=__version__,
         description="Read-only mobile dashboard for TallyPrime.",
         lifespan=lifespan,

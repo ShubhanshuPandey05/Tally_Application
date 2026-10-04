@@ -1,4 +1,4 @@
-# Deploying TallyFlow to UAT
+# Deploying Prime Analyst to UAT
 
 A same-day runbook for putting the stack in front of pilot customers.
 
@@ -178,7 +178,7 @@ format. A pilot downloading from your own site needs the APK.
 ```powershell
 # Windows, because PyInstaller and Inno Setup do not cross-compile
 python run.py connector
-# -> apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe
+# -> apps\connector\dist\installer\PrimeAnalystConnector-Setup-0.1.0.exe
 
 python run.py release https://uat-tallyflow.jsrprimesolution.com
 # -> apps\mobile\build\app\outputs\flutter-apk\app-release.apk
@@ -196,8 +196,8 @@ somebody's laptop, which you find out about from users.
 Copy both into `deploy/uat/downloads/`, named exactly as the site links them:
 
 ```bash
-cp TallyFlowConnector-Setup-0.1.0.exe  deploy/uat/downloads/
-cp app-release.apk                     deploy/uat/downloads/TallyFlow-0.1.0.apk
+cp PrimeAnalystConnector-Setup-0.1.0.exe  deploy/uat/downloads/
+cp app-release.apk                     deploy/uat/downloads/PrimeAnalyst-0.1.0.apk
 ```
 
 The names come from `apps/website/src/data/downloads.js`. If you bump a version
@@ -220,8 +220,8 @@ version strings in `downloads.js`. Dropping a **new installer or APK** into
 
 ```bash
 curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/TallyFlowConnector-Setup-0.1.0.exe
-curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/TallyFlow-0.1.0.apk
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/PrimeAnalystConnector-Setup-0.1.0.exe
+curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/PrimeAnalyst-0.1.0.apk
 curl -o /dev/null -w '%{http_code}\n' https://uat-tallyflow.jsrprimesolution.com/downloads/
 # 200, 200, 200, 404  <- the last one is correct: no directory listing
 ```
@@ -261,7 +261,7 @@ deployed host rather than assumed:
 3. Download the installer from `https://uat-tallyflow.jsrprimesolution.com` on the shop PC
    (built and published in section 3).
 
-4. Run `TallyFlowConnector-Setup-<version>.exe` and enter the ID, the secret,
+4. Run `PrimeAnalystConnector-Setup-<version>.exe` and enter the ID, the secret,
    and the server address:
 
    ```
@@ -271,7 +271,7 @@ deployed host rather than assumed:
    Or unattended:
 
    ```powershell
-   TallyFlowConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://uat-tallyflow.jsrprimesolution.com/v1/connector
+   PrimeAnalystConnector-Setup.exe /VERYSILENT /ID=<id> /SECRET=<secret> /SERVER=wss://uat-tallyflow.jsrprimesolution.com/v1/connector
    ```
 
 5. Open TallyPrime **and load the company**. The connector refuses to read a
@@ -322,8 +322,8 @@ docker compose --env-file uat.env up -d --build
 # on a Windows machine -- then commit them, they are not gitignored
 python run.py connector
 python run.py release https://uat-tallyflow.jsrprimesolution.com
-copy apps\connector\dist\installer\TallyFlowConnector-Setup-0.1.0.exe deploy\uat\downloads\
-copy apps\mobile\build\app\outputs\flutter-apk\app-release.apk deploy\uat\downloads\TallyFlow-0.1.0.apk
+copy apps\connector\dist\installer\PrimeAnalystConnector-Setup-0.1.0.exe deploy\uat\downloads\
+copy apps\mobile\build\app\outputs\flutter-apk\app-release.apk deploy\uat\downloads\PrimeAnalyst-0.1.0.apk
 git add deploy/uat/downloads && git commit -m "publish 0.1.0 artefacts" && git push
 ```
 

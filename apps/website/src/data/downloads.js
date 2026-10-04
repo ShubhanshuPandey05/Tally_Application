@@ -15,18 +15,18 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.3.0',
-    file: 'TallyFlowConnector-Setup-0.3.0.exe',
-    url: '/downloads/TallyFlowConnector-Setup-0.3.0.exe',
-    size_bytes: 48586744,
-    sha256: '2961f5f7d3f9db8919e832f3ef1e9380aa0790c778afefed2a40dca7cd674949',
+    version: '0.7.0',
+    file: 'PrimeAnalystConnector-Setup-0.7.0.exe',
+    url: '/downloads/PrimeAnalystConnector-Setup-0.7.0.exe',
+    size_bytes: 48622543,
+    sha256: '8d46f2369a1a45916d01d8ea9640606c39d6f1bd68516485d17cb795074f0af9',
   },
   android: {
-    version: '0.6.0',
-    file: 'TallyFlow-0.6.0.apk',
-    url: '/downloads/TallyFlow-0.6.0.apk',
-    size_bytes: 35804737,
-    sha256: '6e73d16236352156c9d6e609fe4002815fdee0ed25703803e2a95bf07246bce6',
+    version: '0.10.0',
+    file: 'PrimeAnalyst-0.10.0.apk',
+    url: '/downloads/PrimeAnalyst-0.10.0.apk',
+    size_bytes: 36739900,
+    sha256: 'c3e365573f0fd7e294297e8acef0b45c6d61f89d648e01ac5ca6ee31fba29e32',
   },
 };
 

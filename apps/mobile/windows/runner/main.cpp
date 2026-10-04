@@ -9,7 +9,7 @@
 namespace {
 
 // The window's title, and half of how a second launch finds the first one.
-constexpr wchar_t kWindowTitle[] = L"TallyFlow Connector";
+constexpr wchar_t kWindowTitle[] = L"Prime Analyst Connector";
 
 // Registered by Win32Window for every Flutter runner window.
 constexpr wchar_t kWindowClass[] = L"FLUTTER_RUNNER_WIN32_WINDOW";

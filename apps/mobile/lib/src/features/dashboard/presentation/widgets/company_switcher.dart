@@ -46,7 +46,7 @@ class CompanySwitcher extends ConsumerWidget {
               children: <Widget>[
                 Flexible(
                   child: Text(
-                    company?.name ?? 'TallyFlow',
+                    company?.name ?? 'Prime Analyst',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium?.copyWith(

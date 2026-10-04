@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-09-30T16:11:15+00:00",
+  "generated_at": "2026-10-04T10:21:06+00:00",
   "connector": {
-    "version": "0.5.0",
-    "file": "TallyFlowConnector-Setup-0.5.0.exe",
-    "url": "/downloads/TallyFlowConnector-Setup-0.5.0.exe",
-    "sha256": "b2b2d638e1782eff7731377857dfe357c60f73bf3bd46a99aaadc18b54815fbb",
-    "size_bytes": 48745062,
+    "version": "0.7.0",
+    "file": "PrimeAnalystConnector-Setup-0.7.0.exe",
+    "url": "/downloads/PrimeAnalystConnector-Setup-0.7.0.exe",
+    "sha256": "8d46f2369a1a45916d01d8ea9640606c39d6f1bd68516485d17cb795074f0af9",
+    "size_bytes": 48622543,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Sales invoices with items, and purchases, sent from the app are now accepted by TallyPrime. Orders use your Main Location godown, so companies with several godowns accept them. The Sync speed and Entries settings in this window now take effect. Not mandatory: an older connector keeps working, but cannot receive these entries."
+    "notes": "Adds the Godown summary: closing stock by the godown it is kept in. The app needs this connector version to show that report; everything else works as before, and nothing needs to be set up again."
   },
   "android": {
-    "version": "0.9.0",
-    "file": "TallyFlow-0.9.0.apk",
-    "url": "/downloads/TallyFlow-0.9.0.apk",
-    "sha256": "f33a397f0d96a162d66966e002f8854b909c63070a82c84462b8da5210cf5b38",
-    "size_bytes": 36609026,
+    "version": "0.10.0",
+    "file": "PrimeAnalyst-0.10.0.apk",
+    "url": "/downloads/PrimeAnalyst-0.10.0.apk",
+    "sha256": "c3e365573f0fd7e294297e8acef0b45c6d61f89d648e01ac5ca6ee31fba29e32",
+    "size_bytes": 36739900,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Works offline: your last figures stay on the phone, and opening the app without internet no longer signs you out. Reports open instantly instead of loading every time. Detailed reports no longer say \"Waiting for your first read\" when your Tally PC is off. New accounts can explore a sample company while waiting for approval.",
-    "build_number": 10
+    "notes": "TallyFlow is now Prime Analyst. Same app, same account, same books - only the name and the icon have changed, and you stay signed in. New: a Summary tab with every month's sales, purchases, receipts and payments, a Godown summary report, and the sales card on Home opens the sales register for the period you are looking at. Profile has moved to the icon at the top left.",
+    "build_number": 11
   }
 }

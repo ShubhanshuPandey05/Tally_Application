@@ -3,7 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tallyflow/src/app/theme.dart';
 import 'package:tallyflow/src/core/widgets/primitives.dart';
 
-/// The mark has two forms and picks between them on size alone.
+/// The mark is one drawing at every size.
 ///
 /// Worth a test because the small form is what a launcher icon shows, and the
 /// failure mode is silent: a wordmark that no longer fits its tile overflows by
@@ -20,31 +20,30 @@ Future<void> _pump(WidgetTester tester, double size, {bool inverted = false}) {
 }
 
 void main() {
-  testWidgets('the large form sets the name on one line over a rule',
-      (WidgetTester tester) async {
-    await _pump(tester, 76);
-
-    expect(find.text('TallyFlow'), findsOneWidget);
-    expect(find.text('Tally'), findsNothing);
-  });
-
-  testWidgets('the small form stacks Flow beneath Tally',
+  testWidgets('the mark is a drawing, with no lettering in it',
       (WidgetTester tester) async {
     // 38 is the size the wide-window rail draws, and the one a launcher icon
-    // is closest to.
-    await _pump(tester, 38);
+    // is closest to; 76 is the sign-in screen.
+    for (final double size in <double>[38, 76]) {
+      await _pump(tester, size);
 
-    expect(find.text('Tally'), findsOneWidget);
-    expect(find.text('Flow'), findsOneWidget);
-    expect(find.text('TallyFlow'), findsNothing);
-
-    // Stacked, not side by side.
-    final Offset tally = tester.getCenter(find.text('Tally'));
-    final Offset flow = tester.getCenter(find.text('Flow'));
-    expect(flow.dy, greaterThan(tally.dy));
+      expect(
+        find.descendant(
+          of: find.byType(BrandMark),
+          matching: find.byType(CustomPaint),
+        ),
+        findsOneWidget,
+      );
+      // No font to fall back from on a day the connection is down, and no
+      // "Prime" for anybody to mistake for TallyPrime's.
+      expect(
+        find.descendant(of: find.byType(BrandMark), matching: find.byType(Text)),
+        findsNothing,
+      );
+    }
   });
 
-  testWidgets('both forms fit inside their tile', (WidgetTester tester) async {
+  testWidgets('the tile is square at every size it is drawn', (WidgetTester tester) async {
     for (final double size in <double>[28, 38, 55, 56, 76, 120]) {
       await _pump(tester, size);
       final Size tile = tester.getSize(find.byType(BrandMark));

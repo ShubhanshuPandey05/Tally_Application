@@ -5,6 +5,7 @@ Nothing in here knows that Tally exists. Mapping happens in ``tally_core.tally.m
 
 from .masters import (
     Company,
+    GodownStock,
     Ledger,
     LedgerGroup,
     StockItem,
@@ -27,6 +28,7 @@ from .transactions import (
 __all__ = [
     "BalanceSnapshot",
     "Company",
+    "GodownStock",
     "InventoryEntry",
     "Ledger",
     "LedgerEntry",

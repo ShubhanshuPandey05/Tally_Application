@@ -223,7 +223,7 @@ async def create_member(
         raise ConflictError(
             f"{email} already has an account elsewhere",
             user_message=(
-                "That email already has a TallyFlow account. Ask them to sign in "
+                "That email already has a Prime Analyst account. Ask them to sign in "
                 "and contact support to be added to this business."
             ),
         )

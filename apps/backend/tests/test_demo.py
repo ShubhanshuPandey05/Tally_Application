@@ -295,6 +295,15 @@ async def test_reports_are_populated(demo_client: AsyncClient):
     assert stock.status_code == 200
     assert len(stock.json()["data"]["items"]) > 5
 
+    godowns = await demo_client.get(f"/v1/companies/{company_id}/reports/stock/godowns")
+    assert godowns.status_code == 200
+    # Folded from the same quantities, so the two reports cannot disagree.
+    assert (
+        godowns.json()["data"]["value"]["amount"]
+        == stock.json()["data"]["summary"]["value"]["amount"]
+    )
+    assert len(godowns.json()["data"]["godowns"]) == 2
+
     outstanding = await demo_client.get(
         f"/v1/companies/{company_id}/reports/outstanding", params={"kind": "receivable"}
     )

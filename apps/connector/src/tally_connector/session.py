@@ -430,7 +430,7 @@ class ConnectorSession:
 
         Called from the local page's Refresh button, which is why it answers
         rather than raising: the person pressing it needs to be told "we cannot
-        reach TallyFlow right now", not to see nothing happen.
+        reach Prime Analyst right now", not to see nothing happen.
         """
         socket = self._socket
         if socket is None:
@@ -653,13 +653,13 @@ def _readable(exc: BaseException) -> str:
     the three that are actually common, and each of them has a different fix.
     """
     if isinstance(exc, AuthenticationRejected):
-        return "TallyFlow refused this computer's credentials."
+        return "Prime Analyst refused this computer's credentials."
     if isinstance(exc, ssl.SSLError):
-        return "The secure connection to TallyFlow could not be established."
+        return "The secure connection to Prime Analyst could not be established."
     if isinstance(exc, InvalidStatus):
-        return f"TallyFlow answered {exc.response.status_code}."
+        return f"Prime Analyst answered {exc.response.status_code}."
     if isinstance(exc, TimeoutError | ConnectionError | OSError):
-        return "Could not reach TallyFlow. Check this computer's internet connection."
+        return "Could not reach Prime Analyst. Check this computer's internet connection."
     return f"{type(exc).__name__}: {exc}"
 
 

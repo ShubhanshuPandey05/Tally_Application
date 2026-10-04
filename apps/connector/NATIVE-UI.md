@@ -22,7 +22,7 @@ produced two executables:
 
 | Executable | What it is | Lifetime |
 |---|---|---|
-| `tally-connector-service.exe` | The connector. Windowless. Registered as a Scheduled Task at logon (`TallyFlow Connector`). Holds the WebSocket to the backend and is the only thing that ever talks to TallyPrime. | Always, from logon |
+| `tally-connector-service.exe` | The connector. Windowless. Registered as a Scheduled Task at logon (`Prime Analyst Connector`). Holds the WebSocket to the backend and is the only thing that ever talks to TallyPrime. | Always, from logon |
 | `tally-connector.exe` | The console CLI — `status`, `diagnose`, `pair`, `install`, `ui`, … | On demand |
 
 The native window becomes a **third executable in the same install**. The
@@ -52,7 +52,7 @@ it is the screen that pairs the machine in the first place.
 **It shows:**
 
 - the pairing code, as a QR, when this machine is not paired
-- whether the connector is connected to TallyFlow, and for how long
+- whether the connector is connected to Prime Analyst, and for how long
 - whether TallyPrime is answering, and on which port
 - which companies are open in Tally right now
 - which companies this PC feeds, and when each last synced
@@ -264,7 +264,7 @@ and `POST /api/{restart,refresh,port,new-code}`. The window is handed the port
 on its command line by `tally-connector ui`, so a machine that moved it keeps a
 working shortcut.
 
-A **named pipe** (`\\.\pipe\TallyFlowConnector`) was the alternative and is the
+A **named pipe** (`\\.\pipe\Prime AnalystConnector`) was the alternative and is the
 more natural IPC for two processes on one Windows machine: it removes the
 listening port entirely and can be ACL'd to the installing user. It was not
 taken because Dart has no pipe support in its standard library and would need an
@@ -302,7 +302,7 @@ against. These machines pull it over ADSL.
 
 | | Look | Download | Language | Blocker |
 |---|---|---|---|---|
-| **Flutter desktop** | Identical to the phone app — same theme, tile palette, Caveat mark | +18–25 MB | Flutter, already in the repo | Windows SDK missing on the build machine ⚠️ |
+| **Flutter desktop** | Identical to the phone app — same theme, tile palette, mark | +18–25 MB | Flutter, already in the repo | Windows SDK missing on the build machine ⚠️ |
 | **C# / WPF (.NET 8)** | Most Windows-native; best tray and toast story | +20–40 MB self-contained | **A third language to maintain** | .NET SDK on the build machine |
 | **pywebview** | Real window, own taskbar icon, no browser chrome — HTML inside | +1 MB | Python, same exe | WebView2 runtime (on ~all Win10/11) |
 
@@ -317,8 +317,8 @@ Ruled out, with reasons:
   additionally has GPL/commercial licensing to resolve; PySide6 is LGPL.)
 
 **Chosen: Flutter.** It is the only option where the window shares code with the
-phone app, so it looks like TallyFlow rather than like a utility bolted on —
-`app/theme.dart`, the tile palette, the stacked Caveat mark. The team already
+phone app, so it looks like Prime Analyst rather than like a utility bolted on —
+`app/theme.dart`, the tile palette, the mark. The team already
 writes Flutter daily, so it adds no language to maintain forever. React Native
 was raised and turned down: it has the same Windows SDK requirement, shares no
 code with the phone app, is the same size, and would put Node and Metro into a

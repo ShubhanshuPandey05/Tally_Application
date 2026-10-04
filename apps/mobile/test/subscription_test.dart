@@ -209,9 +209,9 @@ void main() {
         tester,
         user(role: 'staff', plan: subscription(
             status: 'suspended', allowsChanges: false,
-            message: 'This TallyFlow account has been suspended.')),
+            message: 'This Prime Analyst account has been suspended.')),
       );
-      expect(find.text('This TallyFlow account has been suspended.'), findsNothing);
+      expect(find.text('This Prime Analyst account has been suspended.'), findsNothing);
       expect(find.text('Companies'), findsNothing);
     });
 

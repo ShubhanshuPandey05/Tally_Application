@@ -12,7 +12,7 @@ setlocal
 set "COMMAND=%~1"
 if "%COMMAND%"=="" set "COMMAND=diagnose"
 
-title TallyFlow Connector - %COMMAND%
+title Prime Analyst Connector - %COMMAND%
 "%~dp0tally-connector.exe" %COMMAND%
 
 echo.

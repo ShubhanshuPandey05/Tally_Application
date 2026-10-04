@@ -89,7 +89,7 @@ class SubscriptionInactive(AppError):
 
     status_code = status.HTTP_402_PAYMENT_REQUIRED
     code = "subscription_inactive"
-    user_message = "This TallyFlow account is not active yet."
+    user_message = "This Prime Analyst account is not active yet."
 
 
 class RateLimited(AppError):

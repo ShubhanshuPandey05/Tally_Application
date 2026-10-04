@@ -48,6 +48,7 @@ def test_registry_exposes_expected_queries():
         "groups.list",
         "ledgers.list",
         "stock_items.list",
+        "godown_stock.list",
         "voucher_types.list",
         "vouchers.list",
         "outstanding.bills",
@@ -335,6 +336,37 @@ def test_reorder_absent_is_not_below_reorder(fixture_xml):
     wire = items["Copper Wire 1.5sqmm"]
     assert wire.reorder_level is None
     assert wire.is_below_reorder is False
+
+
+def test_godown_stock_folds_batches_into_one_row_per_place(fixture_xml):
+    rows = {
+        (r.godown, r.item_name): r
+        for r in run("godown_stock.list", fixture_xml("godown_stock"))
+    }
+
+    # A batch with no godown names no place, so it is not a row.
+    assert set(rows) == {
+        ("Main Location", "Grey"),
+        ("Machines", "Grey"),
+        ("BMS Compacting", "5001 Black"),
+    }
+
+    machines = rows[("Machines", "Grey")]
+    assert machines.quantity == 1681.0  # two lots of one item
+    assert machines.value.amount == Decimal("135172.93")
+    assert machines.value.side is Side.DEBIT
+
+    negative = rows[("BMS Compacting", "5001 Black")]
+    assert negative.quantity == -120.0
+    assert negative.value.is_zero
+
+
+def test_godown_stock_names_its_leaf_fields():
+    query = get_query("godown_stock.list")
+    xml = query.build(query.validate_params({"company": "Acme"}))
+    assert "<TYPE>Batch</TYPE>" in xml
+    assert "<NATIVEMETHOD>GodownName</NATIVEMETHOD>" in xml
+    assert "<FETCH>" not in xml
 
 
 # --------------------------------------------------------------------------

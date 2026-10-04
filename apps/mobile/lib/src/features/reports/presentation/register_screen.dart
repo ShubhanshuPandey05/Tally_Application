@@ -30,10 +30,15 @@ import 'widgets/report_scaffold.dart';
 /// by month; who; what. The vouchers themselves are last -- by the time
 /// somebody wants the list they already know which month they are looking for.
 class RegisterScreen extends ConsumerStatefulWidget {
-  const RegisterScreen({super.key, required this.kind});
+  const RegisterScreen({super.key, required this.kind, this.opening});
 
   /// `sales` or `purchase`.
   final String kind;
+
+  /// The window to open on instead of the whole year. Set when the screen is
+  /// reached from the dashboard's sales card, so the register answers for the
+  /// same period the figure that was tapped did.
+  final PeriodSelection? opening;
 
   @override
   ConsumerState<RegisterScreen> createState() => _RegisterScreenState();
@@ -47,8 +52,13 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
   /// The whole year. A register is the one report an owner reads a year of at
   /// a time -- it is where "how much did we sell this year" is answered.
   @override
-  PeriodSelection initialPeriod(FinancialYear year) =>
-      PeriodSelection(year.toDate, year.label);
+  PeriodSelection initialPeriod(FinancialYear year) {
+    final PeriodSelection? opening = widget.opening;
+    if (opening != null && year.overlaps(opening.range)) {
+      return PeriodSelection(year.confine(opening.range), opening.label);
+    }
+    return PeriodSelection(year.toDate, year.label);
+  }
 
   @override
   Widget build(BuildContext context) {

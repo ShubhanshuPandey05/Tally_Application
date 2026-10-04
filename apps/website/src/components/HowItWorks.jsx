@@ -7,14 +7,14 @@ const NODES = [
   {
     icon: 'phone',
     tint: '',
-    title: 'TallyFlow app',
+    title: 'Prime Analyst app',
     where: 'Your phone',
     note: 'Never talks to Tally directly.',
   },
   {
     icon: 'cloud',
     tint: 'tile-violet',
-    title: 'TallyFlow server',
+    title: 'Prime Analyst server',
     where: 'Sign-in, stored figures',
     note: 'Holds no password and no pairing secret in the clear.',
   },

@@ -95,7 +95,7 @@ class ApiException implements Exception {
           code: 'network',
           message: offline
               ? 'No internet connection. Showing the last data we have.'
-              : 'Could not reach TallyFlow. Please check your connection.',
+              : 'Could not reach Prime Analyst. Please check your connection.',
           retryable: true,
         );
     }

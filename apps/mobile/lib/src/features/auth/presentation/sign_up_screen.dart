@@ -161,7 +161,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     ),
                     const SizedBox(height: 24),
                     Text(
-                      'TallyFlow can add new entries you make in the app, but it '
+                      'Prime Analyst can add new entries you make in the app, but it '
                       'never edits or deletes anything already in your books.',
                       textAlign: TextAlign.center,
                       style: theme.textTheme.bodySmall

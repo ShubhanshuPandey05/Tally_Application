@@ -7,8 +7,8 @@ import '../features/updates/presentation/update_gate.dart';
 import 'router.dart';
 import 'theme.dart';
 
-class TallyFlowApp extends ConsumerWidget {
-  const TallyFlowApp({super.key});
+class PrimeAnalystApp extends ConsumerWidget {
+  const PrimeAnalystApp({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -16,7 +16,7 @@ class TallyFlowApp extends ConsumerWidget {
     final AppThemeMode mode = ref.watch(themeModeProvider);
 
     return MaterialApp.router(
-      title: 'TallyFlow',
+      title: 'Prime Analyst',
       debugShowCheckedModeBanner: false,
       // One theme, chosen by the customer, and `themeMode` pinned so the
       // platform's own light/dark setting cannot override it. Three skins do

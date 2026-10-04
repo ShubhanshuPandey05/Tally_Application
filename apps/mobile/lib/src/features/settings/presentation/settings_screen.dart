@@ -173,7 +173,7 @@ class SettingsScreen extends ConsumerWidget {
                         Icon(Icons.lock_outline, size: 18, color: context.positiveColor),
                         const SizedBox(width: 8),
                         Text(
-                          'What TallyFlow can change',
+                          'What Prime Analyst can change',
                           style: theme.textTheme.titleSmall,
                         ),
                       ],
@@ -226,7 +226,7 @@ class SettingsScreen extends ConsumerWidget {
             const SizedBox(height: 24),
             Center(
               child: Text(
-                'TallyFlow${config.isProduction ? '' : ' · ${config.environment}'}',
+                'Prime Analyst${config.isProduction ? '' : ' · ${config.environment}'}',
                 style: theme.textTheme.labelSmall?.copyWith(color: context.mutedColor),
               ),
             ),
@@ -289,7 +289,7 @@ class _UpdateCard extends ConsumerWidget {
         // something a business owner can do anything about.
         error: (Object _, StackTrace __) => const ListTile(
           leading: Icon(Icons.system_update_rounded),
-          title: Text('TallyFlow'),
+          title: Text('Prime Analyst'),
           subtitle: Text('Could not check for updates just now'),
         ),
         data: (UpdateStatus value) {

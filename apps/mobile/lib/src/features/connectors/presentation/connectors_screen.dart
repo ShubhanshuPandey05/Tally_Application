@@ -51,7 +51,7 @@ class ConnectorsScreen extends ConsumerWidget {
                   EmptyState(
                     icon: Icons.desktop_windows_outlined,
                     title: 'No PCs connected',
-                    message: 'Install the TallyFlow Connector on the computer '
+                    message: 'Install the Prime Analyst Connector on the computer '
                         'running TallyPrime to get started.',
                     action: canAdd
                         ? FilledButton.icon(
