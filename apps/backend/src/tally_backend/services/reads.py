@@ -499,6 +499,28 @@ class ReadService:
             company.id, from_date=from_date, to_date=upto
         )
 
+    async def stored_history(self, company: Company, *, to_date: date) -> DataResult | None:
+        """Every stored voucher from the start of synced history to ``to_date``.
+
+        For questions that reach back to the start of the books -- "when did
+        this customer last buy?" -- which no report window can answer and which
+        must never become a years-long export from the shop's Tally. ``None``
+        when nothing has been synced yet. A store that does not reach back to
+        the books' first day is still answered: the caller says how far back
+        the answer goes rather than refusing it.
+        """
+        sync_state = await self._session.get(CompanySyncState, company.id)
+        if sync_state is None or not sync_state.has_history:
+            return None
+        assert sync_state.backfilled_from is not None and sync_state.backfilled_to is not None
+        upto = min(to_date, sync_state.backfilled_to)
+        payload = await VoucherStore(self._session).read(
+            company.id, from_date=sync_state.backfilled_from, to_date=upto
+        )
+        return await self._from_store(
+            sync_state, payload, company, behind=to_date > sync_state.backfilled_to
+        )
+
     async def _from_store(
         self,
         sync_state: CompanySyncState,

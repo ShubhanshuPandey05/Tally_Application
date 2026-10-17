@@ -25,6 +25,7 @@ from tally_core.domain.transactions import OutstandingKind, Voucher
 from ...core.errors import AppError, NotFound
 from ...db.models import Company, CompanySyncState
 from ...services import analytics as an
+from ...services import top_reports as top
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
 from ...services.demo_books import financial_year_start
@@ -936,3 +937,148 @@ def _sum_values(vouchers: list) -> object:
     for voucher in vouchers:
         total = total + an.voucher_value(voucher)
     return total
+
+
+# --------------------------------------------------------------------------
+# Top Prime Reports
+# --------------------------------------------------------------------------
+
+
+@router.get("/reports/top/{key}", response_model=DataEnvelope)
+async def top_report(
+    company: CompanyDep,
+    sync: SyncDep,
+    principal: PrincipalDep,
+    session: SessionDep,
+    reads: ReadServiceDep,
+    request: Request,
+    key: str,
+    from_date: date,
+    to_date: date,
+    sort: str | None = None,
+    limit: Annotated[int, Query(ge=0, le=1000)] = 10,
+    mode: FetchModeParam = "auto",
+) -> DataEnvelope:
+    """One ranked table from the Top Prime Reports set.
+
+    Loads only what the named report reads (``top.NEEDS``): a top-customers
+    request never pays for a stock export. ``limit=0`` means every row.
+    """
+    needs = top.NEEDS.get(key)
+    if needs is None:
+        raise NotFound(f"no top report {key!r}", user_message="That report does not exist.")
+
+    resolved = await _resolved(sync, company, mode)
+    start, end = _clamp_window(from_date, to_date)
+    inputs = top.Inputs(since=start, until=end)
+    results: list[DataResult] = []
+
+    kinds: dict[str, VoucherTypeKind] | None = None
+    if needs & {"window", "history"}:
+        kinds = await voucher_kinds(reads, company, FetchMode.CACHED)
+
+    if "window" in needs:
+        result = await reads.fetch_vouchers(
+            company, from_date=start, to_date=end, mode=resolved
+        )
+        results.append(result)
+        inputs.window = an.classify(an.effective(an.parse_vouchers(result.payload)), kinds or {})
+
+    if "history" in needs:
+        history, history_result = await _top_history(
+            reads, session, company, end, kinds or {}, inputs.notes
+        )
+        inputs.history = history
+        if history_result is not None and "window" not in needs:
+            results.append(history_result)
+        if "window" in needs:
+            # The window is the fresher read when the store lags behind today;
+            # history supplies everything before it.
+            inputs.history = [v for v in inputs.history if v.date < start] + inputs.window
+
+    async def optional(dataset: str, *, heavy: bool = False) -> Any | None:
+        try:
+            result = await reads.fetch(company, dataset=dataset, mode=resolved, heavy=heavy)
+        except AppError:
+            # Optional: a missing master costs the report a filter or a column,
+            # and the report says so, rather than costing the whole screen.
+            return None
+        results.append(result)
+        return result.payload
+
+    if "ledgers" in needs:
+        payload = await optional("ledgers.list")
+        inputs.ledgers = an.parse_ledgers(payload) if payload is not None else None
+        groups = await optional("groups.list")
+        inputs.groups = an.parse_groups(groups) if groups is not None else None
+    if "stock" in needs:
+        result = await reads.fetch(
+            company, dataset="stock_items.list", mode=resolved, heavy=True
+        )
+        results.append(result)
+        inputs.stock = an.parse_stock(result.payload)
+    if "bills" in needs:
+        result = await reads.fetch(
+            company,
+            dataset="outstanding.bills",
+            params={"as_of": date.today().isoformat()},
+            mode=resolved,
+            heavy=True,
+        )
+        results.append(result)
+        inputs.bills = an.parse_bills(result.payload)
+
+    data = top.build(key, inputs, sort=sort, limit=limit)
+
+    await record(
+        session,
+        action="report.top",
+        org_id=principal.org_id,
+        user_id=principal.user.id,
+        company_id=company.id,
+        detail={"report": key, "from": start.isoformat(), "to": end.isoformat()},
+        request=request,
+    )
+    if not results:
+        # Nothing behind this report has been read yet -- no synced history and
+        # no masters. "No data yet", never an empty table that reads as none.
+        raise NoDataYet()
+    return DataEnvelope(data=data, meta=_oldest_meta(results))
+
+
+async def _top_history(
+    reads: ReadService,
+    session: SessionDep,
+    company: Company,
+    until: date,
+    kinds: dict[str, VoucherTypeKind],
+    notes: list[str],
+) -> tuple[list[Voucher], DataResult | None]:
+    """Every stored voucher up to ``until``, for "when did this last happen".
+
+    From the history store rather than a window: the question reaches back to
+    the start of the books, and asking Tally for years of vouchers to answer it
+    is the export this product exists to avoid. What the store does not hold
+    yet is said rather than implied -- a customer whose last sale predates the
+    synced history would otherwise read as inactive for exactly that long.
+    """
+    result = await reads.stored_history(company, to_date=until)
+    if result is None:
+        notes.append(
+            "Past sales have not been synced from Tally yet, so dates before this "
+            "period are not known."
+        )
+        return [], None
+    state = await session.get(CompanySyncState, company.id)
+    if (
+        state is not None
+        and state.books_from is not None
+        and state.backfilled_from is not None
+        and state.backfilled_from > state.books_from
+    ):
+        notes.append(
+            f"History is synced back to {state.backfilled_from:%d %b %Y}; anything "
+            "older is not counted yet."
+        )
+    vouchers = an.classify(an.effective(an.parse_vouchers(result.payload)), kinds)
+    return vouchers, result

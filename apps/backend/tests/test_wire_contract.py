@@ -684,6 +684,19 @@ async def test_register_shape(
     check(f"register_{kind}", response.json())
 
 
+@pytest.mark.parametrize("key", ["customers", "selling_products"])
+async def test_top_report_shape(client: AsyncClient, backfilled, dated, key: str) -> None:
+    """One table shape for every Top Prime report: the app renders them all
+    with one screen, so the shape is the contract, whichever report it is."""
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/top/{key}"
+        f"?from_date=2026-01-01&to_date={AS_OF.isoformat()}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    check(f"top_{key}", response.json())
+
+
 async def test_stock_movement_shape(client: AsyncClient, backfilled, dated) -> None:
     response = await client.get(
         f"/v1/companies/{backfilled['company_id']}/reports/stock/movement"
