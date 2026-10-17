@@ -30,6 +30,7 @@ WEBSITE = ROOT / "apps/website"
 PORTAL = ROOT / "apps/portal"
 ANDROID = MOBILE / "android/app/src/main/res"
 IOS = MOBILE / "ios/Runner/Assets.xcassets/AppIcon.appiconset"
+IOS_LAUNCH = MOBILE / "ios/Runner/Assets.xcassets/LaunchImage.imageset"
 #: The connector's window, which is a Windows target of the mobile package.
 WINDOWS_ICON = MOBILE / "windows/runner/resources/app_icon.ico"
 #: The outlines `BrandMark` paints, so the app draws the launcher icon's letters.
@@ -49,6 +50,29 @@ WINDOWS_SIZES = (16, 24, 32, 48, 64, 128, 256)
 # Android density buckets, as multiples of the baseline. Legacy launcher icons
 # are 48dp; the adaptive-icon layers are 108dp.
 DENSITIES = {"mdpi": 1, "hdpi": 1.5, "xhdpi": 2, "xxhdpi": 3, "xxxhdpi": 4}
+
+#: The tile's side on the launch screen, in dp / points / CSS pixels. The
+#: in-app splash (`_SplashScreen` in `router.dart`) paints `BrandMark` at the
+#: same size, so the native screen hands over to Flutter without the logo
+#: jumping. Change both together.
+SPLASH = 96
+
+
+def _splash_jobs(app: str) -> list[tuple[str, Path, int]]:
+    """The tile the launch screens show before Flutter draws its first frame.
+
+    Pixels per density rather than one large image: Android's `<bitmap>` and
+    iOS's centred image view draw at the file's own size, so each screen gets
+    the tile at exactly `SPLASH` points and nothing is resampled at launch.
+    Android 12 and later ignore these and mask the launcher icon instead.
+    """
+    jobs = [
+        (app, ANDROID / f"drawable-{bucket}/splash_logo.png", round(SPLASH * factor))
+        for bucket, factor in DENSITIES.items()
+    ]
+    for scale, suffix in ((1, ""), (2, "@2x"), (3, "@3x")):
+        jobs.append((app, IOS_LAUNCH / f"LaunchImage{suffix}.png", SPLASH * scale))
+    return jobs
 
 
 def _ios_jobs(square: str) -> list[tuple[str, Path, int]]:
@@ -196,6 +220,7 @@ def main() -> None:
              round(108 * factor))
         )
     jobs += _ios_jobs(square)
+    jobs += _splash_jobs(app)
 
     raster.render(jobs)
     _flatten(dest for _, dest, _ in _ios_jobs(square))
