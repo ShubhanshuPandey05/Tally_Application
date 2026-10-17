@@ -49,8 +49,13 @@ from ..db.models import (
     utc_now,
 )
 from ..hub.hub import ConnectorHub
+from .data_keys import company_cipher
 
 logger = logging.getLogger(__name__)
+
+#: What the sealed columns of a queued entry are bound to (see core.sealing).
+PAYLOAD = "pending.payload"
+PARTY = "pending.party"
 
 SessionFactory = Callable[[], Any]
 
@@ -109,14 +114,15 @@ class VoucherQueue:
         that the failure was safe, because the evidence lives in the JobError
         and has already been read.
         """
+        cipher = await company_cipher(session, company.id, create=True)
         row = PendingVoucher(
             org_id=company.org_id,
             company_id=company.id,
             connector_id=company.connector_id,
             created_by=user_id,
-            payload=draft.model_dump(mode="json"),
+            payload=cipher.seal(draft.model_dump(mode="json"), purpose=PAYLOAD),
             kind=str(draft.kind),
-            party_name=draft.party_name,
+            party_name=cipher.seal(draft.party_name, purpose=PARTY),
             state=PendingVoucherState.WAITING,
             expires_at=utc_now()
             + timedelta(days=self._settings.pending_voucher_expiry_days),
@@ -212,7 +218,8 @@ class VoucherQueue:
 
                 row_id = row.id
                 company_id = row.company_id
-                payload = dict(row.payload)
+                cipher = await company_cipher(session, company_id)
+                payload = dict(cipher.open(row.payload, purpose=PAYLOAD))
                 # `as_utc`, not a bare comparison: SQLite has no timezone
                 # type and hands back naive datetimes even from a
                 # DateTime(timezone=True) column, so comparing directly

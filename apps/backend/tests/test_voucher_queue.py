@@ -16,7 +16,8 @@ from httpx import AsyncClient
 from sqlalchemy import select
 
 from tally_backend.db.models import PendingVoucher, PendingVoucherState, utc_now
-from tally_backend.services.voucher_queue import VoucherQueue
+from tally_backend.services.data_keys import company_cipher
+from tally_backend.services.voucher_queue import PARTY, VoucherQueue
 
 TODAY = date.today().isoformat()
 
@@ -84,7 +85,12 @@ async def test_an_unreachable_pc_puts_the_entry_in_the_queue(
     assert len(held) == 1
     assert held[0].state == PendingVoucherState.WAITING
     assert held[0].kind == "receipt"
-    assert held[0].party_name == "Ram & Sons"
+    # Stored sealed: the party is unreadable in the row, and opens with the
+    # company's key.
+    assert "Ram" not in held[0].party_name
+    async with app.state.session_factory() as session:
+        cipher = await company_cipher(session, linked_company["company_id"])
+    assert cipher.open(held[0].party_name, purpose=PARTY) == "Ram & Sons"
 
 
 async def test_a_timeout_is_never_queued(client, linked_company, fake_connector, app):

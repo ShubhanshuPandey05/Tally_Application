@@ -47,9 +47,15 @@ from ..db.models import (
     utc_now,
 )
 from ..hub import ConnectorHub
+from .data_keys import company_cipher
 from .voucher_store import VoucherStore
 
 logger = logging.getLogger(__name__)
+
+#: What a sealed snapshot column is bound to (see ``core.sealing``), so a
+#: payload cannot be opened as params or moved into another table.
+_PAYLOAD = "snapshot.payload"
+_PARAMS = "snapshot.params"
 
 
 class FetchMode(StrEnum):
@@ -182,7 +188,7 @@ class ReadService:
             self._demo_cache[company.org_id] = bool(org is not None and org.is_demo)
         return self._demo_cache[company.org_id]
 
-    def _demo_result(self, snapshot: Snapshot) -> DataResult:
+    async def _demo_result(self, snapshot: Snapshot) -> DataResult:
         """A stored demo dataset, presented as what it is: current and complete.
 
         ``is_stale`` and ``connector_online`` describe a customer's Tally PC.
@@ -191,7 +197,7 @@ class ReadService:
         intended -- but the app being told ``is_demo`` and saying so itself.
         """
         return DataResult(
-            payload=snapshot.payload,
+            payload=await self._opened(snapshot),
             refreshed_at=as_utc(snapshot.refreshed_at),
             from_snapshot=True,
             is_stale=False,
@@ -245,7 +251,7 @@ class ReadService:
             held = snapshot or await self._stand_in(company.id, dataset, params)
             if held is None:
                 raise NoDataYet(f"the demo has no {dataset} yet")
-            return self._demo_result(held)
+            return await self._demo_result(held)
 
         if mode is FetchMode.CACHED:
             if snapshot is None:
@@ -260,7 +266,7 @@ class ReadService:
                 )
                 if held is None:
                     raise NoDataYet(f"no snapshot for {dataset} on company {company.id}")
-                result = self._from_snapshot(
+                result = await self._from_snapshot(
                     held,
                     connector_online=await self._connector_online(company.connector_id),
                 )
@@ -268,12 +274,12 @@ class ReadService:
                 # the row's own flag says.
                 result.is_stale = True
                 return result
-            return self._from_snapshot(
+            return await self._from_snapshot(
                 snapshot, connector_online=await self._connector_online(company.connector_id)
             )
 
         if mode is FetchMode.AUTO and snapshot is not None and not self._is_stale(snapshot):
-            return self._from_snapshot(
+            return await self._from_snapshot(
                 snapshot, connector_online=await self._connector_online(company.connector_id)
             )
 
@@ -285,7 +291,7 @@ class ReadService:
             and snapshot.age_seconds < self._settings.min_refresh_interval_seconds
         ):
             logger.debug("refresh of %s throttled (%.0fs old)", dataset, snapshot.age_seconds)
-            return self._from_snapshot(
+            return await self._from_snapshot(
                 snapshot, connector_online=await self._connector_online(company.connector_id)
             )
 
@@ -357,7 +363,7 @@ class ReadService:
                 error.code if error else "unknown",
             )
             return DataResult(
-                payload=fallback.payload,
+                payload=await self._opened(fallback),
                 refreshed_at=fallback.refreshed_at,
                 from_snapshot=True,
                 is_stale=True,
@@ -580,7 +586,7 @@ class ReadService:
         """
         params = {"company": company.tally_name, **(params or {})}
         snapshot = await self._load_snapshot(company.id, dataset, params_key(params))
-        return None if snapshot is None else snapshot.payload
+        return None if snapshot is None else await self._opened(snapshot)
 
     # -- snapshot storage -------------------------------------------------
 
@@ -608,6 +614,7 @@ class ReadService:
         which is not something a params hash can be asked about.
         """
         wanted = stored_params(params)
+        cipher = await company_cipher(self._session, company_id)
         stmt = (
             select(Snapshot)
             .where(Snapshot.company_id == company_id, Snapshot.dataset == dataset)
@@ -619,7 +626,7 @@ class ReadService:
             .limit(_STAND_IN_CANDIDATES)
         )
         for candidate in (await self._session.execute(stmt)).scalars():
-            if may_stand_in(wanted, candidate.params):
+            if may_stand_in(wanted, cipher.open(candidate.params, purpose=_PARAMS)):
                 logger.info(
                     "no snapshot of %s for company %s under the requested params; "
                     "standing in one %.0fs old",
@@ -646,8 +653,9 @@ class ReadService:
             snapshot = Snapshot(company_id=company_id, dataset=dataset, params_key=key)
             self._session.add(snapshot)
 
-        snapshot.params = stored_params(params)
-        snapshot.payload = payload
+        cipher = await company_cipher(self._session, company_id, create=True)
+        snapshot.params = cipher.seal(stored_params(params), purpose=_PARAMS)
+        snapshot.payload = cipher.seal(payload, purpose=_PAYLOAD)
         snapshot.refreshed_at = utc_now()
         snapshot.is_stale = False
         snapshot.last_error = None
@@ -667,9 +675,14 @@ class ReadService:
             or snapshot.age_seconds > self._settings.snapshot_stale_after_seconds
         )
 
-    def _from_snapshot(self, snapshot: Snapshot, *, connector_online: bool) -> DataResult:
+    async def _opened(self, snapshot: Snapshot) -> Any:
+        """The snapshot's payload, opened with its company's key."""
+        cipher = await company_cipher(self._session, snapshot.company_id)
+        return cipher.open(snapshot.payload, purpose=_PAYLOAD)
+
+    async def _from_snapshot(self, snapshot: Snapshot, *, connector_online: bool) -> DataResult:
         return DataResult(
-            payload=snapshot.payload,
+            payload=await self._opened(snapshot),
             refreshed_at=snapshot.refreshed_at,
             from_snapshot=True,
             is_stale=snapshot.is_stale,

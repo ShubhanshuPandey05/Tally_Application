@@ -39,7 +39,9 @@ from ...core.errors import AppError, NotFound
 from ...db.models import Company, Connector, PendingVoucher, PendingVoucherState, utc_now
 from ...services import analytics as an
 from ...services.audit import record
+from ...services.data_keys import company_cipher
 from ...services.reads import FetchMode, NoDataYet
+from ...services.voucher_queue import PARTY
 from ..deps import (
     CompanyDep,
     MasterServiceDep,
@@ -494,12 +496,13 @@ async def list_pending(
             .limit(100)
         )
     ).scalars().all()
+    cipher = await company_cipher(session, company.id)
 
     return [
         PendingEntryResponse(
             id=row.id,
             kind=row.kind,
-            party=row.party_name,
+            party=cipher.open(row.party_name, purpose=PARTY),
             state=str(row.state),
             attempts=row.attempts,
             last_error=row.last_error,

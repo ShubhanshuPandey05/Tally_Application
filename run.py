@@ -338,6 +338,26 @@ def cmd_preflight(_: list[str]) -> int:
             "with the JWT secret, so rotating that key would orphan every connector"
         )
 
+    # Customer books are sealed under per-company keys wrapped by this KMS key.
+    # The API refuses to start without it, so a missing one here is a deploy
+    # that would come up as a restart loop.
+    if not env("DATA_KMS_KEY_ID"):
+        if env("ALLOW_LOCAL_MASTER_KEY").lower() in {"1", "true", "yes"}:
+            warnings.append(
+                "TALLYFLOW_DATA_KMS_KEY_ID is unset -- customer books are sealed under "
+                "a key derived from TALLYFLOW_SECRET_KEYS, which sits beside the database"
+            )
+        else:
+            problems.append(
+                "TALLYFLOW_DATA_KMS_KEY_ID is not set -- the API will refuse to start "
+                "(see DEPLOYMENT.md, A2b)"
+            )
+    elif not env("DATA_KMS_KEY_ID").startswith(("arn:aws:kms:", "alias/")):
+        warnings.append(
+            "TALLYFLOW_DATA_KMS_KEY_ID is not an ARN -- a bare key id only resolves "
+            "in the region the AWS chain picks, so set TALLYFLOW_DATA_KMS_REGION"
+        )
+
     database = env("DATABASE_URL")
     if not database:
         problems.append("TALLYFLOW_DATABASE_URL is not set")

@@ -40,12 +40,21 @@ def create_engine(settings: Settings) -> AsyncEngine:
     return create_async_engine(settings.database_url, **kwargs)
 
 
-def create_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:
+def create_session_factory(
+    engine: AsyncEngine, keyring: object | None = None
+) -> async_sessionmaker[AsyncSession]:
+    """Sessions for this app.
+
+    ``keyring`` is the :class:`~..services.data_keys.DataKeyring` every session
+    carries in ``info``, so any service handed a session can seal and open a
+    company's books without another argument threaded through every call.
+    """
     return async_sessionmaker(
         engine,
         class_=AsyncSession,
         expire_on_commit=False,  # let handlers read attributes after commit
         autoflush=False,
+        info={"keyring": keyring} if keyring is not None else None,
     )
 
 
