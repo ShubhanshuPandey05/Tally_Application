@@ -16,6 +16,8 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/entries/domain/entry_draft.dart';
 import '../features/entries/presentation/new_entry_screen.dart';
 import '../features/entries/presentation/pending_entries_screen.dart';
+import '../features/legal/domain/legal_documents.dart';
+import '../features/legal/presentation/legal_screen.dart';
 import '../features/reports/presentation/daybook_screen.dart';
 import '../features/reports/presentation/godown_screen.dart';
 import '../features/reports/presentation/group_outstanding_screen.dart';
@@ -43,6 +45,11 @@ class Routes {
   static const String splash = '/splash';
   static const String signIn = '/sign-in';
   static const String signUp = '/sign-up';
+
+  /// Readable signed in or out: sign-up links to both, and somebody must be
+  /// able to read what they agree to before they have an account.
+  static const String terms = '/legal/terms';
+  static const String privacy = '/legal/privacy';
   static const String dashboard = '/';
   static const String reports = '/reports';
   static const String summary = '/summary';
@@ -159,6 +166,7 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       if (auth.status == AuthStatus.unknown) {
         return location == Routes.splash ? null : Routes.splash;
       }
+      if (location == Routes.terms || location == Routes.privacy) return null;
       if (!auth.isSignedIn) {
         return onAuthScreen ? null : Routes.signIn;
       }
@@ -199,6 +207,18 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.signUp,
         builder: (BuildContext context, GoRouterState state) => const SignUpScreen(),
+      ),
+      GoRoute(
+        path: Routes.terms,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const LegalScreen(document: termsOfUse),
+      ),
+      GoRoute(
+        path: Routes.privacy,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const LegalScreen(document: privacyPolicy),
       ),
       ShellRoute(
         navigatorKey: _shellKey,

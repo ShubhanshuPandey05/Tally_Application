@@ -223,6 +223,27 @@ class SettingsScreen extends ConsumerWidget {
             ),
             const SizedBox(height: 14),
             const _UpdateCard(),
+            const SizedBox(height: 14),
+            Card(
+              clipBehavior: Clip.antiAlias,
+              child: Column(
+                children: <Widget>[
+                  ListTile(
+                    leading: const Icon(Icons.description_outlined),
+                    title: const Text('Terms of Use'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push(Routes.terms),
+                  ),
+                  const Divider(indent: 68, height: 1),
+                  ListTile(
+                    leading: const Icon(Icons.privacy_tip_outlined),
+                    title: const Text('Privacy Policy'),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => context.push(Routes.privacy),
+                  ),
+                ],
+              ),
+            ),
             const SizedBox(height: 24),
             Center(
               child: Text(

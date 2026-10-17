@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
+import '../../legal/presentation/legal_screen.dart';
 import '../application/auth_controller.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
@@ -159,6 +160,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                             )
                           : const Text('Create account'),
                     ),
+                    const SizedBox(height: 10),
+                    // Next to the button that does the agreeing, so nobody
+                    // accepts terms they were never shown.
+                    const LegalLinks(lead: 'By creating an account you agree to the'),
                     const SizedBox(height: 24),
                     Text(
                       'Prime Analyst can add new entries you make in the app, but it '
