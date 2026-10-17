@@ -108,14 +108,18 @@ setting is read:
 `optional` is the default, so a shop that never opens this window gets entries
 that cannot affect its books until somebody says so.
 
-**The window is tabbed:** Companies, People, TallyPrime, Sync speed, Entries.
+**The window is tabbed:** Companies, Users, TallyPrime, Sync speed, Entries.
 The connection and TallyPrime cards sit *above* the tabs and never scroll away,
 because "is it working?" is what this window is opened to answer and must not
 be a click away.
 
 ### What it must never be able to do
 
-**No stop. No disconnect. No unlink. No unpair. No remove.**
+**No stop. No disconnect. No unpair. No removing a person.**
+
+The one exception is removing a *company* from this computer (decided
+2026-10-16): a soft unlink, scoped by the backend to this connector's own
+companies, confirmed in a dialog, and undone by adding it again in the app.
 
 This is a product rule, not an oversight. Those decisions belong to whoever
 holds the account on their phone, not to whoever happens to be standing at the

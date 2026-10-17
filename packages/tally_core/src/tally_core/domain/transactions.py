@@ -21,6 +21,10 @@ class LedgerEntry(BaseModel):
     is_party: bool = False
     cost_centre: str | None = None
     bill_references: list[str] = Field(default_factory=list)
+    #: The percentage a tax line was charged at, as Tally recorded it on the
+    #: invoice (``RATEOFINVOICETAX``). Tally prints it beside the tax ledger --
+    #: "IGST 12 ... 12 %" -- and it is null on every line that is not a tax.
+    tax_rate: float | None = None
 
 
 class InventoryEntry(BaseModel):
@@ -35,6 +39,60 @@ class InventoryEntry(BaseModel):
     amount: Money = Field(default_factory=Money.zero)
     godown: str | None = None
     batch: str | None = None
+    #: HSN/SAC and the integrated GST rate **as this voucher recorded them**.
+    #:
+    #: TallyPrime resolves both when the invoice is saved -- from the item, its
+    #: stock group or the company, whichever the shop set up -- and stores the
+    #: answer on the line. That is the figure the invoice was taxed at; the
+    #: stock master only says what the item is taxed at today. Null on a line
+    #: read by a connector from before these were fetched.
+    hsn_code: str | None = None
+    gst_rate: float | None = None
+
+
+class VoucherParty(BaseModel):
+    """A buyer or consignee as written on one invoice.
+
+    Not the ledger master: an invoice keeps its own copy of the name and
+    address it was raised to, so a bill sent last year still shows last year's
+    address after the customer moves.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str | None = None
+    address: list[str] = Field(default_factory=list)
+    gstin: str | None = None
+    state: str | None = None
+
+
+class InvoiceDetails(BaseModel):
+    """The header of a printed invoice: who it went to and how it travelled.
+
+    Every field is optional and most are empty on most invoices -- a shop that
+    never fills in "Dispatched through" still gets the box, blank, exactly as
+    Tally prints it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    buyer: VoucherParty | None = None
+    consignee: VoucherParty | None = None
+    place_of_supply: str | None = None
+    delivery_note: str | None = None
+    delivery_note_date: date | None = None
+    payment_terms: str | None = None
+    reference_date: date | None = None
+    other_references: str | None = None
+    buyer_order_no: str | None = None
+    buyer_order_date: date | None = None
+    dispatch_doc_no: str | None = None
+    dispatched_through: str | None = None
+    destination: str | None = None
+    bill_of_lading_no: str | None = None
+    bill_of_lading_date: date | None = None
+    vehicle_no: str | None = None
+    terms_of_delivery: list[str] = Field(default_factory=list)
 
 
 class Voucher(BaseModel):
@@ -62,6 +120,9 @@ class Voucher(BaseModel):
     is_optional: bool = False
     ledger_entries: list[LedgerEntry] = Field(default_factory=list)
     inventory_entries: list[InventoryEntry] = Field(default_factory=list)
+    #: Null when the voucher carries none of it -- a receipt, a journal -- and
+    #: on anything read by a connector from before these fields were fetched.
+    invoice: InvoiceDetails | None = None
 
     @property
     def is_effective(self) -> bool:

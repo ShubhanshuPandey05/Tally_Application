@@ -11,10 +11,12 @@ from ...domain.masters import VoucherTypeKind
 from ...domain.money import Money, Side
 from ...domain.transactions import (
     InventoryEntry,
+    InvoiceDetails,
     LedgerEntry,
     OutstandingBill,
     OutstandingKind,
     Voucher,
+    VoucherParty,
 )
 from ..codec import (
     find_text,
@@ -68,6 +70,8 @@ _LEDGER_ENTRY_FIELDS = (
     "IsPartyLedger",
     "BillAllocations.Name",
     "CategoryAllocations.Category",
+    # The rate a tax line was charged at, which Tally prints beside it.
+    "RateOfInvoiceTax",
 )
 _INVENTORY_ENTRY_FIELDS = (
     "StockItemName",
@@ -77,6 +81,60 @@ _INVENTORY_ENTRY_FIELDS = (
     "Amount",
     "BatchAllocations.GodownName",
     "BatchAllocations.BatchName",
+    # HSN and GST rate as the invoice recorded them. These used to be looked up
+    # on the stock master instead, and a shared invoice went out with an empty
+    # HSN column: verified live 2026-10-12 on "D.D Enterprises", where sales
+    # invoice 2025-26/01 carries ``GSTHSNNAME`` 621142 and an IGST rate of 12
+    # on its own line. The two leaves of ``RateDetails`` are named for the same
+    # reason as everything above -- the wrapper also drags in valuation types
+    # and per-unit rates nothing reads.
+    #
+    # They are not free. Measured on those books (79 vouchers, 230 stock
+    # lines, one financial year): 1.08 MB before, 1.10 MB with the HSN, 1.29 MB
+    # with the rates, 1.39 MB with the invoice header below -- 29% in all. The
+    # stock master cannot stand in for the rates: it held one for 30 items of
+    # 144, where the invoice lines held one for 224 of 230.
+    "GSTHSNName",
+    "RateDetails.GSTRateDutyHead",
+    "RateDetails.GSTRate",
+)
+
+#: What a printed invoice carries above its items: the buyer and consignee as
+#: written on this voucher, and how the goods travelled. All plain fields of
+#: the voucher itself, empty on anything that is not an invoice.
+#:
+#: Verified live 2026-10-12 against the same invoice, field by field against
+#: Tally's own print of it. ``Address`` is the *consignee's* address and
+#: ``BasicBuyerAddress`` the buyer's -- the two are the same on most bills,
+#: which is exactly why reading the wrong one would go unnoticed.
+_INVOICE_FIELDS = (
+    "Address",
+    "BasicBuyerName",
+    "BasicBuyerAddress",
+    "PartyGSTIN",
+    "StateName",
+    "PlaceOfSupply",
+    "ConsigneeMailingName",
+    "ConsigneeGSTIN",
+    "ConsigneeStateName",
+    "ReferenceDate",
+    "BasicDueDateOfPymt",
+    "BasicOrderRef",
+    "BasicShipDocumentNo",
+    "BasicShippedBy",
+    "BasicFinalDestination",
+    "BillOfLadingNo",
+    "BillOfLadingDate",
+    "BasicShipVesselNo",
+    "BasicOrderTerms",
+    # Order and delivery-note numbers sit in lists, because one invoice can
+    # close several of each. The delivery note came back on three invoices in
+    # the same books; no voucher there carries a buyer's order, so those two
+    # names are from Tally's import format rather than from a live export.
+    "InvoiceOrderList.BasicPurchaseOrderNo",
+    "InvoiceOrderList.BasicOrderDate",
+    "InvoiceDelNotes.BasicShipDeliveryNote",
+    "InvoiceDelNotes.BasicShippingDate",
 )
 
 #: Both wrappers are still requested, for the same reason the parser still
@@ -121,11 +179,34 @@ def _date_window_filter(from_date: date, to_date: date) -> str:
     asks for about 40 days and the history sync asks for six months at a time,
     and both were being served the entire open financial year on every call --
     so the chunking that exists to keep exports small was doing nothing.
+
+    **The window is tested twice, once without a date literal.** A TallyPrime
+    in Educational mode accepts only the 1st, 2nd and last day of a month as a
+    date, and ``$$Date:"20250430"`` there evaluates to *nothing* rather than to
+    an error -- so the comparison above is false for every voucher and the
+    window comes back empty. Verified live 2026-10-11 on "D.D Enterprises"
+    (unlicensed, 79 vouchers): April returned 0 of its 24, a single day 0 of 5,
+    and a history backfill had stored no vouchers at all while reporting
+    success. Only windows that happened to start on a 1st and end on a 31st
+    worked.
+
+    The second test compares the voucher's own date as a number, ``yyyymmdd``,
+    which parses no literal and so has nothing for the licence to refuse. On
+    the same six windows it matched a count made outside Tally every time.
+    The first test is kept beside it rather than replaced: it is the one
+    proven on licensed installs, and joined by ``OR`` the pair can only ever
+    return what one of them would have -- so a Tally that did not know the
+    date functions would lose nothing it has today.
     """
-    return (
+    literal = (
         f'$Date >= $$Date:"{_tally_date(from_date)}" '
         f'AND $Date <= $$Date:"{_tally_date(to_date)}"'
     )
+    as_number = "(($$YearOfDate:$Date * 10000) + ($$MonthOfDate:$Date * 100) + $$DayOfDate:$Date)"
+    numeric = (
+        f"{as_number} >= {_tally_date(from_date)} AND {as_number} <= {_tally_date(to_date)}"
+    )
+    return f"({literal}) OR ({numeric})"
 
 
 class DateRangeParams(QueryParams):
@@ -205,6 +286,9 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
         if not params.identity_only:
             fetch += _leaf_fetch(_LEDGER_WRAPPERS, _LEDGER_ENTRY_FIELDS)
             if params.include_inventory:
+                # Only where the item lines come too: the header of an invoice
+                # is no use printed over an empty table.
+                fetch += _INVOICE_FIELDS
                 fetch += _leaf_fetch(_INVENTORY_WRAPPERS, _INVENTORY_ENTRY_FIELDS)
 
         # Always present. Tally will happily return the whole open year without
@@ -275,6 +359,7 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
                     inventory_entries=(
                         _parse_inventory_entries(el) if params.include_inventory else []
                     ),
+                    invoice=_parse_invoice(el) if params.include_inventory else None,
                 )
             )
         return vouchers
@@ -283,18 +368,20 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
 def _entry_amount(entry: ET.Element) -> Money:
     """Resolve a voucher line's amount and side.
 
-    ``ISDEEMEDPOSITIVE`` is Tally's authoritative Dr/Cr flag and it does not
-    always agree with the sign on ``AMOUNT``; when present it wins, because
-    disagreeing with it produces registers that do not balance.
+    **The sign on ``AMOUNT`` is the side, and ``ISDEEMEDPOSITIVE`` is not
+    consulted.** The flag says which side a line *naturally* sits on, not which
+    side this amount landed on, and the two part company on a negative entry --
+    a round-off that took paise off a purchase is a debit-natured line carrying
+    a positive amount, which is a credit.
+
+    This used to let the flag win. Verified live 2026-10-11 on "D.D
+    Enterprises" (79 vouchers, 256 ledger lines): the flag and the sign
+    disagreed on 13 lines, every one a Round Off, and letting the flag win left
+    13 vouchers that did not balance and a Round Off ledger 2.18 away from
+    Tally's own closing balance. Reading the sign alone, every posted voucher
+    balanced and every ledger reconciled to the paisa.
     """
-    money = Money.from_tally(find_text(entry, "AMOUNT"))
-    flag = find_text(entry, "ISDEEMEDPOSITIVE")
-    if flag is None:
-        return money
-    expected = Side.DEBIT if parse_bool(flag) else Side.CREDIT
-    if money.side is expected:
-        return money
-    return Money(amount=money.amount, side=expected, currency=money.currency)
+    return Money.from_tally(find_text(entry, "AMOUNT"))
 
 
 def _parse_ledger_entries(voucher: ET.Element) -> list[LedgerEntry]:
@@ -323,6 +410,9 @@ def _ledger_entries_at(voucher: ET.Element, path: str) -> list[LedgerEntry]:
                 is_party=parse_bool(find_text(entry, "ISPARTYLEDGER")),
                 cost_centre=find_text(entry, "./CATEGORYALLOCATIONS.LIST/CATEGORY"),
                 bill_references=bills,
+                tax_rate=_optional_float(
+                    find_text(entry, "./RATEOFINVOICETAX.LIST/RATEOFINVOICETAX")
+                ),
             )
         )
     return entries
@@ -361,9 +451,86 @@ def _inventory_entries_at(voucher: ET.Element, path: str) -> list[InventoryEntry
                     "./BATCHALLOCATIONS.LIST/BATCHNAME",
                     "BATCHNAME",
                 ),
+                hsn_code=find_text(entry, "GSTHSNNAME"),
+                gst_rate=_line_gst_rate(entry),
             ),
         )
     return entries
+
+
+def _optional_float(value: str | None) -> float | None:
+    """A number, or ``None`` where Tally sent nothing -- never a made-up zero."""
+    return parse_float(value) if value and value.strip() else None
+
+
+def _line_gst_rate(entry: ET.Element) -> float | None:
+    """The full GST rate one invoice line was taxed at.
+
+    A line carries a rate per duty head -- CGST 6, SGST 6, IGST 12 -- whichever
+    of them the sale actually used, so the integrated rate is the one figure
+    that is right for a local sale and an interstate one alike. The two halves
+    are added only where a line has no integrated head at all.
+    """
+    rates: dict[str, float] = {}
+    for detail in entry.findall("./RATEDETAILS.LIST"):
+        head = (find_text(detail, "GSTRATEDUTYHEAD") or "").strip().upper()
+        rate = _optional_float(find_text(detail, "GSTRATE"))
+        if head and rate is not None:
+            rates[head] = rate
+    if "IGST" in rates:
+        return rates["IGST"]
+    if "CGST" in rates and "SGST/UTGST" in rates:
+        return rates["CGST"] + rates["SGST/UTGST"]
+    return None
+
+
+def _lines(voucher: ET.Element, path: str) -> list[str]:
+    return [t for t in (text_of(line) for line in voucher.findall(path)) if t]
+
+
+def _parse_invoice(voucher: ET.Element) -> InvoiceDetails | None:
+    """The buyer, consignee and dispatch details written on an invoice.
+
+    ``None`` when the voucher has none of them, so a receipt does not carry an
+    empty invoice header around and a reader can tell "not an invoice" from
+    "an invoice with nothing filled in" by the kind, not by this.
+    """
+    buyer = VoucherParty(
+        name=find_text(voucher, "BASICBUYERNAME"),
+        address=_lines(voucher, "./BASICBUYERADDRESS.LIST/BASICBUYERADDRESS"),
+        gstin=find_text(voucher, "PARTYGSTIN"),
+        state=find_text(voucher, "STATENAME"),
+    )
+    consignee = VoucherParty(
+        name=find_text(voucher, "CONSIGNEEMAILINGNAME"),
+        address=_lines(voucher, "./ADDRESS.LIST/ADDRESS"),
+        gstin=find_text(voucher, "CONSIGNEEGSTIN"),
+        state=find_text(voucher, "CONSIGNEESTATENAME"),
+    )
+    details = InvoiceDetails(
+        buyer=buyer if buyer != VoucherParty() else None,
+        consignee=consignee if consignee != VoucherParty() else None,
+        place_of_supply=find_text(voucher, "PLACEOFSUPPLY"),
+        delivery_note=find_text(voucher, "./INVOICEDELNOTES.LIST/BASICSHIPDELIVERYNOTE"),
+        delivery_note_date=parse_date(
+            find_text(voucher, "./INVOICEDELNOTES.LIST/BASICSHIPPINGDATE")
+        ),
+        payment_terms=find_text(voucher, "BASICDUEDATEOFPYMT"),
+        reference_date=parse_date(find_text(voucher, "REFERENCEDATE")),
+        other_references=find_text(voucher, "BASICORDERREF"),
+        buyer_order_no=find_text(voucher, "./INVOICEORDERLIST.LIST/BASICPURCHASEORDERNO"),
+        buyer_order_date=parse_date(
+            find_text(voucher, "./INVOICEORDERLIST.LIST/BASICORDERDATE")
+        ),
+        dispatch_doc_no=find_text(voucher, "BASICSHIPDOCUMENTNO"),
+        dispatched_through=find_text(voucher, "BASICSHIPPEDBY"),
+        destination=find_text(voucher, "BASICFINALDESTINATION"),
+        bill_of_lading_no=find_text(voucher, "BILLOFLADINGNO"),
+        bill_of_lading_date=parse_date(find_text(voucher, "BILLOFLADINGDATE")),
+        vehicle_no=find_text(voucher, "BASICSHIPVESSELNO"),
+        terms_of_delivery=_lines(voucher, "./BASICORDERTERMS.LIST/BASICORDERTERMS"),
+    )
+    return details if details != InvoiceDetails() else None
 
 
 def _unit_from_quantity(value: str | None) -> str | None:

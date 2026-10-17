@@ -35,14 +35,17 @@ class VoucherDocument {
   /// a voucher names the other side, never its own books.
   final String companyName;
 
-  /// The seller's own registration, printed under the name when it is known.
-  ///
-  /// Nothing supplies it today: TallyPrime reports a company's GSTIN on the
-  /// discovery read, but the backend keeps only the name and the book dates, so
-  /// there is no stored value to pass. Left as a parameter rather than removed
-  /// because the header has a place for it and the alternative -- printing a
-  /// blank GSTIN line -- is the one thing this document must not do.
+  /// The seller's own registration, for a caller that knows it. The voucher
+  /// normally brings the company's profile with it -- see
+  /// [VoucherDetail.companyDetails] -- and that wins when it is there.
   final String? companyGstin;
+
+  String? get _sellerGstin {
+    final String own = (detail.companyDetails?.gstin ?? '').trim();
+    if (own.isNotEmpty) return own;
+    final String given = (companyGstin ?? '').trim();
+    return given.isEmpty ? null : given;
+  }
 
   /// Ledger names that carry tax rather than value. Matched loosely because a
   /// shop names these ledgers freely -- "Output CGST 9%", "CGST Payable",
@@ -170,9 +173,12 @@ class VoucherDocument {
                   crossAxisAlignment: pw.CrossAxisAlignment.start,
                   children: <pw.Widget>[
                     pw.Text(companyName, style: DocumentStyle.heading),
-                    if ((companyGstin ?? '').isNotEmpty) ...<pw.Widget>[
+                    for (final String line
+                        in detail.companyDetails?.address ?? const <String>[])
+                      pw.Text(line, style: DocumentStyle.body),
+                    if (_sellerGstin != null) ...<pw.Widget>[
                       pw.SizedBox(height: 2),
-                      pw.Text('GSTIN/UIN: $companyGstin', style: DocumentStyle.body),
+                      pw.Text('GSTIN/UIN: $_sellerGstin', style: DocumentStyle.body),
                     ],
                   ],
                 ),

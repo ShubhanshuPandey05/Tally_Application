@@ -13,14 +13,21 @@ from datetime import date, timedelta
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Query, Request
-from tally_core.domain.masters import Ledger, StockItem, VoucherTypeKind
+from tally_core.domain.masters import (
+    CompanyProfile,
+    Ledger,
+    StockItem,
+    VoucherTypeKind,
+)
+from tally_core.domain.money import Money
 from tally_core.domain.transactions import OutstandingKind, Voucher
 
 from ...core.errors import AppError, NotFound
-from ...db.models import Company
+from ...db.models import Company, CompanySyncState
 from ...services import analytics as an
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
+from ...services.demo_books import financial_year_start
 from ...services.reads import DataResult, FetchMode, NoDataYet, ReadService
 from ...services.sync import SyncCoordinator
 from ..deps import (
@@ -609,17 +616,19 @@ async def voucher_detail(
             inventory_kept=inventory_kept,
             party=await _party_master(reads, company, found.party_name),
             items=await _item_masters(reads, company, found),
+            company=await _company_profile(reads, company),
         ),
         meta=result.meta(),
     )
 
 
-# The two lookups below exist for one reason: a voucher a customer shares has to
-# carry an address, a GSTIN and an HSN code, and none of those are on a voucher
-# export -- Tally keeps them on the masters. Both read snapshots the backend
-# already refreshes, so a shared invoice costs the shop's Tally nothing.
+# The three lookups below exist for one reason: a voucher a customer shares has
+# to carry the seller's address and GSTIN, which no voucher export holds, and a
+# buyer and an HSN code for any voucher stored before its own copies of those
+# were read. All read snapshots the backend already refreshes, so a shared
+# invoice costs the shop's Tally nothing.
 #
-# Both swallow their errors. The voucher is the answer to the request; a missing
+# All swallow their errors. The voucher is the answer to the request; a missing
 # master read must cost the document a line of its header, not the whole screen.
 
 
@@ -637,6 +646,15 @@ async def _party_master(
         (led for led in an.parse_ledgers(result.payload) if led.name.strip().lower() == wanted),
         None,
     )
+
+
+async def _company_profile(reads: ReadService, company: Company) -> CompanyProfile | None:
+    """The company's own address and registrations, for the seller block."""
+    try:
+        result = await reads.fetch(company, dataset="company.profile", mode=FetchMode.CACHED)
+        return CompanyProfile.model_validate(result.payload)
+    except (AppError, ValueError):
+        return None
 
 
 async def _item_masters(
@@ -659,6 +677,92 @@ async def _item_masters(
     }
 
 
+async def _opening_balance(
+    reads: ReadService,
+    session: SessionDep,
+    company: Company,
+    ledger: Ledger,
+    *,
+    start: date,
+    end: date,
+    window: list[Voucher],
+    kinds: dict[str, VoucherTypeKind],
+) -> Money | None:
+    """What one ledger stood at on the morning of ``start``, or ``None``.
+
+    Tally will not say: it reports a closing balance as it stands now and takes
+    no date to evaluate against. But it does not need to. Verified live
+    2026-10-11 on "D.D Enterprises", ledger by ledger: the opening balance on
+    the master plus every posted voucher came to Tally's own closing balance,
+    to the paisa, for 27 ledgers of 28 -- the exception being "Profit & Loss
+    A/c", refused below. So the balance on any morning is that closing balance
+    with every later voucher taken back off: arithmetic on figures Tally itself
+    reported, which an accountant can check against the Ledger Vouchers screen.
+
+    What that run could not show: those books hold one financial year and no
+    ledger in them carries an opening balance. The year-end rule for income
+    accounts below is how Tally closes a year, not something seen there.
+
+    Two kinds of account, worked two ways:
+
+    * **Assets, liabilities and parties** carry their balance from year to
+      year. Start from today's closing balance and take off everything posted
+      since ``start``. Only recent vouchers are involved, which are the ones
+      the sync reads first and keeps current.
+    * **Income and expense accounts** start each financial year from nil --
+      last year's sales are in last year's profit, not in this year's opening.
+      So theirs is what was posted from 1 April up to ``start``, and working
+      back from today's balance would be wrong for any window in a closed year.
+
+    ``None`` whenever a voucher this depends on might be missing: no stored
+    history for the range, or a group the masters read did not return. A
+    statement without an opening balance says so; one with a wrong opening
+    balance looks exactly like one with a right one.
+    """
+    # Tally's own running total of profit, with no vouchers posted to it.
+    if ledger.name.strip().casefold() == "profit & loss a/c":
+        return None
+
+    try:
+        group_result = await reads.fetch(company, dataset="groups.list", mode=FetchMode.CACHED)
+    except AppError:
+        return None
+    revenue = an.is_revenue_group(an.parse_groups(group_result.payload), ledger.parent_group)
+    if revenue is None:
+        return None
+
+    def movement(payload: Any) -> Money:
+        stored = an.classify(an.effective(an.parse_vouchers(payload)), kinds)
+        return an.ledger_movement(stored, ledger=ledger.name)
+
+    if revenue:
+        year_start = financial_year_start(start)
+        before = Money.zero()
+        if start > year_start:
+            payload = await reads.stored_vouchers(
+                company, from_date=year_start, to_date=start - timedelta(days=1)
+            )
+            if payload is None:
+                return None
+            before = movement(payload)
+        # A master opening balance on an income account belongs to the year the
+        # books began in and to no other.
+        state = await session.get(CompanySyncState, company.id)
+        books_from = state.books_from if state is not None else None
+        if books_from is None or books_from >= year_start:
+            before = before + ledger.opening_balance
+        return before
+
+    later = Money.zero()
+    if end < date.today():
+        payload = await reads.stored_vouchers(company, from_date=end + timedelta(days=1))
+        if payload is None:
+            return None
+        later = movement(payload)
+    in_window = an.ledger_movement(window, ledger=ledger.name)
+    return ledger.closing_balance + in_window.negated() + later.negated()
+
+
 @router.get("/reports/ledger-statement", response_model=DataEnvelope)
 async def ledger_statement(
     company: CompanyDep,
@@ -670,22 +774,20 @@ async def ledger_statement(
     from_date: date | None = None,
     to_date: date | None = None,
 ) -> DataEnvelope:
-    """Every voucher that touched one ledger, with a running total.
+    """Every voucher that posted to one ledger, from an opening balance.
 
-    The ledger's own closing balance rides along separately and is labelled
-    "today" by the app. It is not the end of the running column and must never
-    be presented as though it were: Tally evaluates a closing balance against
-    the current date whatever window was asked for.
+    Opening balance, each voucher with the balance it left behind, closing
+    balance -- Tally's Ledger Vouchers. Today's balance still rides along
+    separately: a window that ended last month closes on last month's figure,
+    and the two are different statements the app labels differently.
     """
     start, end = _detail_window(from_date, to_date)
 
     voucher_result = await reads.fetch_vouchers(
         company, from_date=start, to_date=end, mode=FetchMode.CACHED
     )
-    vouchers = an.effective(an.parse_vouchers(voucher_result.payload))
-    vouchers = an.classify(vouchers, await voucher_kinds(reads, company, FetchMode.CACHED))
-
-    statement = an.ledger_statement(vouchers, ledger=ledger, since=start, until=end)
+    kinds = await voucher_kinds(reads, company, FetchMode.CACHED)
+    vouchers = an.classify(an.effective(an.parse_vouchers(voucher_result.payload)), kinds)
 
     # Today's balance is a second dataset with its own age, and it is the
     # optional half of this screen: the statement is the movement, and a missing
@@ -707,6 +809,17 @@ async def ledger_statement(
         )
     except AppError:
         pass
+
+    opening = (
+        await _opening_balance(
+            reads, session, company, match, start=start, end=end, window=vouchers, kinds=kinds
+        )
+        if match is not None
+        else None
+    )
+    statement = an.ledger_statement(
+        vouchers, ledger=ledger, since=start, until=end, opening=opening
+    )
 
     # None, never zero. "We could not read the balance" and "the balance is nil"
     # are different statements and the app renders them differently.

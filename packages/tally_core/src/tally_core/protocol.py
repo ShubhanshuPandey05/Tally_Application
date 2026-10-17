@@ -478,6 +478,25 @@ class RosterRequest(ClientMessage):
     type: Literal["roster_request"] = "roster_request"
 
 
+class CompanyRemove(ClientMessage):
+    """The connector asking for one of its own companies to be unlinked.
+
+    Sent from the Remove button in the connector's window. The backend answers
+    with a fresh roster rather than a reply of its own: the roster is what the
+    window draws, so it is the acknowledgement, and a company that stays on it
+    is one the backend refused or never heard about.
+
+    Scoped the same way as :class:`RosterRequest` -- the backend only acts when
+    ``company_id`` belongs to *this* connector, so a shop PC cannot reach into
+    anybody else's companies, nor into a company another PC on the same account
+    feeds. A backend that predates this frame ignores it, which leaves the
+    company where it was and the window still listing it: honest, if unhelpful.
+    """
+
+    type: Literal["company_remove"] = "company_remove"
+    company_id: str
+
+
 # --------------------------------------------------------------------------
 # Diagnostics
 # --------------------------------------------------------------------------
@@ -540,6 +559,6 @@ Inbound = Annotated[
 ]
 #: Messages the connector may send.
 Outbound = Annotated[
-    Hello | Pong | JobResult | StatusEvent | LogBatch | RosterRequest,
+    Hello | Pong | JobResult | StatusEvent | LogBatch | RosterRequest | CompanyRemove,
     Field(discriminator="type"),
 ]

@@ -1,0 +1,281 @@
+{
+  "data": {
+    "amount": {
+      "amount": "115680.67",
+      "currency": "INR",
+      "display": "115,680.67 Dr",
+      "side": "debit",
+      "signed": "115680.67"
+    },
+    "company_details": {
+      "address": [
+        "309,BLUE EMIMINENCE SANGINI DANDI ROAD",
+        "JAHANGIRABAD, SURAT ,GUJARAT"
+      ],
+      "bank": {
+        "account_number": "50200108679595",
+        "bank_name": "HDFC BANK LTD",
+        "branch": null,
+        "ifsc": "HDFC0000251"
+      },
+      "email": null,
+      "gstin": "24BQTPK1669M1Z4",
+      "mobile": null,
+      "name": "D.D Enterprises",
+      "pan": null,
+      "phone": null,
+      "pincode": "395005",
+      "state": "Gujarat",
+      "website": null
+    },
+    "credit_total": {
+      "amount": "115680.67",
+      "currency": "INR",
+      "display": "115,680.67 Dr",
+      "side": "debit",
+      "signed": "115680.67"
+    },
+    "date": "2025-04-15",
+    "debit_total": {
+      "amount": "115680.67",
+      "currency": "INR",
+      "display": "115,680.67 Dr",
+      "side": "debit",
+      "signed": "115680.67"
+    },
+    "inventory_entries": [
+      {
+        "amount": {
+          "amount": "58808.64",
+          "currency": "INR",
+          "display": "58,808.64 Dr",
+          "side": "debit",
+          "signed": "58808.64"
+        },
+        "batch": "Primary Batch",
+        "godown": "Main Location",
+        "gst_rate": 12.0,
+        "hsn_code": "621142",
+        "item": "Dupatta Set12  621142",
+        "quantity": 44.0,
+        "rate": {
+          "amount": "1336.56",
+          "currency": "INR",
+          "display": "1,336.56 Cr",
+          "side": "credit",
+          "signed": "-1336.56"
+        },
+        "unit": "Pcs"
+      },
+      {
+        "amount": {
+          "amount": "11096.48",
+          "currency": "INR",
+          "display": "11,096.48 Dr",
+          "side": "debit",
+          "signed": "11096.48"
+        },
+        "batch": "Primary Batch",
+        "godown": "Main Location",
+        "gst_rate": 5.0,
+        "hsn_code": "621142",
+        "item": "Dupatta Set 5 621142",
+        "quantity": 16.0,
+        "rate": {
+          "amount": "693.53",
+          "currency": "INR",
+          "display": "693.53 Cr",
+          "side": "credit",
+          "signed": "-693.53"
+        },
+        "unit": "Pcs"
+      },
+      {
+        "amount": {
+          "amount": "24067.97",
+          "currency": "INR",
+          "display": "24,067.97 Dr",
+          "side": "debit",
+          "signed": "24067.97"
+        },
+        "batch": "Primary Batch",
+        "godown": "Main Location",
+        "gst_rate": 5.0,
+        "hsn_code": "620419",
+        "item": "Dupatta Set 5  620419",
+        "quantity": 29.0,
+        "rate": {
+          "amount": "829.93",
+          "currency": "INR",
+          "display": "829.93 Cr",
+          "side": "credit",
+          "signed": "-829.93"
+        },
+        "unit": "Pcs"
+      },
+      {
+        "amount": {
+          "amount": "5019.00",
+          "currency": "INR",
+          "display": "5,019.00 Dr",
+          "side": "debit",
+          "signed": "5019.00"
+        },
+        "batch": "Primary Batch",
+        "godown": "Main Location",
+        "gst_rate": 12.0,
+        "hsn_code": "620469",
+        "item": "Dupatta Set 620469",
+        "quantity": 4.0,
+        "rate": {
+          "amount": "1254.75",
+          "currency": "INR",
+          "display": "1,254.75 Cr",
+          "side": "credit",
+          "signed": "-1254.75"
+        },
+        "unit": "Pcs"
+      },
+      {
+        "amount": {
+          "amount": "6492.00",
+          "currency": "INR",
+          "display": "6,492.00 Dr",
+          "side": "debit",
+          "signed": "6492.00"
+        },
+        "batch": "Primary Batch",
+        "godown": "Main Location",
+        "gst_rate": 12.0,
+        "hsn_code": "62114300",
+        "item": "Dupatta Set  12 62114300",
+        "quantity": 4.0,
+        "rate": {
+          "amount": "1623.00",
+          "currency": "INR",
+          "display": "1,623.00 Cr",
+          "side": "credit",
+          "signed": "-1623.00"
+        },
+        "unit": "Pcs"
+      }
+    ],
+    "inventory_omitted": false,
+    "invoice": {
+      "bill_of_lading_date": "2025-04-26",
+      "bill_of_lading_no": "771522771058",
+      "buyer": {
+        "address": [
+          "Bairgania , Kappra Patti  Bairgania, Sitamarhi",
+          "Bihar,Ashogi Pursottam, Sitamarhi,Bihar 843313"
+        ],
+        "gstin": "10EGHPK3851A1Z0",
+        "name": "M/S DULHAN DRESSES",
+        "state": "Bihar"
+      },
+      "buyer_order_date": null,
+      "buyer_order_no": null,
+      "consignee": {
+        "address": [
+          "Bairgania , Kappra Patti  Bairgania, Sitamarhi",
+          "Bihar,Ashogi Pursottam, Sitamarhi,Bihar 843313"
+        ],
+        "gstin": "10EGHPK3851A1Z0",
+        "name": "M/S DULHAN DRESSES",
+        "state": "Bihar"
+      },
+      "delivery_note": null,
+      "delivery_note_date": null,
+      "destination": null,
+      "dispatch_doc_no": null,
+      "dispatched_through": "Anchal Logistics",
+      "other_references": null,
+      "payment_terms": null,
+      "place_of_supply": "Bihar",
+      "reference_date": null,
+      "terms_of_delivery": [
+        "Purchaser Party",
+        "SAMPAT SACHIN KURTI"
+      ],
+      "vehicle_no": null
+    },
+    "is_cancelled": false,
+    "is_optional": false,
+    "key": "bf20860e-624f-402f-ab32-471b11a1a1fb-00000004",
+    "kind": "sales",
+    "ledger_entries": [
+      {
+        "amount": {
+          "amount": "115680.67",
+          "currency": "INR",
+          "display": "115,680.67 Dr",
+          "side": "debit",
+          "signed": "115680.67"
+        },
+        "bill_references": [
+          "2025-26/01"
+        ],
+        "cost_centre": null,
+        "is_party": true,
+        "ledger": "M/S DULHAN DRESSES",
+        "tax_rate": null
+      },
+      {
+        "amount": {
+          "amount": "105484.09",
+          "currency": "INR",
+          "display": "105,484.09 Cr",
+          "side": "credit",
+          "signed": "-105484.09"
+        },
+        "bill_references": [],
+        "cost_centre": null,
+        "is_party": false,
+        "ledger": "Gst Sales",
+        "tax_rate": null
+      },
+      {
+        "amount": {
+          "amount": "8438.36",
+          "currency": "INR",
+          "display": "8,438.36 Cr",
+          "side": "credit",
+          "signed": "-8438.36"
+        },
+        "bill_references": [],
+        "cost_centre": null,
+        "is_party": false,
+        "ledger": "IGST 12",
+        "tax_rate": 12.0
+      },
+      {
+        "amount": {
+          "amount": "1758.22",
+          "currency": "INR",
+          "display": "1,758.22 Cr",
+          "side": "credit",
+          "signed": "-1758.22"
+        },
+        "bill_references": [],
+        "cost_centre": null,
+        "is_party": false,
+        "ledger": "IGST 5",
+        "tax_rate": 5.0
+      }
+    ],
+    "narration": null,
+    "party": "M/S DULHAN DRESSES",
+    "party_details": null,
+    "reference": null,
+    "voucher_number": "2025-26/01",
+    "voucher_type": "Sales"
+  },
+  "meta": {
+    "age_seconds": 0.0,
+    "connector_online": true,
+    "error": null,
+    "from_snapshot": true,
+    "is_stale": false,
+    "refreshed_at": "2026-10-12T00:00:00+00:00"
+  }
+}

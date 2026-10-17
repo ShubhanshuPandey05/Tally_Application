@@ -354,6 +354,7 @@ async def _publish(
     await reads.put_snapshot(company, dataset="godown_stock.list", payload=books.godown_stock)
     await reads.put_snapshot(company, dataset="voucher_types.list", payload=books.voucher_types)
     await reads.put_snapshot(company, dataset="company.markers", payload=books.markers)
+    await reads.put_snapshot(company, dataset="company.profile", payload=books.profile)
     # Ageing is computed against a date, so the bills carry the day they were
     # aged as of -- the same params the dashboard and the outstanding report
     # ask with. Yesterday's key is left behind rather than deleted: it is what

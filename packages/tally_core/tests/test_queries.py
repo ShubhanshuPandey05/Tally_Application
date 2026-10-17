@@ -45,6 +45,7 @@ def test_registry_exposes_expected_queries():
     assert names == {
         "companies.list",
         "company.markers",
+        "company.profile",
         "groups.list",
         "ledgers.list",
         "stock_items.list",
@@ -369,6 +370,26 @@ def test_godown_stock_names_its_leaf_fields():
     assert "<FETCH>" not in xml
 
 
+def test_godown_stock_walks_batches_from_their_stock_items():
+    """A Batch collection with no parent is empty on a live TallyPrime.
+
+    Verified 2026-10-11: the bare ``<TYPE>Batch</TYPE>`` this query used to send
+    came back as an empty collection with no error, for a company with stock in
+    four godowns. The batches only exist as children of a stock item, so the
+    request has to walk them from the items -- and the export it asks for has to
+    be the walking collection, not the batch one.
+    """
+    query = get_query("godown_stock.list")
+    xml = query.build(query.validate_params({"company": "Acme"}))
+
+    assert "<CHILDOF>$Name</CHILDOF>" in xml
+    assert "<SOURCECOLLECTION>TFGodownItems</SOURCECOLLECTION>" in xml
+    assert "<WALK>TFGodownBatches</WALK>" in xml
+    assert "<ID>TFGodownStock</ID>" in xml
+    for field in ("TFItem : $Parent", "TFGodown : $GodownName", "TFQuantity : $ClosingBalance"):
+        assert f"<COMPUTE>{field}</COMPUTE>" in xml
+
+
 # --------------------------------------------------------------------------
 # Vouchers
 # --------------------------------------------------------------------------
@@ -479,6 +500,27 @@ def test_voucher_envelope_filters_on_date_because_the_period_does_not():
     assert "<FILTER>TFDateFilter</FILTER>" in xml
     assert '$Date &gt;= $$Date:&quot;20250701&quot;' in xml
     assert '$Date &lt;= $$Date:&quot;20250731&quot;' in xml
+
+
+def test_voucher_date_window_also_holds_without_a_date_literal():
+    """A TallyPrime in Educational mode turns most date literals into nothing.
+
+    Verified live 2026-10-11: ``$$Date:"20250430"`` evaluated empty on an
+    unlicensed Tally, which accepts only the 1st, 2nd and last day of a month,
+    so the literal comparison was false for every voucher and a month with 24
+    vouchers in it came back with none -- no error, and a backfill that
+    "succeeded" having stored nothing. The second half of the filter compares
+    the voucher's date as a number and parses no literal at all.
+
+    ``OR``, never ``AND``: the literal half is the one proven on licensed
+    installs, and it must keep answering on its own.
+    """
+    query = get_query("vouchers.list")
+    xml = unescape(query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS})))
+
+    as_number = "(($$YearOfDate:$Date * 10000) + ($$MonthOfDate:$Date * 100) + $$DayOfDate:$Date)"
+    assert f"{as_number} >= 20250701 AND {as_number} <= 20250731" in xml
+    assert '($Date >= $$Date:"20250701" AND $Date <= $$Date:"20250731") OR (' in xml
 
 
 def test_voucher_date_filter_uses_an_unambiguous_literal():
@@ -727,3 +769,38 @@ def test_no_query_can_mutate_tally(entry):
     assert "<TALLYREQUEST>Export</TALLYREQUEST>" in xml
     assert "Import" not in xml
     assert 'ISMODIFY="Yes"' not in xml
+
+
+# --------------------------------------------------------------------------
+# The bank an invoice prints
+# --------------------------------------------------------------------------
+
+
+def _profile_with_banks(count: int):
+    query = get_query("company.profile")
+    params = query.validate_params({"company": "Acme"})
+    xml = f"""<ENVELOPE><BODY><DATA><COLLECTION>
+      <COMPANY NAME="Acme"><NAME>Acme</NAME>
+        <TFBANKCOUNT>{count}</TFBANKCOUNT>
+        <TFBANKNAME>HDFC BANK LTD</TFBANKNAME>
+        <TFBANKACCOUNT>50200108679595</TFBANKACCOUNT>
+        <TFBANKIFSC>HDFC0000251</TFBANKIFSC>
+      </COMPANY></COLLECTION></DATA></BODY></ENVELOPE>"""
+    return query.parse(parse_xml(xml), params)
+
+
+def test_company_profile_names_its_bank_when_there_is_only_one():
+    bank = _profile_with_banks(1).bank
+    assert bank is not None
+    assert bank.bank_name == "HDFC BANK LTD"
+    assert bank.account_number == "50200108679595"
+    assert bank.ifsc == "HDFC0000251"
+    assert bank.branch is None
+
+
+def test_company_profile_names_no_bank_when_it_would_have_to_choose():
+    # Which bank an invoice prints is a Tally print setting no export returns.
+    # The first of two is a guess, and a wrong guess is a customer paying into
+    # the wrong account.
+    assert _profile_with_banks(2).bank is None
+    assert _profile_with_banks(0).bank is None

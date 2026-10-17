@@ -26,13 +26,18 @@ import 'widgets/report_scaffold.dart';
 
 /// Everything that went through one account.
 ///
-/// The screen an owner reaches for when a figure looks wrong. Two numbers on it
-/// mean different things and the difference is the whole point of the layout:
-/// the **running** column is movement inside the chosen window, and the
-/// **balance today** is what Tally says the account stands at right now. Tally
-/// evaluates a closing balance against the current date and accepts no date to
-/// evaluate against, so the second can never be the end of the first, and the
-/// screen must not let them read as one column.
+/// The screen an owner reaches for when a figure looks wrong, laid out as
+/// Tally's own Ledger Vouchers: the balance the account opened the period on,
+/// each voucher with the balance it left behind, and the balance it closed on.
+///
+/// **Balance today** is a separate figure and stays separately labelled. A
+/// period that ended last month closes on last month's balance, and letting
+/// that read as what the account stands at now is how somebody pays the wrong
+/// amount. It is shown only when it differs from the closing balance above it.
+///
+/// When the opening balance cannot be worked out -- the history around the
+/// period is not all held yet -- the screen says so and the running column is
+/// movement only. It never draws an account as having started from nil.
 class LedgerStatementScreen extends ConsumerStatefulWidget {
   const LedgerStatementScreen({super.key, required this.ledger});
 
@@ -149,7 +154,12 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
         return <Widget>[
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 4, 16, 10),
-            child: _StatementSummary(statement: statement, periodLabel: periodLabel),
+            child: _StatementSummary(
+              statement: statement,
+              periodLabel: periodLabel,
+              from: range.from,
+              to: range.to,
+            ),
           ),
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 0, 16, 14),
@@ -160,8 +170,20 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
               icon: Icons.list_alt_outlined,
               child: Column(
                 children: <Widget>[
+                  if (statement.hasBalances)
+                    _BalanceRow(
+                      label: 'Opening balance',
+                      date: range.from,
+                      balance: statement.openingBalance!,
+                    ),
                   for (final StatementEntry entry in statement.entries)
                     _StatementRow(entry: entry),
+                  if (statement.hasBalances)
+                    _BalanceRow(
+                      label: 'Closing balance',
+                      date: range.to,
+                      balance: statement.periodClosingBalance!,
+                    ),
                 ],
               ),
             ),
@@ -173,14 +195,26 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
 }
 
 class _StatementSummary extends StatelessWidget {
-  const _StatementSummary({required this.statement, required this.periodLabel});
+  const _StatementSummary({
+    required this.statement,
+    required this.periodLabel,
+    required this.from,
+    required this.to,
+  });
 
   final LedgerStatement statement;
   final String periodLabel;
+  final DateTime from;
+  final DateTime to;
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
+    final Money? today = statement.closingBalance;
+    final Money? closing = statement.periodClosingBalance;
+    // The same figure twice under two names would only make a reader wonder
+    // what the difference was.
+    final bool todayDiffers = today != null &&
+        (closing == null || today.amount != closing.amount || today.side != closing.side);
 
     return SectionCard(
       title: 'Movement',
@@ -202,14 +236,19 @@ class _StatementSummary extends StatelessWidget {
             TrendChart(
             series: <ChartSeries>[
               ChartSeries(
-                label: 'Running',
+                label: statement.hasBalances ? 'Balance' : 'Running',
                 colour: AppTheme.tileBlue,
                 values: <double>[
+                  // The line starts where the account did, not at its first
+                  // voucher: an opening balance of two lakh is most of the
+                  // picture for an account that then moved a few thousand.
+                  if (statement.hasBalances) statement.openingBalance!.asDouble,
                   for (final StatementEntry e in statement.entries) e.running.asDouble,
                 ],
               ),
             ],
             dates: <DateTime>[
+              if (statement.hasBalances) from,
               for (final StatementEntry e in statement.entries) e.line.date,
             ],
             currency: statement.netMovement.currency,
@@ -231,46 +270,127 @@ class _StatementSummary extends StatelessWidget {
             ],
           ),
           const SizedBox(height: 12),
-          // Deliberately below the strip and separately labelled. It is not the
-          // end of the running column, and putting it in the strip alongside
-          // the movement figures is exactly how a reader would conclude that it
-          // was.
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Container(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 8),
               decoration: BoxDecoration(
                 color: context.surfaceColor,
                 borderRadius: BorderRadius.circular(AppTheme.radiusTile),
               ),
-              child: Row(
+              child: Column(
                 children: <Widget>[
-                  Icon(Icons.today, size: 16, color: context.mutedColor),
-                  const SizedBox(width: 9),
-                  Expanded(
-                    child: Text(
-                      // Tally reports a closing balance as it stands now,
-                      // whatever window is on screen. Saying so is the
-                      // difference between a statement an owner can reconcile
-                      // and one that quietly mixes two dates.
-                      'Balance today',
-                      style: theme.textTheme.labelMedium
-                          ?.copyWith(color: context.mutedColor),
+                  _BalanceLine(
+                    icon: Icons.first_page,
+                    label: 'Opening balance',
+                    caption: _shortDate(from),
+                    balance: statement.openingBalance,
+                  ),
+                  if (statement.hasBalances)
+                    _BalanceLine(
+                      icon: Icons.last_page,
+                      label: 'Closing balance',
+                      caption: _shortDate(to),
+                      balance: closing,
                     ),
-                  ),
-                  Text(
-                    // Never a zero standing in for a missing read.
-                    statement.closingBalance == null
-                        ? 'not available'
-                        : MoneyFormat.withSide(statement.closingBalance!),
-                    style: statement.closingBalance == null
-                        ? theme.textTheme.labelMedium
-                            ?.copyWith(color: context.mutedColor)
-                        : theme.textTheme.titleSmall?.merge(AppTheme.amount),
-                  ),
+                  // Tally reports this one as the account stands now, whatever
+                  // period is on screen. Kept apart from the closing balance
+                  // and named for what it is whenever the two are not the same
+                  // figure -- and always when there is no closing balance to
+                  // confuse it with.
+                  if (todayDiffers || !statement.hasBalances)
+                    _BalanceLine(
+                      icon: Icons.today,
+                      label: 'Balance today',
+                      balance: today,
+                    ),
                 ],
               ),
             ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One named balance in the summary. A balance that could not be read says
+/// "not available" -- never a zero standing in for a missing figure.
+class _BalanceLine extends StatelessWidget {
+  const _BalanceLine({
+    required this.icon,
+    required this.label,
+    required this.balance,
+    this.caption,
+  });
+
+  final IconData icon;
+  final String label;
+  final String? caption;
+  final Money? balance;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    final TextStyle? muted =
+        theme.textTheme.labelMedium?.copyWith(color: context.mutedColor);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 3),
+      child: Row(
+        children: <Widget>[
+          Icon(icon, size: 16, color: context.mutedColor),
+          const SizedBox(width: 9),
+          Expanded(
+            child: Text(
+              caption == null ? label : '$label · $caption',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: muted,
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            balance == null ? 'not available' : MoneyFormat.withSide(balance!),
+            style: balance == null
+                ? muted
+                : theme.textTheme.titleSmall?.merge(AppTheme.amount),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The balance the entries start from, and the one they end on. Drawn in the
+/// list itself, as Tally does, so the first voucher's balance has something
+/// above it to be the sum of.
+class _BalanceRow extends StatelessWidget {
+  const _BalanceRow({required this.label, required this.date, required this.balance});
+
+  final String label;
+  final DateTime date;
+  final Money balance;
+
+  @override
+  Widget build(BuildContext context) {
+    final ThemeData theme = Theme.of(context);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 9, 16, 9),
+      child: Row(
+        children: <Widget>[
+          Expanded(
+            child: Text(
+              '${_shortDate(date)} | $label',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.bodyMedium?.copyWith(color: context.mutedColor),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Text(
+            MoneyFormat.withSide(balance),
+            style: theme.textTheme.bodyMedium?.merge(AppTheme.amount),
           ),
         ],
       ),

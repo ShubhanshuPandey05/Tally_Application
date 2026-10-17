@@ -67,7 +67,15 @@ MAX_BODY_BYTES = 4096
 #: were registered by the runner and pressed by the window but missing here,
 #: so both tabs answered 404 and changed nothing -- found 2026-09-25 while
 #: testing the per-entry optional switch.
-ACTIONS = {"restart", "refresh", "port", "new-code", "sync-speed", "entry-mode"}
+ACTIONS = {
+    "restart",
+    "refresh",
+    "port",
+    "new-code",
+    "sync-speed",
+    "entry-mode",
+    "remove-company",
+}
 
 
 class _Server(ThreadingHTTPServer):

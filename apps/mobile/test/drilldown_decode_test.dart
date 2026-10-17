@@ -64,6 +64,26 @@ void main() {
       expect(detail.isExcluded, isFalse);
     });
 
+    test('carries the company\'s own address and GSTIN for the seller block', () {
+      final CompanyDetails? company = load().companyDetails;
+
+      expect(company, isNotNull);
+      expect(company!.name, 'Bhtia Supermarket');
+      expect(company.gstin, '11AAACB1234F1Z2');
+      expect(company.address, <String>['12 MG Marg', 'Gangtok']);
+      expect(company.state, 'Sikkim');
+    });
+
+    test('a voucher with no company profile decodes without one', () {
+      // An older connector never sends it, and the document then prints the
+      // company's name alone.
+      final Map<String, Object?> body =
+          Map<String, Object?>.from(fixture('voucher').envelopeData)
+            ..remove('company_details');
+
+      expect(VoucherDetail.fromJson(body).companyDetails, isNull);
+    });
+
     test('a missing narration stays null rather than becoming empty text', () {
       // The screen hides the Details card entirely when there is nothing in it.
       // An empty string would render a labelled blank instead.
@@ -89,15 +109,41 @@ void main() {
       }
     });
 
-    test('the running total ends where the movement says it should', () {
+    test('the running balance ends on the closing balance', () {
       final LedgerStatement statement = load();
       final StatementEntry last = statement.entries.last;
 
-      // The running column is the movement accumulated, so its final value and
-      // the card's net figure are the same number arrived at two ways. They
-      // drifting apart is exactly the bug this screen would hide well.
-      expect(MoneyFormat.full(last.running), MoneyFormat.full(statement.netMovement));
-      expect(last.running.side, statement.netMovement.side);
+      // The last row and the closing balance are the same number arrived at
+      // two ways. Them drifting apart is exactly the bug this screen would
+      // hide well.
+      expect(statement.hasBalances, isTrue);
+      expect(
+        MoneyFormat.full(last.running),
+        MoneyFormat.full(statement.periodClosingBalance!),
+      );
+      expect(last.running.side, statement.periodClosingBalance!.side);
+    });
+
+    test('an opening balance that could not be worked out is null, not nil', () {
+      // An account drawn as starting from zero when nobody knows where it
+      // started is a wrong statement that looks like a right one.
+      final Map<String, Object?> body =
+          Map<String, Object?>.from(fixture('ledger_statement').envelopeData);
+      body['opening_balance'] = null;
+      body['period_closing_balance'] = null;
+
+      final LedgerStatement statement = LedgerStatement.fromJson(body);
+      expect(statement.openingBalance, isNull);
+      expect(statement.hasBalances, isFalse);
+    });
+
+    test('a response from before opening balances existed still decodes', () {
+      final Map<String, Object?> body =
+          Map<String, Object?>.from(fixture('ledger_statement').envelopeData)
+            ..remove('opening_balance')
+            ..remove('period_closing_balance');
+
+      expect(LedgerStatement.fromJson(body).hasBalances, isFalse);
     });
 
     test('entries are drawn oldest first', () {

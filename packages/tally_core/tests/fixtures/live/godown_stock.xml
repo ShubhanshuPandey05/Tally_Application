@@ -1,0 +1,66 @@
+<ENVELOPE>
+ <HEADER>
+  <VERSION>1</VERSION>
+  <STATUS>1</STATUS>
+ </HEADER>
+ <BODY>
+  <DATA>
+   <COLLECTION ISMSTDEPTYPE="Yes" MSTDEPTYPE="512">
+    <BATCH>
+     <TFITEM TYPE="String">ABHILASHA</TFITEM>
+     <TFGODOWN TYPE="String">Main Location</TFGODOWN>
+     <TFVALUE TYPE="Amount"></TFVALUE>
+     <TFQUANTITY TYPE="Quantity">0 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">ABHILASHA</TFITEM>
+     <TFGODOWN TYPE="String">Factory A</TFGODOWN>
+     <TFVALUE TYPE="Amount">-593750.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 100 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">ABHILASHA</TFITEM>
+     <TFGODOWN TYPE="String">Factory B</TFGODOWN>
+     <TFVALUE TYPE="Amount">-712500.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 120 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">ABHILASHA</TFITEM>
+     <TFGODOWN TYPE="String">Factory C</TFGODOWN>
+     <TFVALUE TYPE="Amount">-890625.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 150 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">ABHILASHA</TFITEM>
+     <TFGODOWN TYPE="String">Main Location</TFGODOWN>
+     <TFVALUE TYPE="Amount"></TFVALUE>
+     <TFQUANTITY TYPE="Quantity">0 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">ALPANA 23</TFITEM>
+     <TFGODOWN TYPE="String">Main Location</TFGODOWN>
+     <TFVALUE TYPE="Amount"></TFVALUE>
+     <TFQUANTITY TYPE="Quantity">0 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">APNAPAN.N</TFITEM>
+     <TFGODOWN TYPE="String">Factory A</TFGODOWN>
+     <TFVALUE TYPE="Amount">-120000.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 80 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">APNAPAN.N</TFITEM>
+     <TFGODOWN TYPE="String">Factory B</TFGODOWN>
+     <TFVALUE TYPE="Amount">-160000.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 100 Pcs</TFQUANTITY>
+    </BATCH>
+    <BATCH>
+     <TFITEM TYPE="String">APNAPAN.N</TFITEM>
+     <TFGODOWN TYPE="String">Factory C</TFGODOWN>
+     <TFVALUE TYPE="Amount">-216000.00</TFVALUE>
+     <TFQUANTITY TYPE="Quantity"> 120 Pcs</TFQUANTITY>
+    </BATCH>
+   </COLLECTION>
+  </DATA>
+ </BODY>
+</ENVELOPE>

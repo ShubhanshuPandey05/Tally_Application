@@ -169,6 +169,93 @@ def test_ledger_statement_accumulates_the_movement(vouchers) -> None:
     assert statement["debit_total"]["amount"] == "0.00"
 
 
+def test_ledger_statement_runs_from_its_opening_balance(vouchers) -> None:
+    """With an opening balance the running column is the account's balance, and
+    it ends on the closing balance -- Tally's Ledger Vouchers, line for line."""
+    opening = an.Money.from_tally("2000.00 Cr")
+    statement = an.ledger_statement(
+        vouchers, ledger="Sales", since=YESTERDAY, until=TODAY, opening=opening
+    )
+
+    assert statement["opening_balance"]["display"] == "2,000.00 Cr"
+    assert [row["running"]["amount"] for row in statement["entries"]] == [
+        "7000.00",
+        "17000.00",
+    ]
+    assert statement["period_closing_balance"]["display"] == "17,000.00 Cr"
+    # The movement is still the movement: an opening balance changes where the
+    # account stood, not what went through it.
+    assert statement["net_movement"]["amount"] == "15000.00"
+
+
+def test_an_opening_balance_on_the_other_side_is_worked_off_first(vouchers) -> None:
+    """An income account that opened in debit climbs out of it. Adding the
+    magnitudes instead of the signed figures reads 15,000 as 18,000."""
+    statement = an.ledger_statement(
+        vouchers,
+        ledger="Sales",
+        since=YESTERDAY,
+        until=TODAY,
+        opening=an.Money.from_tally("3000.00 Dr"),
+    )
+
+    assert [row["running"]["display"] for row in statement["entries"]] == [
+        "2,000.00 Cr",
+        "12,000.00 Cr",
+    ]
+
+
+def test_a_statement_with_no_opening_balance_says_so(vouchers) -> None:
+    """Null, never nil: an account whose opening could not be worked out did
+    not start from zero, and the app draws the two differently."""
+    statement = an.ledger_statement(vouchers, ledger="Sales", since=YESTERDAY, until=TODAY)
+
+    assert statement["opening_balance"] is None
+    assert statement["period_closing_balance"] is None
+
+
+def test_an_order_is_not_a_ledger_entry() -> None:
+    """Verified live 2026-10-11: a sales order names the customer and posts
+    nothing to them. Listed on a statement it shows a customer owing for goods
+    nobody has billed, and the running balance leaves Tally's by that amount."""
+    lines = [
+        {"ledger_name": "Ram Traders", "amount": _money("1180.00", "debit")},
+        {"ledger_name": "Sales", "amount": _money("1180.00", "credit")},
+    ]
+    parsed = an.parse_vouchers(
+        [
+            {"voucher_type": "Sales", "kind": "sales", "date": TODAY.isoformat(),
+             "voucher_number": "1", "ledger_entries": lines},
+            {"voucher_type": "Sales Order", "kind": "sales_order", "date": TODAY.isoformat(),
+             "voucher_number": "SO-1", "ledger_entries": lines},
+            {"voucher_type": "Delivery Note", "kind": "delivery_note", "date": TODAY.isoformat(),
+             "voucher_number": "DN-1", "ledger_entries": lines},
+        ]
+    )
+
+    statement = an.ledger_statement(parsed, ledger="Ram Traders", since=TODAY, until=TODAY)
+
+    assert [row["voucher_number"] for row in statement["entries"]] == ["1"]
+    assert statement["net_movement"]["amount"] == "1180.00"
+    assert an.ledger_movement(parsed, ledger="ram  traders").amount == Decimal("1180.00")
+
+
+def test_an_unknown_group_is_not_assumed_to_be_a_balance_sheet_account() -> None:
+    groups = an.parse_groups(
+        [
+            {"name": "Sales Accounts", "is_revenue": True},
+            {"name": "Sundry Debtors", "is_revenue": False},
+        ]
+    )
+
+    assert an.is_revenue_group(groups, "sales accounts") is True
+    assert an.is_revenue_group(groups, "Sundry Debtors") is False
+    # Which way the opening balance is worked out hangs on this answer, so
+    # "not in the read" must not come back as either.
+    assert an.is_revenue_group(groups, "North Zone Debtors") is None
+    assert an.is_revenue_group(groups, None) is None
+
+
 def test_ledger_statement_excludes_the_cancelled_sale(samples) -> None:
     """₹9,99,999 of it. Callers pass ``effective`` vouchers; this pins that the
     fixture's trap would be caught if one ever forgot."""
@@ -452,3 +539,66 @@ def test_an_old_voucher_says_its_stock_lines_were_not_kept(vouchers) -> None:
     assert an.voucher_detail(stripped, inventory_kept=False)["inventory_omitted"] is True
     # An accounting-only voucher inside the window has nothing to report.
     assert an.voucher_detail(stripped, inventory_kept=True)["inventory_omitted"] is False
+
+
+def test_an_invoice_line_keeps_its_own_hsn_and_rate_over_the_masters(vouchers) -> None:
+    """What the bill was taxed at, not what the item is taxed at today.
+
+    Tally works out the HSN and the rate when the invoice is saved and keeps
+    them on the line. The stock master only stands in for a voucher stored
+    before those were read -- it used to be the only source, and on a real
+    company it held an HSN for barely half the items and a rate for fewer.
+    """
+    from tally_core.domain.masters import StockItem
+
+    sale = next(v for v in vouchers if v.voucher_number == "1")
+    line = sale.inventory_entries[0]
+    master = {
+        line.item_name.strip().lower(): StockItem(
+            name=line.item_name, hsn_code="1006", gst_rate=5.0
+        )
+    }
+
+    from_master = an.voucher_detail(sale, items=master)["inventory_entries"][0]
+    assert (from_master["hsn_code"], from_master["gst_rate"]) == ("1006", 5.0)
+
+    recorded = sale.model_copy(
+        update={
+            "inventory_entries": [
+                line.model_copy(update={"hsn_code": "10063020", "gst_rate": 0.0}),
+                *sale.inventory_entries[1:],
+            ]
+        }
+    )
+    from_line = an.voucher_detail(recorded, items=master)["inventory_entries"][0]
+    # A recorded nil rate is a rate. It must not fall through to the master's.
+    assert (from_line["hsn_code"], from_line["gst_rate"]) == ("10063020", 0.0)
+
+    neither = an.voucher_detail(sale)["inventory_entries"][0]
+    assert neither["hsn_code"] is None and neither["gst_rate"] is None
+
+
+def test_a_voucher_carries_its_invoice_header_only_when_it_has_one(vouchers) -> None:
+    from datetime import date as day
+
+    from tally_core.domain.transactions import InvoiceDetails, VoucherParty
+
+    sale = next(v for v in vouchers if v.voucher_number == "1")
+    assert an.voucher_detail(sale)["invoice"] is None
+
+    written = sale.model_copy(
+        update={
+            "invoice": InvoiceDetails(
+                consignee=VoucherParty(name="Ram Traders", address=["Ring Road"], state="Bihar"),
+                dispatched_through="Anchal Logistics",
+                bill_of_lading_no="771522771058",
+                bill_of_lading_date=day(2025, 4, 26),
+            )
+        }
+    )
+    invoice = an.voucher_detail(written)["invoice"]
+    assert invoice["consignee"]["name"] == "Ram Traders"
+    assert invoice["buyer"] is None
+    assert invoice["dispatched_through"] == "Anchal Logistics"
+    assert invoice["bill_of_lading_date"] == "2025-04-26"
+    assert invoice["terms_of_delivery"] == []

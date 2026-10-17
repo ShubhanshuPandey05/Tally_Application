@@ -1,10 +1,11 @@
 """The Prime Analyst icon, in every shape the products need.
 
-The mark is one circle cut in two with the halves slipped against each other:
-double entry drawn as a shape. A debit and a credit, the same size, making a
-whole.
+The mark is the name: heavy "Prime" over light "Analyst" in Sora, stretched to
+one width, with the app's blue bar beneath (decided 2026-10-16; it was a circle
+cut in two). The letters are outlines from `wordmark.py`, never live text --
+a favicon cannot load a font.
 
-One drawing, four jobs:
+One drawing, five jobs:
 
   * the website favicon    -- ink and blue on white, with a hairline, because
                               a white tile on a white tab strip is not visible
@@ -12,51 +13,63 @@ One drawing, four jobs:
                               uses for its own tile everywhere else
   * an iOS square          -- iOS rounds the corners itself and rejects an alpha
                               channel, so that one is full-bleed
-  * an Android foreground  -- the two halves on nothing, pulled in to the area
-                              the adaptive-icon mask is guaranteed to leave
-
-No lettering, and so no font: the name was once set in the tile, and thirteen
-letters across a 32px favicon gave each one barely more than a pixel. Two arcs
-read at 16px.
+  * a maskable web icon    -- pulled in so a circular crop clips nothing
+  * an Android foreground  -- the name on nothing, pulled in to the area the
+                              adaptive-icon mask is guaranteed to leave
 """
 
 from __future__ import annotations
 
+import math
+
+import wordmark
+
 BOX = 512.0
 
-# Radius carried over from the mark this replaces, so the silhouette on a home
-# screen does not change under somebody who already has the app installed.
+# Radius carried over from the marks before this one, so the silhouette on a
+# home screen does not change under somebody who already has the app installed.
 RADIUS = BOX * 0.2656
 
 # Android reserves the outer ring of an adaptive icon for the launcher's mask.
 # Only the middle 66 of 108 units is guaranteed to survive every OEM shape.
 SAFE = 66 / 108
 
+# A maskable web icon's guaranteed area is a circle 80% of the icon across.
+MASKABLE_SAFE = 0.8
+
 INK = "#0e0f11"
 
-# Two blues, because the half has to hold against the tile behind it: the app's
+# Two blues, because the bar has to hold against the tile behind it: the app's
 # primary on white, and the lighter chart blue on black, where the primary is
-# too dark to read as a second half.
-BLUE_ON_WHITE = "#2d5bff"
+# too dark to read.
+BLUE_ON_WHITE = "#2D5BFF"
 BLUE_ON_BLACK = "#6887ff"
-
-# One circle of this radius, cut down the middle. The left half sits low and
-# the right half high; the gap between their straight edges is what makes them
-# read as two pieces of one circle rather than as a circle with a step in it.
-# `BrandMark` in the app draws the same numbers -- change both or neither.
-HALF = 130
-LOWER = (250, 286)
-UPPER = (262, 226)
 
 
 def _layout(fill: str, accent: str) -> str:
-    """Both halves, placed in the BOX square."""
-    lx, ly = LOWER
-    ux, uy = UPPER
+    """The name and the bar, placed in the BOX square."""
+    prime = wordmark.svg_path(wordmark.line(0))
+    analyst = wordmark.svg_path(wordmark.line(1))
+    x, y, w, h, r = wordmark.BAR
     return (
-        f'<path fill="{fill}" d="M{lx} {ly - HALF}A{HALF} {HALF} 0 0 0 {lx} {ly + HALF}Z"/>'
-        f'<path fill="{accent}" d="M{ux} {uy - HALF}A{HALF} {HALF} 0 0 1 {ux} {uy + HALF}Z"/>'
+        f'<path fill="{fill}" d="{prime}{analyst}"/>'
+        f'<rect x="{x:g}" y="{y:g}" width="{w:g}" height="{h:g}" rx="{r:g}" fill="{accent}"/>'
     )
+
+
+def _fit_circle(diameter_share: float) -> str:
+    """A transform that centres the name inside a circle of that share of BOX.
+
+    For the two icons a launcher crops: the name is a wide block, so it is the
+    corners of that block, not its width, that a circular mask takes first.
+    """
+    left, top, right, bottom = wordmark.bounds()
+    cx, cy = (left + right) / 2, (top + bottom) / 2
+    half_diagonal = math.hypot((right - left) / 2, (bottom - top) / 2)
+    scale = (BOX * diameter_share / 2) / half_diagonal
+    tx = BOX / 2 - cx * scale
+    ty = BOX / 2 - cy * scale
+    return f"translate({tx:.2f} {ty:.2f}) scale({scale:.5f})"
 
 
 def svg(
@@ -66,12 +79,11 @@ def svg(
     tile: str | None,
     rounded: bool,
     hairline: str | None,
-    scale: float,
+    safe: float | None,
 ) -> str:
     body = _layout(fill, accent)
-    if scale != 1.0:
-        pad = BOX * (1 - scale) / 2
-        body = f'<g transform="translate({pad:.2f} {pad:.2f}) scale({scale:.5f})">{body}</g>'
+    if safe is not None:
+        body = f'<g transform="{_fit_circle(safe)}">{body}</g>'
 
     parts = [f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {BOX:.0f} {BOX:.0f}">']
     if tile:
@@ -89,13 +101,11 @@ def svg(
 
 
 VARIANTS: dict[str, dict] = {
-    "favicon": dict(fill=INK, accent=BLUE_ON_WHITE, tile="#ffffff", rounded=True, hairline="#e2e3e8", scale=1.0),
-    "app": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=True, hairline=None, scale=1.0),
-    "app-square": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, scale=1.0),
-    # A maskable web icon is cropped to a circle by some launchers, so the mark
-    # is pulled in far enough that neither half is clipped.
-    "app-maskable": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, scale=0.72),
-    "adaptive-fg": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=None, rounded=False, hairline=None, scale=SAFE),
+    "favicon": dict(fill=INK, accent=BLUE_ON_WHITE, tile="#ffffff", rounded=True, hairline="#dcdde3", safe=None),
+    "app": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=True, hairline=None, safe=None),
+    "app-square": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, safe=None),
+    "app-maskable": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=INK, rounded=False, hairline=None, safe=MASKABLE_SAFE),
+    "adaptive-fg": dict(fill="#ffffff", accent=BLUE_ON_BLACK, tile=None, rounded=False, hairline=None, safe=SAFE),
 }
 
 

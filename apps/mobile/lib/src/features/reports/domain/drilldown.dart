@@ -17,6 +17,7 @@ class VoucherLedgerLine {
     this.isParty = false,
     this.costCentre,
     this.billReferences = const <String>[],
+    this.taxRate,
   });
 
   final String ledger;
@@ -32,6 +33,10 @@ class VoucherLedgerLine {
   final String? costCentre;
   final List<String> billReferences;
 
+  /// The percentage a tax line was charged at, as the invoice recorded it.
+  /// Null on every line that is not a tax.
+  final double? taxRate;
+
   factory VoucherLedgerLine.fromJson(Map<String, Object?> json) => VoucherLedgerLine(
         ledger: json['ledger'] as String? ?? '',
         amount: Money.fromJson(json['amount']),
@@ -42,6 +47,7 @@ class VoucherLedgerLine {
               const <Object?>[])
             if (ref != null) ref.toString(),
         ],
+        taxRate: (json['tax_rate'] as num?)?.toDouble(),
       );
 }
 
@@ -67,10 +73,9 @@ class VoucherStockLine {
   final String? godown;
   final String? batch;
 
-  /// Off the stock master rather than the voucher line, and null whenever Tally
-  /// does not hold it. The shared document leaves the column out entirely in
-  /// that case: a tax document with an empty HSN box asserts something about a
-  /// supply that nobody entered.
+  /// As the invoice itself recorded them, or off the stock master for a voucher
+  /// stored before the line's own were read. Null whenever Tally holds neither;
+  /// [gstRate] is the full rate, so half of it is the CGST on a local sale.
   final String? hsnCode;
   final double? gstRate;
 
@@ -98,6 +103,7 @@ class PartyDetails {
     this.address = const <String>[],
     this.state,
     this.phone,
+    this.mobile,
     this.email,
   });
 
@@ -106,6 +112,7 @@ class PartyDetails {
   final List<String> address;
   final String? state;
   final String? phone;
+  final String? mobile;
   final String? email;
 
   bool get hasContact =>
@@ -113,6 +120,7 @@ class PartyDetails {
       address.isNotEmpty ||
       (state?.isNotEmpty ?? false) ||
       (phone?.isNotEmpty ?? false) ||
+      (mobile?.isNotEmpty ?? false) ||
       (email?.isNotEmpty ?? false);
 
   factory PartyDetails.fromJson(Map<String, Object?> json) => PartyDetails(
@@ -124,7 +132,181 @@ class PartyDetails {
         ],
         state: json['state'] as String?,
         phone: json['phone'] as String?,
+        mobile: json['mobile'] as String?,
         email: json['email'] as String?,
+      );
+}
+
+/// A buyer or consignee as written on one invoice, which keeps its own copy of
+/// the name and address it was raised to.
+class InvoiceParty {
+  const InvoiceParty({
+    this.name,
+    this.address = const <String>[],
+    this.gstin,
+    this.state,
+  });
+
+  final String? name;
+  final List<String> address;
+  final String? gstin;
+  final String? state;
+
+  factory InvoiceParty.fromJson(Map<String, Object?> json) => InvoiceParty(
+        name: json['name'] as String?,
+        address: _lines(json['address']),
+        gstin: json['gstin'] as String?,
+        state: json['state'] as String?,
+      );
+}
+
+/// The header of a printed invoice: who it went to and how it travelled.
+///
+/// Most of it is empty on most invoices. The document prints the caption
+/// anyway, because that is what the shop's own print from Tally does.
+class InvoiceDetails {
+  const InvoiceDetails({
+    this.buyer,
+    this.consignee,
+    this.placeOfSupply,
+    this.deliveryNote,
+    this.deliveryNoteDate,
+    this.paymentTerms,
+    this.referenceDate,
+    this.otherReferences,
+    this.buyerOrderNo,
+    this.buyerOrderDate,
+    this.dispatchDocNo,
+    this.dispatchedThrough,
+    this.destination,
+    this.billOfLadingNo,
+    this.billOfLadingDate,
+    this.vehicleNo,
+    this.termsOfDelivery = const <String>[],
+  });
+
+  final InvoiceParty? buyer;
+  final InvoiceParty? consignee;
+  final String? placeOfSupply;
+  final String? deliveryNote;
+  final DateTime? deliveryNoteDate;
+  final String? paymentTerms;
+  final DateTime? referenceDate;
+  final String? otherReferences;
+  final String? buyerOrderNo;
+  final DateTime? buyerOrderDate;
+  final String? dispatchDocNo;
+  final String? dispatchedThrough;
+  final String? destination;
+  final String? billOfLadingNo;
+  final DateTime? billOfLadingDate;
+  final String? vehicleNo;
+  final List<String> termsOfDelivery;
+
+  factory InvoiceDetails.fromJson(Map<String, Object?> json) => InvoiceDetails(
+        buyer: json['buyer'] == null ? null : InvoiceParty.fromJson(_map(json['buyer'])),
+        consignee:
+            json['consignee'] == null ? null : InvoiceParty.fromJson(_map(json['consignee'])),
+        placeOfSupply: json['place_of_supply'] as String?,
+        deliveryNote: json['delivery_note'] as String?,
+        deliveryNoteDate: _day(json['delivery_note_date']),
+        paymentTerms: json['payment_terms'] as String?,
+        referenceDate: _day(json['reference_date']),
+        otherReferences: json['other_references'] as String?,
+        buyerOrderNo: json['buyer_order_no'] as String?,
+        buyerOrderDate: _day(json['buyer_order_date']),
+        dispatchDocNo: json['dispatch_doc_no'] as String?,
+        dispatchedThrough: json['dispatched_through'] as String?,
+        destination: json['destination'] as String?,
+        billOfLadingNo: json['bill_of_lading_no'] as String?,
+        billOfLadingDate: _day(json['bill_of_lading_date']),
+        vehicleNo: json['vehicle_no'] as String?,
+        termsOfDelivery: _lines(json['terms_of_delivery']),
+      );
+}
+
+/// The account a business asks to be paid into, as printed on its invoices.
+class BankAccount {
+  const BankAccount({
+    required this.bankName,
+    required this.accountNumber,
+    this.ifsc,
+    this.branch,
+  });
+
+  final String bankName;
+  final String accountNumber;
+  final String? ifsc;
+  final String? branch;
+
+  factory BankAccount.fromJson(Map<String, Object?> json) => BankAccount(
+        bankName: json['bank_name'] as String? ?? '',
+        accountNumber: json['account_number'] as String? ?? '',
+        ifsc: json['ifsc'] as String?,
+        branch: json['branch'] as String?,
+      );
+}
+
+List<String> _lines(Object? value) => <String>[
+      for (final Object? line in (value as List<Object?>?) ?? const <Object?>[])
+        if (line != null && line.toString().trim().isNotEmpty) line.toString().trim(),
+    ];
+
+DateTime? _day(Object? value) => value == null ? null : DateTime.tryParse(value.toString());
+
+/// The company's own details, as Tally holds them: the seller block of an
+/// invoice.
+///
+/// A voucher names the other side and never its own books, so this comes off
+/// the company master -- and the GSTIN off the company's GST registration,
+/// which is where TallyPrime keeps it.
+class CompanyDetails {
+  const CompanyDetails({
+    required this.name,
+    this.gstin,
+    this.pan,
+    this.address = const <String>[],
+    this.state,
+    this.pincode,
+    this.phone,
+    this.mobile,
+    this.email,
+    this.website,
+    this.bank,
+  });
+
+  final String name;
+  final String? gstin;
+  final String? pan;
+  final List<String> address;
+  final String? state;
+  final String? pincode;
+  final String? phone;
+  final String? email;
+
+  /// The mobile numbers as Tally shows them, ISD code first.
+  final String? mobile;
+  final String? website;
+
+  /// Null unless the books leave no doubt which account an invoice should
+  /// name. A wrong bank on a bill is worse than none.
+  final BankAccount? bank;
+
+  factory CompanyDetails.fromJson(Map<String, Object?> json) => CompanyDetails(
+        name: json['name'] as String? ?? '',
+        gstin: json['gstin'] as String?,
+        pan: json['pan'] as String?,
+        address: <String>[
+          for (final Object? line in (json['address'] as List<Object?>?) ?? const <Object?>[])
+            if (line != null && line.toString().trim().isNotEmpty) line.toString().trim(),
+        ],
+        state: json['state'] as String?,
+        pincode: json['pincode'] as String?,
+        phone: json['phone'] as String?,
+        email: json['email'] as String?,
+        mobile: json['mobile'] as String?,
+        website: json['website'] as String?,
+        bank: json['bank'] == null ? null : BankAccount.fromJson(_map(json['bank'])),
       );
 }
 
@@ -145,6 +327,8 @@ class VoucherDetail {
     this.narration,
     this.reference,
     this.partyDetails,
+    this.companyDetails,
+    this.invoice,
     this.isCancelled = false,
     this.isOptional = false,
     this.inventoryOmitted = false,
@@ -173,6 +357,16 @@ class VoucherDetail {
   /// The party ledger's own address and GSTIN, when Tally holds them. Null on a
   /// voucher with no party, and on one whose master snapshot has not landed yet.
   final PartyDetails? partyDetails;
+
+  /// The company's own address and registrations. Null until its profile has
+  /// been read once, and always on a connector older than that read -- the
+  /// document then prints the company's name alone.
+  final CompanyDetails? companyDetails;
+
+  /// Buyer, consignee and dispatch details as the voucher recorded them. Null
+  /// on anything that is not an invoice, and on one stored before these were
+  /// read -- the document then takes the buyer from [partyDetails].
+  final InvoiceDetails? invoice;
 
   /// Excluded from every total in the product. The detail screen says so out
   /// loud rather than showing a figure that is in none of the ones around it.
@@ -207,6 +401,11 @@ class VoucherDetail {
         partyDetails: json['party_details'] == null
             ? null
             : PartyDetails.fromJson(_map(json['party_details'])),
+        companyDetails: json['company_details'] == null
+            ? null
+            : CompanyDetails.fromJson(_map(json['company_details'])),
+        invoice:
+            json['invoice'] == null ? null : InvoiceDetails.fromJson(_map(json['invoice'])),
         isCancelled: json['is_cancelled'] as bool? ?? false,
         isOptional: json['is_optional'] as bool? ?? false,
         inventoryOmitted: json['inventory_omitted'] as bool? ?? false,
@@ -226,7 +425,9 @@ class StatementEntry {
   /// What this voucher did to the ledger, side intact.
   final Money movement;
 
-  /// The cumulative movement *within the window*, not the ledger's balance.
+  /// The account's balance after this voucher, when the statement has an
+  /// opening balance to run from. Without one it is only the movement so far
+  /// inside the window -- see [LedgerStatement.openingBalance].
   final Money running;
 
   factory StatementEntry.fromJson(Map<String, Object?> json) => StatementEntry(
@@ -247,6 +448,8 @@ class LedgerStatement {
     required this.entries,
     this.group,
     this.closingBalance,
+    this.openingBalance,
+    this.periodClosingBalance,
   });
 
   final String ledger;
@@ -269,6 +472,20 @@ class LedgerStatement {
   /// statement from a nil balance, and rendered differently.
   final Money? closingBalance;
 
+  /// What the account stood at on the morning the window begins.
+  ///
+  /// Null when it could not be worked out -- the history before or after the
+  /// window is not all held yet. That is not a nil balance: the running column
+  /// is then movement only, and the screen says so instead of drawing an
+  /// account that started from zero.
+  final Money? openingBalance;
+
+  /// [openingBalance] plus everything that moved: the account at the end of
+  /// the window. Null exactly when the opening balance is.
+  final Money? periodClosingBalance;
+
+  bool get hasBalances => openingBalance != null && periodClosingBalance != null;
+
   factory LedgerStatement.fromJson(Map<String, Object?> json) => LedgerStatement(
         ledger: json['ledger'] as String? ?? '',
         voucherCount: (json['voucher_count'] as num?)?.toInt() ?? 0,
@@ -279,6 +496,8 @@ class LedgerStatement {
         group: json['group'] as String?,
         closingBalance:
             json['closing_balance'] == null ? null : Money.fromJson(json['closing_balance']),
+        openingBalance: _moneyOrNull(json['opening_balance']),
+        periodClosingBalance: _moneyOrNull(json['period_closing_balance']),
       );
 }
 

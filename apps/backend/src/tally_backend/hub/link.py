@@ -25,6 +25,7 @@ from collections.abc import Awaitable, Callable
 from typing import Any, Protocol
 
 from tally_core.protocol import (
+    CompanyRemove,
     JobError,
     JobRequest,
     JobResult,
@@ -82,6 +83,7 @@ LogCallback = Callable[["ConnectorLink", LogBatch], None]
 #: :data:`LogCallback`: this one has to read the database, and it is a rare
 #: human-driven request rather than a frame that arrives on a timer.
 RosterCallback = Callable[["ConnectorLink"], Awaitable[None]]
+CompanyRemoveCallback = Callable[["ConnectorLink", str], Awaitable[None]]
 
 
 class LinkClosed(Exception):
@@ -103,6 +105,7 @@ class ConnectorLink:
         on_status_change: StatusCallback | None = None,
         on_logs: LogCallback | None = None,
         on_roster_request: RosterCallback | None = None,
+        on_company_remove: CompanyRemoveCallback | None = None,
         releases: ReleaseView | None = None,
         push_updates: bool = True,
     ) -> None:
@@ -117,6 +120,7 @@ class ConnectorLink:
         self._on_status_change = on_status_change
         self._on_logs = on_logs
         self._on_roster_request = on_roster_request
+        self._on_company_remove = on_company_remove
         self._releases = releases
         self._push_updates = push_updates
 
@@ -433,6 +437,8 @@ class ConnectorLink:
             self._handle_logs(message)
         elif kind == "roster_request":
             await self._handle_roster_request()
+        elif kind == "company_remove":
+            await self._handle_company_remove(message)
         else:
             # Forward compatibility: a newer connector may send frames this
             # backend predates. Ignoring beats dropping a working session.
@@ -560,6 +566,23 @@ class ConnectorLink:
         except Exception:  # noqa: BLE001 - a roster is never worth the session
             logger.warning(
                 "could not answer roster request from %s", self.connector_id, exc_info=True
+            )
+
+    async def _handle_company_remove(self, message: dict[str, Any]) -> None:
+        """Unlink one of this connector's companies, asked for from its window.
+
+        Swallowed like the roster path: a refused or failed removal leaves the
+        company on the roster the window is about to receive, which is the
+        answer, and it must never cost the socket the shop's reports use.
+        """
+        if self._on_company_remove is None:
+            return
+        try:
+            request = CompanyRemove.model_validate(message)
+            await self._on_company_remove(self, request.company_id)
+        except Exception:  # noqa: BLE001 - a removal is never worth the session
+            logger.warning(
+                "could not remove a company for %s", self.connector_id, exc_info=True
             )
 
     async def _handle_pong(self, message: dict[str, Any]) -> None:

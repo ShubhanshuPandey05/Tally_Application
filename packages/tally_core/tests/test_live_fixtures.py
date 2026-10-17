@@ -333,3 +333,198 @@ def test_settled_bills_are_excluded(bills):
     """Reliance Retail's bill was raised then fully paid, so it must not appear."""
     assert all(b.party_name != "Reliance Retail" for b in bills)
     assert all(not b.pending_amount.is_zero for b in bills)
+
+
+# --------------------------------------------------------------------------
+# Stock by godown
+# --------------------------------------------------------------------------
+
+
+def test_godown_stock_maps_from_live_response():
+    """Recorded 2026-10-11 from "D.D Enterprises", trimmed to three items.
+
+    The capture this replaced an assumption with: a walked batch exports only
+    its computed fields, under ``<BATCH>`` with no ``NAME`` attribute, and an
+    item gets a row for the godown it was created in even when it holds
+    nothing there -- twice for ABHILASHA, once per batch. Those fold to a
+    single zero row rather than vanishing, so the analytics layer is the one
+    place that decides a zero is not worth a line.
+    """
+    rows = {(r.godown, r.item_name): r for r in run("godown_stock.list", "godown_stock")}
+
+    assert len(rows) == 8
+    assert rows[("Main Location", "ABHILASHA")].quantity == 0.0
+    assert rows[("Main Location", "ABHILASHA")].value.is_zero
+
+    factory_a = rows[("Factory A", "ABHILASHA")]
+    assert factory_a.quantity == 100.0
+    assert factory_a.value.amount == Decimal("593750.00")
+    # Stock is an asset, and Tally writes an asset as a negative number.
+    assert factory_a.value.side is Side.DEBIT
+
+    # The three places add up to the item's own closing balance of 370 Pcs,
+    # which is the check `tally-connector livecheck` runs for every item.
+    held = sum(r.quantity for (_, item), r in rows.items() if item == "ABHILASHA")
+    assert held == 370.0
+
+
+# --------------------------------------------------------------------------
+# Company profile
+# --------------------------------------------------------------------------
+
+
+def test_company_profile_takes_its_gstin_from_the_gst_registration():
+    """Recorded 2026-10-11 from "D.D Enterprises".
+
+    ``GSTREGISTRATIONNUMBER`` is absent from this reply because the company
+    object holds none: the number came from a ``TaxUnit`` and arrives as the
+    computed ``TFGSTIN``. A profile read that asked only the company for it
+    would print this business's tax invoices with no GSTIN on them, which is
+    what happened until this read existed.
+    """
+    query = get_query("company.profile")
+    params = query.validate_params({"company": "D.D Enterprises"})
+    profile = query.parse(parse_xml((LIVE / "company_profile.xml").read_bytes()), params)
+
+    assert profile.name == "D.D Enterprises"
+    assert profile.gstin == "24BQTPK1669M1Z4"
+    assert profile.state == "Gujarat"
+    assert profile.pincode == "395005"
+    # Off the company object, which the Company collection does not return --
+    # recorded 2026-10-14, after the address was found missing on the invoice.
+    assert profile.address == [
+        "309,BLUE EMIMINENCE SANGINI DANDI ROAD",
+        "JAHANGIRABAD, SURAT ,GUJARAT",
+    ]
+    assert profile.bank is not None
+    assert profile.bank.account_number == "50200108679595"
+    # Nothing entered in Tally is nothing on the page, never an empty line.
+    assert profile.phone is None
+    assert profile.mobile is None
+    assert profile.website is None
+
+
+def test_company_profile_of_another_company_is_not_borrowed():
+    query = get_query("company.profile")
+    params = query.validate_params({"company": "Somebody Else"})
+    profile = query.parse(parse_xml((LIVE / "company_profile.xml").read_bytes()), params)
+
+    assert profile.name == "Somebody Else"
+    assert profile.gstin is None
+
+
+# --------------------------------------------------------------------------
+# A negative entry on a debit-natured line
+# --------------------------------------------------------------------------
+
+
+def test_a_round_off_taken_off_a_purchase_is_a_credit():
+    """Recorded 2026-10-11: purchase 4 of "D.D Enterprises", lines only.
+
+    The Round Off line is ``ISDEEMEDPOSITIVE=Yes`` with a *positive* amount --
+    a debit-natured line that went the other way. Letting the flag decide read
+    it as a debit of 0.21, and the voucher then failed to balance by 0.42.
+    """
+    query = get_query("vouchers.list")
+    params = query.validate_params(
+        {"company": "D.D Enterprises", "from_date": date(2025, 4, 1), "to_date": date(2025, 5, 1)}
+    )
+    (voucher,) = query.parse(parse_xml((LIVE / "voucher_round_off.xml").read_bytes()), params)
+
+    lines = {e.ledger_name: e.amount for e in voucher.ledger_entries}
+    assert lines["Round Off"].side is Side.CREDIT
+    assert lines["Round Off"].amount == Decimal("0.21")
+    assert lines["Gst Purchase"].side is Side.DEBIT
+    assert sum(e.amount.signed for e in voucher.ledger_entries) == Decimal("0.00")
+
+
+# --------------------------------------------------------------------------
+# What a printed invoice needs
+# --------------------------------------------------------------------------
+
+
+@pytest.fixture(scope="module")
+def tax_invoice():
+    """Recorded 2026-10-12: sales invoice 2025-26/01 of "D.D Enterprises".
+
+    Tally's own print of this invoice is ``tmp/Sales Invoice Format.pdf``, and
+    every assertion below is a line of that page.
+    """
+    query = get_query("vouchers.list")
+    params = query.validate_params(
+        {"company": "D.D Enterprises", "from_date": date(2025, 4, 1), "to_date": date(2025, 4, 30)}
+    )
+    (voucher,) = query.parse(parse_xml((LIVE / "voucher_tax_invoice.xml").read_bytes()), params)
+    return voucher
+
+
+def test_an_invoice_line_carries_its_own_hsn_and_gst_rate(tax_invoice):
+    """The HSN column printed empty until these were read off the line."""
+    lines = [(e.hsn_code, e.gst_rate) for e in tax_invoice.inventory_entries]
+    assert lines == [
+        ("621142", 12.0),
+        ("621142", 5.0),
+        ("620419", 5.0),
+        ("620469", 12.0),
+        ("62114300", 12.0),
+    ]
+
+
+def test_a_tax_line_carries_the_rate_it_was_charged_at(tax_invoice):
+    rates = {e.ledger_name: e.tax_rate for e in tax_invoice.ledger_entries}
+    assert rates["IGST 12"] == 12.0
+    assert rates["IGST 5"] == 5.0
+    # Not a tax, so no rate -- and never a zero standing in for one.
+    assert rates["M/S DULHAN DRESSES"] is None
+
+
+def test_an_invoice_keeps_its_buyer_consignee_and_dispatch_details(tax_invoice):
+    invoice = tax_invoice.invoice
+    assert invoice is not None
+    assert invoice.buyer.name == "M/S DULHAN DRESSES"
+    assert invoice.buyer.gstin == "10EGHPK3851A1Z0"
+    assert invoice.buyer.state == "Bihar"
+    assert invoice.buyer.address == [
+        "Bairgania , Kappra Patti  Bairgania, Sitamarhi",
+        "Bihar,Ashogi Pursottam, Sitamarhi,Bihar 843313",
+    ]
+    assert invoice.consignee.name == "M/S DULHAN DRESSES"
+    assert invoice.consignee.gstin == "10EGHPK3851A1Z0"
+    assert invoice.dispatched_through == "Anchal Logistics"
+    assert invoice.bill_of_lading_no == "771522771058"
+    assert invoice.bill_of_lading_date == date(2025, 4, 26)
+    assert invoice.terms_of_delivery == ["Purchaser Party", "SAMPAT SACHIN KURTI"]
+    # Left blank on the invoice, so blank here: the print keeps the caption
+    # and shows nothing under it.
+    assert invoice.destination is None
+    assert invoice.vehicle_no is None
+
+
+def test_a_voucher_with_no_invoice_details_has_none():
+    query = get_query("vouchers.list")
+    params = query.validate_params(
+        {"company": "D.D Enterprises", "from_date": date(2025, 4, 1), "to_date": date(2025, 5, 1)}
+    )
+    (voucher,) = query.parse(parse_xml((LIVE / "voucher_round_off.xml").read_bytes()), params)
+    assert voucher.invoice is None
+    assert all(e.tax_rate is None for e in voucher.ledger_entries)
+
+
+def test_a_stock_item_takes_its_hsn_and_rate_from_the_dated_lists():
+    """Recorded 2026-10-12 from "D.D Enterprises".
+
+    The ``HSNCODE`` inside ``GSTDETAILS.LIST`` is empty on both items; the code
+    is in ``HSNDETAILS.LIST``. The rate is the IGST one, three levels down --
+    reading the first ``GSTRATE`` in the tree would have returned the CGST
+    half.
+    """
+    query = get_query("stock_items.list")
+    params = query.validate_params({"company": "D.D Enterprises"})
+    items = {
+        i.name: i
+        for i in query.parse(parse_xml((LIVE / "stock_items_gst.xml").read_bytes()), params)
+    }
+    assert items["Dupatta Set12  621142"].hsn_code == "621142"
+    assert items["Dupatta Set12  621142"].gst_rate == 12.0
+    assert items["Dupatta Set 5 621142"].hsn_code == "621142"
+    assert items["Dupatta Set 5 621142"].gst_rate == 5.0

@@ -1,8 +1,7 @@
-import 'dart:math' as math;
-
 import 'package:flutter/material.dart';
 
 import '../../app/theme.dart';
+import 'brand_outlines.dart';
 
 /// A rounded-square icon tile.
 ///
@@ -230,29 +229,14 @@ class Meter extends StatelessWidget {
   }
 }
 
-/// The Prime Analyst mark: one circle cut in two, the halves slipped against
-/// each other, on a tile.
+/// The Prime Analyst mark: the name on a tile -- heavy "Prime" over light
+/// "Analyst", stretched to one width, with a blue bar beneath.
 ///
-/// It is double entry drawn as a shape. Every entry in a set of books has a
-/// debit and a credit, the two are the same size, and together they make a
-/// whole -- the one idea every person this product is for already carries in
-/// their head.
-///
-/// Two constraints shaped it, and both are worth keeping.
-///
-/// The first: an earlier mark -- bars in a squircle -- was the shape half the
-/// analytics industry already uses, and a logo that makes somebody think of
-/// another product is doing the opposite of its job.
-///
-/// The second: it carries no lettering, on purpose. The name shares a word
-/// with TallyPrime, and a wordmark in a tile invites setting "Prime" the way
-/// theirs is set. A symbol cannot be mistaken for their lockup, and it stays
-/// legible at 16px, where thirteen letters were a smudge.
-///
-/// Drawn rather than set in a font or loaded as an image: it is two arcs, and
-/// it has to appear on the days the shop's connection is down. The geometry is
-/// the same as `tools/brand/icon.py`, so the mark in here is the mark on the
-/// home screen.
+/// Drawn from outlines rather than set in a font or loaded as an image: it has
+/// to appear on the days the shop's connection is down, and Sora is not a font
+/// the app otherwise carries. The outlines are generated from the same file as
+/// the launcher icon (`tools/brand/wordmark.py`), so the mark in here is the
+/// mark on the home screen.
 class BrandMark extends StatelessWidget {
   const BrandMark({super.key, this.size = 72, this.inverted = false});
 
@@ -274,62 +258,77 @@ class BrandMark extends StatelessWidget {
         color: inverted ? Colors.white : _ink,
         borderRadius: BorderRadius.circular(size * 0.26),
         border: inverted
-            ? Border.all(color: const Color(0xFFE8E9ED))
+            ? Border.all(color: const Color(0xFFDCDDE3))
             : null,
       ),
       child: CustomPaint(
-        painter: _DoubleEntryPainter(
-          left: inverted ? _ink : Colors.white,
-          // Two blues, because the half has to hold against the tile behind
+        painter: _WordmarkPainter(
+          ink: inverted ? _ink : Colors.white,
+          // Two blues, because the bar has to hold against the tile behind
           // it: the app's primary on white, and the lighter chart blue on
-          // black, where the primary is too dark to read as a second half.
-          right: inverted ? const Color(0xFF2D5BFF) : const Color(0xFF6887FF),
+          // black, where the primary is too dark to read.
+          bar: inverted ? const Color(0xFF2D5BFF) : const Color(0xFF6887FF),
         ),
       ),
     );
   }
 }
 
-/// The two halves, in the 512-unit square `tools/brand/icon.py` draws in.
-class _DoubleEntryPainter extends CustomPainter {
-  const _DoubleEntryPainter({required this.left, required this.right});
+/// The name and the bar, in the 512-unit square `tools/brand/icon.py` draws in.
+class _WordmarkPainter extends CustomPainter {
+  const _WordmarkPainter({required this.ink, required this.bar});
 
-  final Color left;
-  final Color right;
+  final Color ink;
+  final Color bar;
+
+  /// Built once: the outlines never change, and this paints on every frame
+  /// the shell's rail animates.
+  static final Path _letters = _outline(brandPrime)
+    ..addPath(_outline(brandAnalyst), Offset.zero);
+
+  static Path _outline(List<double> data) {
+    final Path path = Path();
+    int i = 0;
+    while (i < data.length) {
+      switch (data[i++].toInt()) {
+        case 0:
+          path.moveTo(data[i], data[i + 1]);
+          i += 2;
+        case 1:
+          path.lineTo(data[i], data[i + 1]);
+          i += 2;
+        case 2:
+          path.quadraticBezierTo(data[i], data[i + 1], data[i + 2], data[i + 3]);
+          i += 4;
+        case 3:
+          path.cubicTo(
+            data[i], data[i + 1], data[i + 2], data[i + 3], data[i + 4], data[i + 5],
+          );
+          i += 6;
+        default:
+          path.close();
+      }
+    }
+    return path;
+  }
 
   @override
   void paint(Canvas canvas, Size size) {
     final double unit = size.shortestSide / 512;
-    final double radius = 130 * unit;
-
-    // The left half sits low and the right half high. The 12-unit gap between
-    // their straight edges is what makes them read as two pieces of one
-    // circle rather than as a circle with a step in it.
-    final Rect lower = Rect.fromCircle(
-      center: Offset(250 * unit, 286 * unit),
-      radius: radius,
-    );
-    final Rect upper = Rect.fromCircle(
-      center: Offset(262 * unit, 226 * unit),
-      radius: radius,
-    );
-
     canvas
-      ..drawPath(
-        Path()
-          ..addArc(lower, math.pi / 2, math.pi)
-          ..close(),
-        Paint()..color = left,
+      ..save()
+      ..scale(unit)
+      ..drawPath(_letters, Paint()..color = ink)
+      ..drawRRect(
+        RRect.fromRectAndRadius(
+          Rect.fromLTWH(brandBar[0], brandBar[1], brandBar[2], brandBar[3]),
+          Radius.circular(brandBar[4]),
+        ),
+        Paint()..color = bar,
       )
-      ..drawPath(
-        Path()
-          ..addArc(upper, -math.pi / 2, math.pi)
-          ..close(),
-        Paint()..color = right,
-      );
+      ..restore();
   }
 
   @override
-  bool shouldRepaint(_DoubleEntryPainter old) =>
-      old.left != left || old.right != right;
+  bool shouldRepaint(_WordmarkPainter old) => old.ink != ink || old.bar != bar;
 }

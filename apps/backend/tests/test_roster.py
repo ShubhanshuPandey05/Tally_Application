@@ -18,7 +18,8 @@ import pytest
 from httpx import AsyncClient
 from tally_core.protocol import Roster
 
-from tally_backend.db.models import CompanyAccess, Membership, Role, User
+from tally_backend.api.v1.connector_ws import _company_remover
+from tally_backend.db.models import Company, CompanyAccess, Membership, Role, User
 from tally_backend.hub.link import ConnectorLink
 from tally_backend.services.roster import build_roster
 
@@ -188,5 +189,64 @@ async def test_a_roster_that_cannot_be_built_does_not_drop_the_session() -> None
     )
 
     await link.handle_message({"type": "roster_request"})
+
+    assert not link.is_closed
+
+
+# --------------------------------------------------------------------------
+# Removing a company from the connector's window
+# --------------------------------------------------------------------------
+
+
+async def test_the_shop_pc_can_remove_its_own_company(app, linked_company) -> None:
+
+    socket = FakeSocket()
+    link = ConnectorLink(
+        connector_id=linked_company["connector_id"],
+        org_id=linked_company["org_id"],
+        socket=socket,
+        on_company_remove=_company_remover(app.state.session_factory),
+    )
+
+    await link.handle_message(
+        {"type": "company_remove", "company_id": linked_company["company_id"]}
+    )
+
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, linked_company["company_id"])
+    assert company.is_active is False
+    # The fresh roster is the window's acknowledgement.
+    assert socket.sent[-1]["type"] == "roster"
+    assert socket.sent[-1]["companies"][0]["is_active"] is False
+
+
+async def test_a_shop_pc_cannot_remove_another_pcs_company(app, linked_company) -> None:
+    """The id arrives from a customer's machine, so it is a filter, not a key."""
+
+    link = ConnectorLink(
+        connector_id="someone-elses-pc",
+        org_id=linked_company["org_id"],
+        socket=FakeSocket(),
+        on_company_remove=_company_remover(app.state.session_factory),
+    )
+
+    await link.handle_message(
+        {"type": "company_remove", "company_id": linked_company["company_id"]}
+    )
+
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, linked_company["company_id"])
+    assert company.is_active is True
+
+
+async def test_a_malformed_removal_does_not_drop_the_session() -> None:
+    async def never(link: ConnectorLink, company_id: str) -> None:
+        raise AssertionError("must not be called without a company id")
+
+    link = ConnectorLink(
+        connector_id="conn-1", org_id="org-1", socket=FakeSocket(), on_company_remove=never
+    )
+
+    await link.handle_message({"type": "company_remove"})
 
     assert not link.is_closed

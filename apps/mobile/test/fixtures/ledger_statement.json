@@ -64,6 +64,20 @@
       "side": "debit",
       "signed": "11800.00"
     },
+    "opening_balance": {
+      "amount": "0.00",
+      "currency": "INR",
+      "display": "0.00 Dr",
+      "side": "debit",
+      "signed": "0.00"
+    },
+    "period_closing_balance": {
+      "amount": "11800.00",
+      "currency": "INR",
+      "display": "11,800.00 Dr",
+      "side": "debit",
+      "signed": "11800.00"
+    },
     "to_date": "2026-03-15",
     "voucher_count": 1
   },

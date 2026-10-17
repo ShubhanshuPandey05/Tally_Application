@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-04T10:21:06+00:00",
+  "generated_at": "2026-10-17T07:17:41+00:00",
   "connector": {
-    "version": "0.7.0",
-    "file": "PrimeAnalystConnector-Setup-0.7.0.exe",
-    "url": "/downloads/PrimeAnalystConnector-Setup-0.7.0.exe",
-    "sha256": "8d46f2369a1a45916d01d8ea9640606c39d6f1bd68516485d17cb795074f0af9",
-    "size_bytes": 48622543,
+    "version": "0.8.0",
+    "file": "PrimeAnalystConnector-Setup-0.8.0.exe",
+    "url": "/downloads/PrimeAnalystConnector-Setup-0.8.0.exe",
+    "sha256": "2e0b69b5fb9a8f6fd68088e81e78f64bdb9885d16940466aeb918c231222efb5",
+    "size_bytes": 48659743,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Adds the Godown summary: closing stock by the godown it is kept in. The app needs this connector version to show that report; everything else works as before, and nothing needs to be set up again."
+    "notes": "The connector window is simpler: a company can now be removed from this computer on the Companies tab, the People tab is now called Users, and server addresses and other technical details are no longer shown. Nothing needs to be set up again."
   },
   "android": {
-    "version": "0.10.0",
-    "file": "PrimeAnalyst-0.10.0.apk",
-    "url": "/downloads/PrimeAnalyst-0.10.0.apk",
-    "sha256": "c3e365573f0fd7e294297e8acef0b45c6d61f89d648e01ac5ca6ee31fba29e32",
-    "size_bytes": 36739900,
+    "version": "0.11.0",
+    "file": "PrimeAnalyst-0.11.0.apk",
+    "url": "/downloads/PrimeAnalyst-0.11.0.apk",
+    "sha256": "74e4a5638f8402d4bdc60ed8c1198c8d029d4c9057d6113287e1745f9880ce15",
+    "size_bytes": 36819142,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "TallyFlow is now Prime Analyst. Same app, same account, same books - only the name and the icon have changed, and you stay signed in. New: a Summary tab with every month's sales, purchases, receipts and payments, a Godown summary report, and the sales card on Home opens the sales register for the period you are looking at. Profile has moved to the icon at the top left.",
-    "build_number": 11
+    "notes": "A new Prime Analyst icon, and improvements to the vouchers and tax invoices you share from the app.",
+    "build_number": 12
   }
 }

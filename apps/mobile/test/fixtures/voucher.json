@@ -7,6 +7,22 @@
       "side": "debit",
       "signed": "212600.00"
     },
+    "company_details": {
+      "address": [
+        "12 MG Marg",
+        "Gangtok"
+      ],
+      "bank": null,
+      "email": null,
+      "gstin": "11AAACB1234F1Z2",
+      "mobile": null,
+      "name": "Bhtia Supermarket",
+      "pan": null,
+      "phone": "03592-200100",
+      "pincode": "737101",
+      "state": "Sikkim",
+      "website": null
+    },
     "credit_total": {
       "amount": "212600.00",
       "currency": "INR",
@@ -24,6 +40,7 @@
     },
     "inventory_entries": [],
     "inventory_omitted": false,
+    "invoice": null,
     "is_cancelled": false,
     "is_optional": false,
     "key": "h:f3a9ad350a0eb046ac64167f9cda5f565698891f",
@@ -40,7 +57,8 @@
         "bill_references": [],
         "cost_centre": null,
         "is_party": false,
-        "ledger": "Purchases"
+        "ledger": "Purchases",
+        "tax_rate": null
       },
       {
         "amount": {
@@ -53,7 +71,8 @@
         "bill_references": [],
         "cost_centre": null,
         "is_party": false,
-        "ledger": "SARA DISITIBUTOR"
+        "ledger": "SARA DISITIBUTOR",
+        "tax_rate": null
       }
     ],
     "narration": null,
@@ -62,6 +81,7 @@
       "address": [],
       "email": null,
       "gstin": null,
+      "mobile": null,
       "name": "SARA DISITIBUTOR",
       "phone": null,
       "state": null

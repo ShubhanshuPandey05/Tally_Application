@@ -11,12 +11,17 @@ import 'document_style.dart';
 /// running column beside it. Sent as a document rather than a screenshot
 /// because the recipient needs to be able to search it and print it.
 ///
-/// **The two figures on it mean different things and the layout says so.** The
-/// running column is movement inside the chosen window; the balance is what the
-/// account stands at *today*. Tally evaluates a closing balance against the
-/// current date and accepts no date to evaluate against, so the second can
-/// never be the end of the first -- and a statement that let them read as one
-/// column is a statement somebody would pay the wrong amount against.
+/// Laid out as Tally's Ledger Vouchers: an opening balance, each voucher with
+/// the balance it left behind, and a closing balance for the period.
+///
+/// **Today's balance is a different figure and the layout says so.** A period
+/// that ended last month closes on last month's balance; what the account
+/// stands at now is printed apart from it, named, and only when the two
+/// differ -- a statement that let them read as one figure is a statement
+/// somebody would pay the wrong amount against.
+///
+/// With no opening balance to run from, the last column is headed "Running"
+/// and is movement inside the period only.
 class StatementDocument {
   const StatementDocument({
     required this.statement,
@@ -60,13 +65,37 @@ class StatementDocument {
           _header(),
           _entries(),
           _totals(),
-          if (statement.closingBalance != null) _balanceToday(),
+          if (_showBalanceToday) _balanceToday(),
         ],
       ),
     );
 
     return document.save();
   }
+
+  /// Printed when it is the only balance on the page, or a different one
+  /// from the period's closing balance.
+  bool get _showBalanceToday {
+    final Money? today = statement.closingBalance;
+    if (today == null) return false;
+    final Money? closing = statement.periodClosingBalance;
+    return closing == null || closing.amount != today.amount || closing.side != today.side;
+  }
+
+  static String _withSide(Money value) =>
+      '${DocumentStyle.amount(value)} ${value.side == MoneySide.debit ? 'Dr' : 'Cr'}';
+
+  /// "Opening Balance" and "Closing Balance", ruled into the table where an
+  /// accountant looks for them.
+  pw.TableRow _balanceRow(String label, DateTime on, Money balance) => pw.TableRow(
+        children: <pw.Widget>[
+          DocumentStyle.cell(DocumentStyle.date(on)),
+          DocumentStyle.cell(label, bold: true),
+          DocumentStyle.cell(''),
+          DocumentStyle.cell(''),
+          DocumentStyle.cell(_withSide(balance), align: pw.TextAlign.right, bold: true),
+        ],
+      );
 
   pw.Widget _header() => pw.Container(
         decoration: DocumentStyle.boxed,
@@ -136,10 +165,17 @@ class StatementDocument {
                 DocumentStyle.headerCell('Particulars'),
                 DocumentStyle.headerCell('Debit', align: pw.TextAlign.right),
                 DocumentStyle.headerCell('Credit', align: pw.TextAlign.right),
-                DocumentStyle.headerCell('Running', align: pw.TextAlign.right),
+                DocumentStyle.headerCell(
+                  statement.hasBalances ? 'Balance' : 'Running',
+                  align: pw.TextAlign.right,
+                ),
               ],
             ),
+            if (statement.hasBalances)
+              _balanceRow('Opening Balance', from, statement.openingBalance!),
             for (final StatementEntry entry in statement.entries) _row(entry),
+            if (statement.hasBalances)
+              _balanceRow('Closing Balance', to, statement.periodClosingBalance!),
           ],
         ),
       );

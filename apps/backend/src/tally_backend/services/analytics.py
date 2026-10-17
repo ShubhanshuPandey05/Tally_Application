@@ -25,6 +25,7 @@ from decimal import Decimal
 from typing import Any
 
 from tally_core.domain.masters import (
+    CompanyProfile,
     GodownStock,
     Ledger,
     LedgerGroup,
@@ -35,10 +36,12 @@ from tally_core.domain.masters import (
 from tally_core.domain.money import Money, Side
 from tally_core.domain.transactions import (
     InventoryEntry,
+    InvoiceDetails,
     LedgerEntry,
     OutstandingBill,
     OutstandingKind,
     Voucher,
+    VoucherParty,
 )
 
 #: Tally's standard primary groups for liquid funds. Matched case-insensitively
@@ -769,6 +772,8 @@ def _entry_out(entry: LedgerEntry) -> dict[str, Any]:
         "is_party": entry.is_party,
         "cost_centre": entry.cost_centre,
         "bill_references": list(entry.bill_references),
+        # Only on a tax line, where Tally prints it beside the ledger's name.
+        "tax_rate": entry.tax_rate,
     }
 
 
@@ -783,13 +788,56 @@ def _inventory_out(
         "amount": money_out(magnitude(entry.amount)),
         "godown": entry.godown,
         "batch": entry.batch,
-        # Off the stock master, not off the voucher line: Tally stores HSN and
-        # the GST rate on the item, and a voucher export does not repeat them.
-        # Null when the master read has not landed yet, which the document
-        # renders as an absent column rather than an empty one -- a tax
-        # document with a blank HSN box states something untrue about a supply.
-        "hsn_code": item.hsn_code if item is not None else None,
-        "gst_rate": item.gst_rate if item is not None else None,
+        # The invoice's own record first: Tally works out the HSN and the rate
+        # when the bill is saved and keeps them on the line, and that is what
+        # the bill was taxed at. The stock master is the fallback for a voucher
+        # stored before those were read -- it says what the item is taxed at
+        # today, which is nearly always the same and is better than a blank.
+        # Null when neither has it; never an invented code.
+        "hsn_code": entry.hsn_code or (item.hsn_code if item is not None else None),
+        "gst_rate": (
+            entry.gst_rate
+            if entry.gst_rate is not None
+            else (item.gst_rate if item is not None else None)
+        ),
+    }
+
+
+def _voucher_party_out(party: VoucherParty | None) -> dict[str, Any] | None:
+    if party is None:
+        return None
+    return {
+        "name": party.name,
+        "address": list(party.address),
+        "gstin": party.gstin,
+        "state": party.state,
+    }
+
+
+def _invoice_out(invoice: InvoiceDetails) -> dict[str, Any]:
+    """The header of a printed invoice, as the voucher itself recorded it."""
+
+    def day(value: date | None) -> str | None:
+        return value.isoformat() if value is not None else None
+
+    return {
+        "buyer": _voucher_party_out(invoice.buyer),
+        "consignee": _voucher_party_out(invoice.consignee),
+        "place_of_supply": invoice.place_of_supply,
+        "delivery_note": invoice.delivery_note,
+        "delivery_note_date": day(invoice.delivery_note_date),
+        "payment_terms": invoice.payment_terms,
+        "reference_date": day(invoice.reference_date),
+        "other_references": invoice.other_references,
+        "buyer_order_no": invoice.buyer_order_no,
+        "buyer_order_date": day(invoice.buyer_order_date),
+        "dispatch_doc_no": invoice.dispatch_doc_no,
+        "dispatched_through": invoice.dispatched_through,
+        "destination": invoice.destination,
+        "bill_of_lading_no": invoice.bill_of_lading_no,
+        "bill_of_lading_date": day(invoice.bill_of_lading_date),
+        "vehicle_no": invoice.vehicle_no,
+        "terms_of_delivery": list(invoice.terms_of_delivery),
     }
 
 
@@ -806,7 +854,36 @@ def _party_out(ledger: Ledger) -> dict[str, Any]:
         "address": list(ledger.address),
         "state": ledger.state,
         "phone": ledger.phone,
+        "mobile": ledger.mobile,
         "email": ledger.email,
+    }
+
+
+def _company_out(profile: CompanyProfile) -> dict[str, Any]:
+    """The company's own details: the seller block of a shared document."""
+    return {
+        "name": profile.mailing_name or profile.name,
+        "gstin": profile.gstin,
+        "pan": profile.pan,
+        "address": list(profile.address),
+        "state": profile.state,
+        "pincode": profile.pincode,
+        "phone": profile.phone,
+        "mobile": profile.mobile,
+        "email": profile.email,
+        "website": profile.website,
+        # The account a customer is asked to pay into. Null unless the books
+        # leave no doubt which one that is -- see ``CompanyProfile.bank``.
+        "bank": (
+            {
+                "bank_name": profile.bank.bank_name,
+                "account_number": profile.bank.account_number,
+                "ifsc": profile.bank.ifsc,
+                "branch": profile.bank.branch,
+            }
+            if profile.bank is not None
+            else None
+        ),
     }
 
 
@@ -816,6 +893,7 @@ def voucher_detail(
     inventory_kept: bool = True,
     party: Ledger | None = None,
     items: dict[str, StockItem] | None = None,
+    company: CompanyProfile | None = None,
 ) -> dict[str, Any]:
     """Everything posted on one voucher.
 
@@ -851,6 +929,14 @@ def voucher_detail(
         "debit_total": money_out(magnitude(debits)),
         "credit_total": money_out(magnitude(credits)),
         "party_details": _party_out(party) if party is not None else None,
+        # Null until the profile has been read once, and always on a connector
+        # from before that read existed. The document then prints the company's
+        # name alone -- never an address block with nothing in it.
+        "company_details": _company_out(company) if company is not None else None,
+        # Buyer, consignee and dispatch details as written on the voucher.
+        # Null on anything that is not an invoice and on one stored before
+        # these were read; the document then falls back to the party master.
+        "invoice": _invoice_out(voucher.invoice) if voucher.invoice is not None else None,
         "ledger_entries": [_entry_out(e) for e in voucher.ledger_entries],
         "inventory_entries": [
             _inventory_out(e, item=(items or {}).get(e.item_name.strip().lower()))
@@ -896,18 +982,80 @@ def _row_out(voucher: Voucher) -> dict[str, Any]:
     }
 
 
-def ledger_statement(
-    vouchers: list[Voucher], *, ledger: str, since: date, until: date
-) -> dict[str, Any]:
-    """Every voucher that touched one ledger, with a running total.
+#: Voucher classes Tally records without posting them to any ledger. An order
+#: is a promise and a delivery note is goods on a lorry; neither is money owed
+#: until the invoice follows, and a stock journal moves stock between godowns
+#: with no account behind it.
+#:
+#: Verified live 2026-10-11 on "D.D Enterprises": with these left out, every
+#: ledger's opening balance plus its vouchers came to Tally's own closing
+#: balance. With them in, a party carrying one sales order was out by exactly
+#: that order -- so a statement that listed it showed a customer owing for goods
+#: nobody had billed.
+NON_POSTING_KINDS = frozenset(
+    {
+        VoucherTypeKind.SALES_ORDER,
+        VoucherTypeKind.PURCHASE_ORDER,
+        VoucherTypeKind.DELIVERY_NOTE,
+        VoucherTypeKind.RECEIPT_NOTE,
+        VoucherTypeKind.STOCK_JOURNAL,
+        VoucherTypeKind.PHYSICAL_STOCK,
+    }
+)
 
-    The running figure is the movement *within the requested window*, not the
-    ledger's balance. Tally evaluates a closing balance against today and takes
-    no date to evaluate against (see CLAUDE.md), so an opening balance for an
-    arbitrary past window is not available to us -- and manufacturing one by
-    subtracting backwards from today's closing would produce a figure an
-    accountant could reconcile against nothing. The caller pairs this with the
-    ledger's real closing balance and labels the two differently.
+
+def posted(vouchers: list[Voucher]) -> list[Voucher]:
+    """Only the vouchers that move a ledger balance. Classify before calling."""
+    return [v for v in vouchers if v.kind not in NON_POSTING_KINDS]
+
+
+def ledger_movement(vouchers: list[Voucher], *, ledger: str) -> Money:
+    """Net of every posted line on one ledger, across whatever was passed in."""
+    wanted = _norm(ledger)
+    return _sum(
+        [
+            entry.amount
+            for voucher in posted(vouchers)
+            for entry in voucher.ledger_entries
+            if _norm(entry.ledger_name) == wanted
+        ]
+    )
+
+
+def is_revenue_group(groups: list[LedgerGroup], group: str | None) -> bool | None:
+    """Whether a ledger under ``group`` is an income or expense account.
+
+    ``None`` when the group is not in the read. That is a different answer from
+    "no": which kind of account this is decides how its opening balance is
+    worked out, and guessing produces a confident wrong figure.
+    """
+    if not group:
+        return None
+    wanted = _norm(group)
+    for candidate in groups:
+        if _norm(candidate.name) == wanted:
+            return candidate.is_revenue
+    return None
+
+
+def ledger_statement(
+    vouchers: list[Voucher],
+    *,
+    ledger: str,
+    since: date,
+    until: date,
+    opening: Money | None = None,
+) -> dict[str, Any]:
+    """Every voucher that posted to one ledger, with a running balance.
+
+    ``opening`` is what the account stood at on the morning of ``since``. With
+    it, the running column is the account's balance after each voucher and ends
+    on ``period_closing_balance`` -- Tally's Ledger Vouchers, line for line.
+
+    Without it the running column is only the movement inside the window, and
+    both balance keys are null. That is a different statement and the app
+    labels it differently: an opening balance that could not be worked out must
+    never be drawn as an account that started from nil.
 
     A voucher can post to the same ledger more than once -- an invoice split
     across two cost centres, say. Those lines are netted into one row, because
@@ -917,7 +1065,7 @@ def ledger_statement(
     wanted = _norm(ledger)
 
     matched: list[tuple[Voucher, Money]] = []
-    for voucher in vouchers:
+    for voucher in posted(vouchers):
         if not (since <= voucher.date <= until):
             continue
         lines = [e for e in voucher.ledger_entries if _norm(e.ledger_name) == wanted]
@@ -930,11 +1078,11 @@ def ledger_statement(
     matched.sort(key=lambda pair: (pair[0].date, pair[0].voucher_number or ""))
 
     rows: list[dict[str, Any]] = []
-    running = Money.zero()
+    net = Money.zero()
     debits = Money.zero()
     credits = Money.zero()
     for voucher, movement in matched:
-        running = running + movement
+        net = net + movement
         if movement.side is Side.DEBIT:
             debits = debits + movement
         else:
@@ -943,7 +1091,7 @@ def ledger_statement(
             {
                 **_row_out(voucher),
                 "movement": money_out(movement),
-                "running": money_out(running),
+                "running": money_out(net if opening is None else opening + net),
             }
         )
 
@@ -954,7 +1102,11 @@ def ledger_statement(
         "voucher_count": len(rows),
         "debit_total": money_out(magnitude(debits)),
         "credit_total": money_out(magnitude(credits)),
-        "net_movement": money_out(running),
+        "net_movement": money_out(net),
+        "opening_balance": money_out(opening) if opening is not None else None,
+        "period_closing_balance": (
+            money_out(opening + net) if opening is not None else None
+        ),
         "entries": rows,
     }
 

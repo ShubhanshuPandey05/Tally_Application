@@ -20,10 +20,15 @@ const Duration _pollInterval = Duration(seconds: 2);
 
 /// The connector's window.
 ///
-/// It reports and it presses four buttons. It cannot disconnect this computer,
-/// unlink a company or remove a person -- those decisions belong to whoever
-/// holds the account on their phone, not to whoever is standing at the till --
-/// and it shows no figure from anybody's books.
+/// It reports and presses a handful of buttons. It cannot disconnect this
+/// computer or remove a person -- those decisions belong to whoever holds the
+/// account on their phone, not to whoever is standing at the till -- and it
+/// shows no figure from anybody's books.
+///
+/// It can stop this computer feeding one of its companies (decided
+/// 2026-10-16). The shop PC is where somebody notices it is feeding the wrong
+/// set of books, and the removal is the same soft unlink as the app's: history
+/// stays, and adding the company again in the app brings it back.
 class ConnectorWindow extends StatefulWidget {
   const ConnectorWindow({super.key, required this.port});
 
@@ -172,6 +177,41 @@ class _ConnectorWindowState extends State<ConnectorWindow> {
       );
   }
 
+  Future<void> _removeCompany(FedCompany company) async {
+    final bool? sure = await showDialog<bool>(
+      context: context,
+      builder: (BuildContext context) => AlertDialog(
+        title: Text('Remove ${company.name}?'),
+        content: const SizedBox(
+          width: 360,
+          child: Text(
+            'This computer stops sending it to Prime Analyst, and it leaves the '
+            'app for everyone on your account. Nothing in TallyPrime changes, '
+            'and you can add it again from the app.',
+            style: TextStyle(fontSize: 12.5, height: 1.4),
+          ),
+        ),
+        actions: <Widget>[
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('Cancel'),
+          ),
+          FilledButton(
+            style: FilledButton.styleFrom(backgroundColor: AppTheme.negative),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('Remove'),
+          ),
+        ],
+      ),
+    );
+    if (sure ?? false) {
+      await _press(
+        'remove-company',
+        payload: <String, Object?>{'company_id': company.id},
+      );
+    }
+  }
+
   Future<void> _changePort(int current) async {
     final int? chosen = await showDialog<int>(
       context: context,
@@ -203,7 +243,7 @@ class _ConnectorWindowState extends State<ConnectorWindow> {
     if (state == null) {
       return down == null
           ? const Center(child: CircularProgressIndicator())
-          : _NotRunning(detail: down);
+          : const _NotRunning();
     }
 
     // A code with no connector behind it is worse than no code. The phone's
@@ -211,7 +251,7 @@ class _ConnectorWindowState extends State<ConnectorWindow> {
     // is this process's job -- so a code left on screen after the connector
     // stopped would be scanned, appear to work on the phone, and pair nothing.
     if (down != null && state.isPairing) {
-      return _NotRunning(detail: down);
+      return const _NotRunning();
     }
 
     if (state.isPairing) {
@@ -228,6 +268,7 @@ class _ConnectorWindowState extends State<ConnectorWindow> {
       busy: _busy,
       stale: down != null,
       onRefresh: () => _press('refresh'),
+      onRemoveCompany: _removeCompany,
       onRestart: () => _press('restart'),
       onChangePort: () => _changePort(state.tally.port),
       onSyncSpeed: (String speed) =>
@@ -311,10 +352,10 @@ class _TitleBar extends StatelessWidget {
 // Nothing is listening
 // ---------------------------------------------------------------------------
 
+/// Says nothing about ports or addresses: the person reading this can act on
+/// "restart the computer", and not on which loopback socket stayed silent.
 class _NotRunning extends StatelessWidget {
-  const _NotRunning({required this.detail});
-
-  final String detail;
+  const _NotRunning();
 
   @override
   Widget build(BuildContext context) {
@@ -348,12 +389,6 @@ class _NotRunning extends StatelessWidget {
                 height: 1.45,
                 color: scheme.onSurfaceVariant,
               ),
-            ),
-            const SizedBox(height: 14),
-            Text(
-              detail,
-              textAlign: TextAlign.center,
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
             ),
           ],
         ),
@@ -521,6 +556,7 @@ class StatusPanel extends StatelessWidget {
     required this.busy,
     required this.stale,
     required this.onRefresh,
+    required this.onRemoveCompany,
     required this.onRestart,
     required this.onChangePort,
     required this.onSyncSpeed,
@@ -536,6 +572,7 @@ class StatusPanel extends StatelessWidget {
   final bool stale;
 
   final VoidCallback onRefresh;
+  final ValueChanged<FedCompany> onRemoveCompany;
   final VoidCallback onRestart;
   final VoidCallback onChangePort;
   final ValueChanged<String> onSyncSpeed;
@@ -575,7 +612,9 @@ class StatusPanel extends StatelessWidget {
                   child: Row(
                     crossAxisAlignment: CrossAxisAlignment.stretch,
                     children: <Widget>[
-                      Expanded(child: _BackendCard(state.backend)),
+                      Expanded(
+                        child: _BackendCard(state.backend, state.account),
+                      ),
                       const SizedBox(width: 12),
                       Expanded(child: _TallyCard(state.tally)),
                     ],
@@ -590,7 +629,7 @@ class StatusPanel extends StatelessWidget {
             child: TabBar(
               tabs: <Widget>[
                 Tab(text: 'Companies'),
-                Tab(text: 'People'),
+                Tab(text: 'Users'),
                 Tab(text: 'TallyPrime'),
                 Tab(text: 'Sync speed'),
                 Tab(text: 'Entries'),
@@ -605,8 +644,9 @@ class StatusPanel extends StatelessWidget {
                   account: state.account,
                   busy: busy,
                   onRefresh: onRefresh,
+                  onRemove: onRemoveCompany,
                 ),
-                _PeopleTab(account: state.account),
+                _UsersTab(account: state.account),
                 _TallyTab(
                   state: state,
                   busy: busy,
@@ -683,15 +723,23 @@ class _CompaniesTab extends StatelessWidget {
     required this.account,
     required this.busy,
     required this.onRefresh,
+    required this.onRemove,
   });
 
   final AccountState account;
   final bool busy;
   final VoidCallback onRefresh;
+  final ValueChanged<FedCompany> onRemove;
 
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
+    // Removed companies stay on the roster -- the unlink is soft -- but this
+    // computer no longer feeds them, and listing them as "paused" read as
+    // something the shop could switch back on from here.
+    final List<FedCompany> fed = account.companies
+        .where((FedCompany company) => company.isActive)
+        .toList(growable: false);
 
     return _TabBody(
       children: <Widget>[
@@ -702,7 +750,7 @@ class _CompaniesTab extends StatelessWidget {
             icon: const Icon(Icons.refresh, size: 15),
             label: const Text('Refresh'),
           ),
-          child: account.companies.isEmpty
+          child: fed.isEmpty
               ? _Empty(
                   account.isEmpty
                       ? 'Waiting for Prime Analyst to say which companies this '
@@ -712,8 +760,11 @@ class _CompaniesTab extends StatelessWidget {
                 )
               : Column(
                   children: <Widget>[
-                    for (final FedCompany company in account.companies)
-                      _CompanyRow(company),
+                    for (final FedCompany company in fed)
+                      _CompanyRow(
+                        company,
+                        onRemove: busy ? null : () => onRemove(company),
+                      ),
                   ],
                 ),
         ),
@@ -734,8 +785,8 @@ class _CompaniesTab extends StatelessWidget {
   }
 }
 
-class _PeopleTab extends StatelessWidget {
-  const _PeopleTab({required this.account});
+class _UsersTab extends StatelessWidget {
+  const _UsersTab({required this.account});
 
   final AccountState account;
 
@@ -1004,9 +1055,10 @@ class _SpeedLevel {
 }
 
 class _BackendCard extends StatelessWidget {
-  const _BackendCard(this.backend);
+  const _BackendCard(this.backend, this.account);
 
   final BackendState backend;
+  final AccountState account;
 
   @override
   Widget build(BuildContext context) {
@@ -1018,7 +1070,10 @@ class _BackendCard extends StatelessWidget {
       detail: backend.connected
           ? 'for ${_spell(backend.connectedFor ?? Duration.zero)}'
           : (backend.detail.isEmpty ? 'Trying again shortly' : backend.detail),
-      footnote: backend.url,
+      // The account's name, not the server's address: "which account is this
+      // PC on?" is a question a shop owner asks, and a wss:// URL answers
+      // nothing they can act on.
+      footnote: account.organisation,
     );
   }
 }
@@ -1125,13 +1180,15 @@ class _StatusCard extends StatelessWidget {
               detail,
               style: TextStyle(fontSize: 12, color: scheme.onSurfaceVariant),
             ),
-            const SizedBox(height: 8),
-            Text(
-              footnote,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
-            ),
+            if (footnote.isNotEmpty) ...<Widget>[
+              const SizedBox(height: 8),
+              Text(
+                footnote,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(fontSize: 11, color: scheme.onSurfaceVariant),
+              ),
+            ],
           ],
         ),
       ),
@@ -1140,9 +1197,12 @@ class _StatusCard extends StatelessWidget {
 }
 
 class _CompanyRow extends StatelessWidget {
-  const _CompanyRow(this.company);
+  const _CompanyRow(this.company, {required this.onRemove});
 
   final FedCompany company;
+
+  /// Null while another button is in flight.
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -1165,11 +1225,7 @@ class _CompanyRow extends StatelessWidget {
               children: <Widget>[
                 Text(
                   company.name,
-                  style: TextStyle(
-                    fontSize: 13,
-                    fontWeight: FontWeight.w600,
-                    color: company.isActive ? null : scheme.onSurfaceVariant,
-                  ),
+                  style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
                 ),
                 if (renamed)
                   Text(
@@ -1179,16 +1235,19 @@ class _CompanyRow extends StatelessWidget {
               ],
             ),
           ),
-          if (!company.isActive)
-            const Padding(
-              padding: EdgeInsets.only(right: 10),
-              child: _Tag('paused'),
-            ),
           Text(
             // Never "synced never", and never a zero: no sync yet and a sync
             // that returned nothing are different facts.
             synced == null ? 'not synced yet' : 'synced ${_ago(synced)}',
             style: TextStyle(fontSize: 11.5, color: scheme.onSurfaceVariant),
+          ),
+          const SizedBox(width: 6),
+          IconButton(
+            onPressed: onRemove,
+            tooltip: 'Remove from this computer',
+            visualDensity: VisualDensity.compact,
+            iconSize: 17,
+            icon: const Icon(Icons.delete_outline),
           ),
         ],
       ),
@@ -1243,7 +1302,11 @@ class _UserRow extends StatelessWidget {
   }
 }
 
-/// The settings and addresses somebody on a support call gets asked for.
+/// The one setting here somebody may need to change.
+///
+/// The server address, this computer's id and the log folder used to be listed
+/// too. None is anything a shop owner can act on, and support sees the
+/// connector's log in the portal without asking for any of them.
 class _MachineFacts extends StatelessWidget {
   const _MachineFacts({
     required this.state,
@@ -1270,13 +1333,6 @@ class _MachineFacts extends StatelessWidget {
             action: onChangePort == null
                 ? null
                 : TextButton(onPressed: onChangePort, child: const Text('Change')),
-          ),
-          _FactRow(label: 'Prime Analyst address', value: state.backend.url),
-          if (state.connectorId.isNotEmpty)
-            _FactRow(label: 'Computer ID', value: state.connectorId),
-          _FactRow(
-            label: 'Log folder',
-            value: state.logDir.isEmpty ? 'not writing logs to disk' : state.logDir,
           ),
           if (onRestart != null) ...<Widget>[
             const SizedBox(height: 10),

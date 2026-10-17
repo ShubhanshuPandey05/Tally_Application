@@ -396,24 +396,25 @@ their bottom padding and wrap their body in `ContentPane`, which caps a column o
 rows at a width where the eye can still track a name on the left to an amount on
 the right.
 
-**The mark** is one circle cut in two, the halves slipped against each other,
-on a rounded tile (decided 2026-10-04; it was the name in a handwriting face).
-It is double entry drawn as a shape: a debit and a credit, the same size, making
-a whole. Where there is room the name sits beside it, heavy `Prime` then light
-`Analyst`. The geometry lives twice -- `tools/brand/icon.py` generates every
-icon from it and `BrandMark` paints it in the app -- because a favicon cannot
-load anything and an app built to keep working through an outage must draw its
-own logo on exactly those days. The favicon wears the white tile and the app
-wears the black one, and swapping them is a mistake in both directions — a
-black square in a browser tab strip reads as a hole, and a white one on a home
-screen reads as a missing image.
+**The mark** is the name on a rounded tile: heavy `Prime` over light `Analyst`
+in Sora, both stretched to one width, with the app's blue bar beneath (decided
+2026-10-16, option E/E2 of the logo sheet; it was a circle cut in two, and
+before that the name in a handwriting face). Where there is width the wide form
+is the name alone on one line, heavy then light. The letters are **outlines,
+never live text** -- `tools/brand/wordmark.py` reads the font at build time,
+`tools/brand/icon.py` generates every icon from those shapes and
+`generate.py` writes them to `brand_outlines.dart` for `BrandMark` to paint --
+because a favicon cannot load a font and an app built to keep working through
+an outage must draw its own logo on exactly those days. The favicon wears the
+white tile and the app wears the black one, and swapping them is a mistake in
+both directions — a black square in a browser tab strip reads as a hole, and a
+white one on a home screen reads as a missing image.
 
-It carries no lettering, deliberately. The name shares a word with TallyPrime,
-and a wordmark in a tile invites setting "Prime" the way theirs is set, which
-produces something a customer would take for an official Tally Solutions
-product -- the exact claim the website's footer disclaims. If somebody asks for
-the logo to be moved closer to Tally's, that is what they are asking for and
-the answer is no.
+The name is set in Sora, heavy then light, and nothing about it borrows from
+TallyPrime's own lockup. That is the line to hold: the name shares a word with
+TallyPrime, and the website's footer disclaims any link to Tally Solutions. If
+somebody asks for the logo to be moved closer to Tally's, that is what they are
+asking for and the answer is no.
 
 ### Pairing is a camera, not a keyboard
 
@@ -472,13 +473,24 @@ zone included in the grid — and the window draws it black on white, snapped to
 whole *device* pixels. Every one of those is a code that scans or does not, and
 none of them is visible from the machine drawing it.
 
-**It cannot disconnect this computer.** No unlink, no remove, no unpair — those
+**It cannot disconnect this computer.** No unpair, no remove-a-person — those
 decisions belong to whoever holds the account on their phone, not to whoever is
 standing at the till. Reconnect is a *session* restart, not a process one: a
 process restart cannot report its own result and cannot relaunch a scheduled
 task it is running under, while rebuilding the session from freshly loaded
 settings gives a new socket, a re-read `connector.json` and a new Tally client
 on whatever port was just saved.
+
+**It can remove a company from this computer** (decided 2026-10-16). Each row
+on the Companies tab has a Remove button, behind a confirmation. It sends a
+`company_remove` frame; the backend acts only on a company *this* connector
+feeds, applies the same soft unlink as `DELETE /companies/{id}` (history stays,
+re-adding in the app brings it back), audits it with the connector as actor,
+and answers with a fresh roster — that roster is the acknowledgement. Removed
+companies are hidden in the window rather than shown as "paused".
+
+The window shows **no server address, connector id or log folder** — nothing a
+shop owner can act on. The Prime Analyst card names the account instead.
 
 What it shows about the account is pushed down as a **roster** — names, roles
 and sync times, never a figure. A shop PC that could be asked for a balance over
@@ -491,7 +503,7 @@ its own session; every choice that shaped the product was made on the phone.
 **Sync speed** — Gentle, Normal, Fast — breaks that deliberately, because the
 person who can see the till stuttering is the one standing at it, not the owner
 holding a phone somewhere else. The window is tabbed for it — Companies,
-People, TallyPrime, Sync speed — with the connection and TallyPrime cards
+Users, TallyPrime, Sync speed — with the connection and TallyPrime cards
 pinned *above* the tabs, since "is it working?" must never be a click away.
 
 A fifth tab, **Entries**, followed it for the same reason: whether a voucher
@@ -501,8 +513,8 @@ person responsible for it is the one at this machine. See
 `apps/connector/NATIVE-UI.md`; the approval itself happens inside TallyPrime,
 not in our app.
 
-The older rules are unchanged and still bind: the window still cannot unlink,
-unpair or stop anything, it still shows no figure, and the connector still runs
+The older rules are unchanged and still bind: the window still cannot unpair
+or stop anything, it still shows no figure, and the connector still runs
 whether or not it is open. A speed is neither an account decision nor a balance;
 it is this machine saying how hard it is willing to be worked. The connector
 stores only the chosen word and reports it in `HostInfo` on every handshake —

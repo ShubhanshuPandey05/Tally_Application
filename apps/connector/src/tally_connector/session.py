@@ -35,6 +35,7 @@ from .protocol import (
     MAX_LOG_ENTRIES_PER_BATCH,
     PROTOCOL_VERSION,
     ClientMessage,
+    CompanyRemove,
     Hello,
     HelloAck,
     JobRequest,
@@ -437,6 +438,21 @@ class ConnectorSession:
             return False
         try:
             await self._send(socket, RosterRequest())
+        except (ConnectionClosed, OSError):
+            return False
+        return True
+
+    async def remove_company(self, company_id: str) -> bool:
+        """Ask the backend to unlink one of this PC's companies.
+
+        ``False`` if not connected. There is no reply to wait for: the backend
+        answers with a fresh roster, and the window redraws from that.
+        """
+        socket = self._socket
+        if socket is None:
+            return False
+        try:
+            await self._send(socket, CompanyRemove(company_id=company_id))
         except (ConnectionClosed, OSError):
             return False
         return True

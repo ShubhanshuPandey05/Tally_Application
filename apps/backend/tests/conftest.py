@@ -608,6 +608,21 @@ def sample_godown_stock() -> list[dict[str, Any]]:
     ]
 
 
+def sample_company_profile() -> dict[str, Any]:
+    return {
+        "name": "Bhtia Supermarket",
+        "mailing_name": "Bhtia Supermarket",
+        "address": ["12 MG Marg", "Gangtok"],
+        "state": "Sikkim",
+        "pincode": "737101",
+        "country": "India",
+        "gstin": "11AAACB1234F1Z2",
+        "pan": None,
+        "phone": "03592-200100",
+        "email": None,
+    }
+
+
 def load_all(fake: FakeConnector, today: date | None = None) -> None:
     fake.set("ledgers.list", sample_ledgers())
     fake.set("voucher_types.list", sample_voucher_types())
@@ -615,6 +630,7 @@ def load_all(fake: FakeConnector, today: date | None = None) -> None:
     fake.set("outstanding.bills", sample_bills(today))
     fake.set("stock_items.list", sample_stock())
     fake.set("godown_stock.list", sample_godown_stock())
+    fake.set("company.profile", sample_company_profile())
     fake.set("companies.list", [{"name": "Bhtia Supermarket", "guid": "abc"}])
 
 

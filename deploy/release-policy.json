@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Adds the Godown summary: closing stock by the godown it is kept in. The app needs this connector version to show that report; everything else works as before, and nothing needs to be set up again."
+    "notes": "The connector window is simpler: a company can now be removed from this computer on the Companies tab, the People tab is now called Users, and server addresses and other technical details are no longer shown. Nothing needs to be set up again."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "TallyFlow is now Prime Analyst. Same app, same account, same books - only the name and the icon have changed, and you stay signed in. New: a Summary tab with every month's sales, purchases, receipts and payments, a Godown summary report, and the sales card on Home opens the sales register for the period you are looking at. Profile has moved to the icon at the top left."
+    "notes": "A new Prime Analyst icon, and improvements to the vouchers and tax invoices you share from the app."
   }
 }

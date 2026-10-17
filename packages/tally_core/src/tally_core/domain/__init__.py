@@ -4,7 +4,9 @@ Nothing in here knows that Tally exists. Mapping happens in ``tally_core.tally.m
 """
 
 from .masters import (
+    BankAccount,
     Company,
+    CompanyProfile,
     GodownStock,
     Ledger,
     LedgerGroup,
@@ -18,18 +20,23 @@ from .money import Money, Side
 from .transactions import (
     BalanceSnapshot,
     InventoryEntry,
+    InvoiceDetails,
     LedgerEntry,
     OutstandingBill,
     OutstandingKind,
     TrialBalanceRow,
     Voucher,
+    VoucherParty,
 )
 
 __all__ = [
     "BalanceSnapshot",
+    "BankAccount",
     "Company",
+    "CompanyProfile",
     "GodownStock",
     "InventoryEntry",
+    "InvoiceDetails",
     "Ledger",
     "LedgerEntry",
     "LedgerGroup",
@@ -42,6 +49,7 @@ __all__ = [
     "TallyLicence",
     "TrialBalanceRow",
     "Voucher",
+    "VoucherParty",
     "VoucherType",
     "VoucherTypeKind",
 ]

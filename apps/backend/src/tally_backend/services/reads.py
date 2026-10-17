@@ -470,6 +470,35 @@ class ReadService:
             return None
         return await self._from_store(sync_state, [payload], company)
 
+    async def stored_vouchers(
+        self, company: Company, *, from_date: date, to_date: date | None = None
+    ) -> Any | None:
+        """Stored vouchers for a range, or ``None`` when history has a hole in it.
+
+        For arithmetic that is wrong rather than merely short if a voucher is
+        missing -- an opening balance worked out from what came before or after
+        a window. So it never falls back to a snapshot, never asks Tally, and
+        answers ``None`` rather than a partial list: half the vouchers give a
+        confident figure that reconciles to nothing.
+
+        ``to_date=None`` means "through the newest voucher held", which is what
+        "everything since this window" has to mean when the store itself stops
+        at the last sync.
+        """
+        sync_state = await self._session.get(CompanySyncState, company.id)
+        if sync_state is None or not sync_state.covers_start(from_date):
+            return None
+        assert sync_state.backfilled_to is not None
+
+        upto = sync_state.backfilled_to if to_date is None else to_date
+        if upto > sync_state.backfilled_to:
+            return None
+        if upto < from_date:
+            return []
+        return await VoucherStore(self._session).read(
+            company.id, from_date=from_date, to_date=upto
+        )
+
     async def _from_store(
         self,
         sync_state: CompanySyncState,

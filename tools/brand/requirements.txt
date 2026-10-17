@@ -1,3 +1,4 @@
 # Build-time only. Nothing here ships in the backend, the connector or the app.
 websockets>=12
 pillow>=10
+fonttools>=4.47

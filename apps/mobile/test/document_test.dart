@@ -1,7 +1,10 @@
+import 'dart:io';
+
 import 'package:decimal/decimal.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:tallyflow/src/core/documents/amount_in_words.dart';
 import 'package:tallyflow/src/core/documents/document_style.dart';
+import 'package:tallyflow/src/core/documents/gst_state.dart';
 import 'package:tallyflow/src/core/documents/ledger_group_document.dart';
 import 'package:tallyflow/src/core/documents/party_bills_document.dart';
 import 'package:tallyflow/src/core/documents/statement_document.dart';
@@ -166,6 +169,40 @@ void main() {
       }
     });
 
+    test('builds the invoice Tally prints, from what Tally holds for it', () async {
+      // Not a wire fixture: this is sales invoice 2025-26/01 from "D.D
+      // Enterprises", read off a live TallyPrime on 2026-10-12 and passed
+      // through the backend's own `voucher_detail`. Tally's print of the same
+      // invoice is tmp/Sales Invoice Format.pdf, and the two were compared
+      // line by line. Set INVOICE_PDF to a path to write the page out and
+      // look at it.
+      final VoucherDetail detail =
+          VoucherDetail.fromJson(fixture('live_tax_invoice').envelopeData);
+
+      // The fields that used to arrive empty and print as blank boxes.
+      expect(
+        detail.inventoryEntries.map((VoucherStockLine l) => l.hsnCode),
+        <String>['621142', '621142', '620419', '620469', '62114300'],
+      );
+      expect(
+        detail.inventoryEntries.map((VoucherStockLine l) => l.gstRate),
+        <double>[12, 5, 5, 12, 12],
+      );
+      expect(detail.invoice?.dispatchedThrough, 'Anchal Logistics');
+      expect(detail.invoice?.billOfLadingNo, '771522771058');
+      expect(detail.invoice?.consignee?.gstin, '10EGHPK3851A1Z0');
+      expect(detail.companyDetails?.bank?.ifsc, 'HDFC0000251');
+
+      final List<int> bytes = await VoucherDocument(
+        detail: detail,
+        companyName: 'D.D Enterprises',
+      ).build();
+      expect(String.fromCharCodes(bytes.take(5)), '%PDF-');
+
+      final String? out = Platform.environment['INVOICE_PDF'];
+      if (out != null && out.isNotEmpty) File(out).writeAsBytesSync(bytes);
+    });
+
     test('folds a party name a filesystem would refuse', () {
       // "M/s. Sharma & Co." is an entirely ordinary ledger name and carries a
       // directory separator.
@@ -173,6 +210,26 @@ void main() {
         DocumentStyle.fileName(<String?>['Sales', 'M/s. Sharma & Co.', null]),
         'Sales-M-s.-Sharma-Co.',
       );
+    });
+  });
+
+  group('GST state code', () {
+    test('is read off the GSTIN when there is one', () {
+      // The registration is the authority; a state typed on the master beside
+      // it can be out of date.
+      expect(GstState.code(gstin: '24BQTPK1669M1Z4', state: 'Maharashtra'), '24');
+    });
+
+    test('falls back to the state name for an unregistered party', () {
+      expect(GstState.code(state: 'Gujarat'), '24');
+      expect(GstState.code(state: 'Jammu & Kashmir'), '01');
+      expect(GstState.code(state: 'jammu and kashmir'), '01');
+      expect(GstState.code(gstin: '', state: 'Tamil Nadu'), '33');
+    });
+
+    test('is absent rather than guessed', () {
+      expect(GstState.code(state: 'Atlantis'), isNull);
+      expect(GstState.code(), isNull);
     });
   });
 

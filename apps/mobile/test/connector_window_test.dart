@@ -32,6 +32,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -45,7 +46,7 @@ void main() {
 
       // Who can see them moved behind its own tab, so it is a click away
       // rather than a scroll away.
-      await tester.tap(find.text('People'));
+      await tester.tap(find.text('Users'));
       await tester.pumpAndSettle();
       expect(find.text('Ramesh Gupta'), findsOneWidget);
     });
@@ -60,6 +61,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -80,6 +82,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -92,7 +95,7 @@ void main() {
       expect(find.text('Not answering'), findsNothing);
     });
 
-    testWidgets('offers no way to unlink, unpair or remove anything',
+    testWidgets('offers no way to unpair or disconnect this computer',
         (WidgetTester tester) async {
       await tester.binding.setSurfaceSize(const Size(940, 760));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -102,6 +105,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -114,12 +118,66 @@ void main() {
         'Unlink',
         'Unpair',
         'Disconnect',
-        'Remove',
         'Stop',
       ]) {
         expect(find.textContaining(forbidden), findsNothing, reason: forbidden);
       }
     });
+
+    testWidgets('removes a company only from its own row, and hides removed ones',
+        (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      final List<String> removed = <String>[];
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRemoveCompany: (FedCompany company) => removed.add(company.id),
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
+      )));
+
+      expect(find.text('Old Traders'), findsNothing);
+      expect(find.byTooltip('Remove from this computer'), findsNWidgets(2));
+
+      await tester.tap(find.byTooltip('Remove from this computer').last);
+      expect(removed, <String>['c2']);
+    });
+
+    testWidgets('shows the account, never the server address',
+        (WidgetTester tester) async {
+      await tester.binding.setSurfaceSize(const Size(940, 760));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(host(StatusPanel(
+        state: _paired,
+        busy: false,
+        stale: false,
+        onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
+        onRestart: () {},
+        onChangePort: () {},
+        onSyncSpeed: (String _) {},
+        onEntryMode: (String _) {},
+      )));
+
+      expect(find.text('Gupta Holdings'), findsOneWidget);
+      await tester.tap(find.text('TallyPrime').last);
+      await tester.pumpAndSettle();
+      for (final String hidden in <String>[
+        'api.example.in',
+        'cn_7f3a91c2',
+        r'AppData',
+      ]) {
+        expect(find.textContaining(hidden), findsNothing, reason: hidden);
+      }
+    });
+
     testWidgets('keeps the connection status visible on every tab',
         (WidgetTester tester) async {
       // The question this window is opened to answer must not be a tab away.
@@ -131,6 +189,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -155,6 +214,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String speed) => chosen = speed,
@@ -186,6 +246,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -215,6 +276,7 @@ void main() {
         busy: false,
         stale: false,
         onRefresh: () {},
+        onRemoveCompany: (FedCompany _) {},
         onRestart: () {},
         onChangePort: () {},
         onSyncSpeed: (String _) {},
@@ -370,7 +432,7 @@ final ConnectorState _paired = ConnectorState(
     companiesOpen: <String>['D.D Enterprises'],
   ),
   account: AccountState(
-    organisation: 'D.D Enterprises',
+    organisation: 'Gupta Holdings',
     status: 'active',
     companies: <FedCompany>[
       FedCompany(
@@ -383,6 +445,14 @@ final ConnectorState _paired = ConnectorState(
       const FedCompany(
         id: 'c2',
         name: 'Anand Electricals',
+        tallyName: '',
+        isActive: true,
+        lastSyncedAt: null,
+      ),
+      // Removed earlier: still on the roster, no longer fed by this computer.
+      const FedCompany(
+        id: 'c3',
+        name: 'Old Traders',
         tallyName: '',
         isActive: false,
         lastSyncedAt: null,

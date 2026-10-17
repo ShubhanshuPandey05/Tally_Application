@@ -337,6 +337,7 @@ class ConnectorRunner:
         bridge.register("new-code", self._action_new_code)
         bridge.register("sync-speed", self._action_sync_speed)
         bridge.register("entry-mode", self._action_entry_mode)
+        bridge.register("remove-company", self._action_remove_company)
 
         server = LocalUiServer(bridge, port=settings.ui_port)
         self._bridge = bridge
@@ -396,6 +397,26 @@ class ConnectorRunner:
         if await session.request_roster():
             return {"ok": True, "message": "Refreshed."}
         return {"ok": False, "message": "Could not reach Prime Analyst. Trying again shortly."}
+
+    async def _action_remove_company(self, payload: dict[str, Any]) -> dict[str, Any]:
+        """Stop this PC feeding one company, asked for from the Companies tab.
+
+        The backend does the unlink and decides whether this PC may: it only
+        acts on a company this connector feeds. History stays on the account,
+        and adding the company again in the app brings it back.
+        """
+        company_id = str(payload.get("company_id", "")).strip()
+        if not company_id:
+            return {"ok": False, "message": "Choose a company to remove."}
+        session = self._session
+        if session is None or not await session.remove_company(company_id):
+            return {
+                "ok": False,
+                "message": "Could not reach Prime Analyst, so nothing was removed. "
+                "Try again once it is connected.",
+            }
+        logger.info("asked to remove company %s from the connector window", company_id)
+        return {"ok": True, "message": "Company removed from this computer."}
 
     async def _action_port(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:

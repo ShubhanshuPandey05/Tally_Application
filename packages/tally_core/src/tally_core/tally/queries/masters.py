@@ -14,8 +14,10 @@ from xml.etree import ElementTree as ET
 from pydantic import model_validator
 
 from ...domain.masters import (
+    BankAccount,
     Company,
     CompanyMarkers,
+    CompanyProfile,
     GodownStock,
     Ledger,
     LedgerGroup,
@@ -202,6 +204,198 @@ def _markers_from(el: ET.Element, name: str) -> CompanyMarkers:
         ending_at=parse_date(find_text(el, "ENDINGAT")),
     )
 
+
+# --------------------------------------------------------------------------
+# Company profile
+# --------------------------------------------------------------------------
+
+
+class CompanyProfileParams(QueryParams):
+    pass
+
+
+@register
+class CompanyProfileQuery(TallyQuery[CompanyProfileParams, CompanyProfile]):
+    """The company's own name, address and registrations.
+
+    This is the seller block of an invoice. A voucher somebody shares from the
+    app used to carry the company's name and nothing else, because nothing read
+    the rest -- so a tax invoice went out with no GSTIN and no state on it.
+
+    **The GSTIN is not on the company.** Verified live 2026-10-11 on "D.D
+    Enterprises": ``GSTRegistrationNumber`` on the ``Company`` object came back
+    empty, and so did the "Default Tax Unit" every company is created with. The
+    number was on a second ``TaxUnit``, "Gujarat Registration", which is where
+    TallyPrime has kept GST registrations since it allowed more than one per
+    company. So this reads the first tax unit that carries a number, and still
+    asks the company for its own, which is where an older release keeps it.
+
+    A company with several registrations gets the first. Printing the right one
+    per voucher means reading the registration off the voucher itself, which
+    this does not do.
+
+    **Nor are the address and contact details, in this collection.** The
+    lines on the Company Alteration screen are on the company object --
+    verified live 2026-10-14 on "D.D Enterprises", whose object export carries
+    ``309,BLUE EMIMINENCE SANGINI DANDI ROAD`` in ``ADDRESS.LIST`` -- but a
+    ``Company`` collection returns nothing for ``Address``, ``MobileNumbers``,
+    ``Email`` or ``Website``, fetched or named as native methods. They are
+    reached instead the way the GSTIN is: the address and mobile lists as
+    sub-collections of the loaded company, counted and read line by line, and
+    the single fields as ``$Field:Company:##SVCurrentCompany``. Every one of
+    those forms was run against that Tally first; none raised an error.
+    """
+
+    #: Address lines read. Tally's alteration screen holds fewer than this.
+    ADDRESS_LINES = 8
+    MOBILES = 4
+
+    name = "company.profile"
+    params_model = CompanyProfileParams
+
+    def build(self, params: CompanyProfileParams) -> str:
+        return build_export_envelope(
+            request_type="Collection",
+            request_id="TFCompanyProfile",
+            static_variables=StaticVariables(company=params.company),
+            collections=[
+                Collection(
+                    name="TFCompanyGstUnits",
+                    type="TaxUnit",
+                    native_methods=["Name", "GSTRegNumber"],
+                    filters={"TFHasGstin": "NOT $$IsEmpty:$GSTRegNumber"},
+                ),
+                # Bank ledgers that carry an account number: the "Company's Bank
+                # Details" block of an invoice. Verified live 2026-10-12 on
+                # "D.D Enterprises", where the one such ledger held the account
+                # number in ``BankDetails`` and the code in ``IFSCode``, and
+                # Tally's own print used the ledger's name as the bank's.
+                Collection(
+                    name="TFCompanyBanks",
+                    type="Ledger",
+                    native_methods=["Name", "BankDetails", "IFSCode", "BranchName"],
+                    filters={
+                        "TFIsBank": (
+                            "($$IsLedOfGrp:$Name:$$GroupBank OR $$IsLedOfGrp:$Name:$$GroupBankOD)"
+                            " AND NOT $$IsEmpty:$BankDetails"
+                        )
+                    },
+                ),
+                Collection(
+                    name="TFCompanyAddress",
+                    type="Address : Company",
+                    child_of="##SVCurrentCompany",
+                ),
+                Collection(
+                    name="TFCompanyMobiles",
+                    type="MobileNumbers : Company",
+                    child_of="##SVCurrentCompany",
+                ),
+                Collection(
+                    name="TFCompanyProfile",
+                    type="Company",
+                    native_methods=[
+                        "Name",
+                        "BasicCompanyFormalName",
+                        "StateName",
+                        "PinCode",
+                        "CountryName",
+                        "PhoneNumber",
+                        "Email",
+                        "IncomeTaxNumber",
+                        "GSTRegistrationNumber",
+                    ],
+                    fetch=["Address"],
+                    compute={
+                        "TFGstin": "$$CollectionField:$GSTRegNumber:First:TFCompanyGstUnits",
+                        "TFBankCount": "$$NumItems:TFCompanyBanks",
+                        "TFBankName": "$$CollectionField:$Name:First:TFCompanyBanks",
+                        "TFBankAccount": "$$CollectionField:$BankDetails:First:TFCompanyBanks",
+                        "TFBankIfsc": "$$CollectionField:$IFSCode:First:TFCompanyBanks",
+                        "TFBankBranch": "$$CollectionField:$BranchName:First:TFCompanyBanks",
+                        **{
+                            f"TFAddress{n}": f"$$CollectionField:$Address:{n}:TFCompanyAddress"
+                            for n in range(1, self.ADDRESS_LINES + 1)
+                        },
+                        **{
+                            f"TFMobile{n}": (
+                                f"$$CollectionField:$MobileNumbers:{n}:TFCompanyMobiles"
+                            )
+                            for n in range(1, self.MOBILES + 1)
+                        },
+                        "TFPhone": "$PhoneNumber:Company:##SVCurrentCompany",
+                        "TFIsdCode": "$CountryISDCode:Company:##SVCurrentCompany",
+                        "TFEmail": "$Email:Company:##SVCurrentCompany",
+                        "TFWebsite": "$Website:Company:##SVCurrentCompany",
+                    },
+                ),
+            ],
+        )
+
+    def parse(self, root: ET.Element, params: CompanyProfileParams) -> CompanyProfile:
+        for el in _iter_objects(root, "COMPANY"):
+            name = first_text(el, "NAME", "DSPDISPNAME") or el.get("NAME")
+            if not name:
+                continue
+            # Same defence as the markers read: a Tally with several companies
+            # loaded must not put a neighbour's GSTIN on this one's invoices.
+            if params.company and name.strip() != params.company.strip():
+                continue
+
+            address = [
+                t
+                for t in (
+                    find_text(el, f"TFADDRESS{n}") for n in range(1, self.ADDRESS_LINES + 1)
+                )
+                if t
+            ] or [t for t in (text_of(line) for line in el.findall(".//ADDRESS.LIST/ADDRESS")) if t]
+            mobiles = [
+                t for t in (find_text(el, f"TFMOBILE{n}") for n in range(1, self.MOBILES + 1)) if t
+            ]
+            isd = (find_text(el, "TFISDCODE") or "").strip()
+            return CompanyProfile(
+                name=name,
+                mailing_name=find_text(el, "BASICCOMPANYFORMALNAME"),
+                address=address,
+                state=find_text(el, "STATENAME"),
+                pincode=find_text(el, "PINCODE"),
+                country=find_text(el, "COUNTRYNAME"),
+                gstin=first_text(el, "TFGSTIN", "GSTREGISTRATIONNUMBER"),
+                pan=find_text(el, "INCOMETAXNUMBER"),
+                phone=first_text(el, "TFPHONE", "PHONENUMBER"),
+                # As the alteration screen shows them: "+91 - 9998464854,
+                # 9925364854".
+                mobile=(f"{isd} - " if isd and mobiles else "") + ", ".join(mobiles) or None,
+                email=first_text(el, "TFEMAIL", "EMAIL"),
+                website=find_text(el, "TFWEBSITE"),
+                bank=_company_bank(el),
+            )
+
+        # No match: the name we asked for and nothing else, which a document
+        # prints exactly as it did before this read existed.
+        return CompanyProfile(name=params.company)
+
+
+
+def _company_bank(el: ET.Element) -> BankAccount | None:
+    """The bank to print on invoices, when there is only one it could be.
+
+    Which bank an invoice shows is chosen in Tally's print settings, and no
+    export returns that choice. With one bank ledger carrying an account number
+    there is nothing to choose; with two, printing the first would sooner or
+    later tell a customer to pay into the wrong account, so the block is left
+    off instead.
+    """
+    name = find_text(el, "TFBANKNAME")
+    account = find_text(el, "TFBANKACCOUNT")
+    if parse_int(find_text(el, "TFBANKCOUNT")) != 1 or not name or not account:
+        return None
+    return BankAccount(
+        bank_name=name,
+        account_number=account,
+        ifsc=find_text(el, "TFBANKIFSC"),
+        branch=find_text(el, "TFBANKBRANCH"),
+    )
 
 
 # --------------------------------------------------------------------------
@@ -454,6 +648,12 @@ class LedgerListQuery(TallyQuery[LedgerListParams, list[Ledger]]):
                         "IsBillWiseOn",
                         "CreditLimit",
                         "LedgerStateName",
+                        # The party's mobile, which a shared invoice prints
+                        # under the buyer. Unlike the phone it does answer as
+                        # a native method: verified live 2026-10-14 on "D.D
+                        # Enterprises", where it returned 2233556688 for
+                        # DULHAN SAREE HOUSE.
+                        "LedgerMobile",
                     ],
                     # Contact details are not storage fields on Ledger, so a
                     # NATIVEMETHOD request for them is silently ignored (Tally
@@ -509,6 +709,7 @@ class LedgerListQuery(TallyQuery[LedgerListParams, list[Ledger]]):
                     credit_limit=Money.from_tally(credit_limit) if credit_limit else None,
                     gstin=first_text(el, "PARTYGSTIN", "GSTREGISTRATIONNUMBER"),
                     phone=find_text(el, "LEDGERPHONE"),
+                    mobile=find_text(el, "LEDGERMOBILE"),
                     email=find_text(el, "EMAIL"),
                     address=address,
                     state=first_text(el, "LEDGERSTATENAME", "LEDSTATENAME"),
@@ -632,9 +833,33 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                         "ClosingRate",
                         "ReorderLevel",
                     ],
-                    # Tax attributes live on child GST detail objects rather
-                    # than on the item, so NATIVEMETHOD does not reach them.
-                    fetch=["HSNCode", "GSTRate", "GSTDetails"],
+                    # Tax attributes live on dated child lists, one entry per
+                    # time the shop changed them, so NATIVEMETHOD does not
+                    # reach them. ``HSNCode`` and ``GSTRate`` are still asked
+                    # for on the item itself, where an older release keeps
+                    # them.
+                    #
+                    # The HSN is in ``HSNDetails``, not ``GSTDetails``.
+                    # Verified live 2026-10-12 on "D.D Enterprises": the
+                    # ``HSNCODE`` inside ``GSTDETAILS.LIST`` was empty on all
+                    # 144 items, and the code sat in ``HSNDETAILS.LIST``, which
+                    # nothing asked for. The rate was being looked for on the
+                    # item too, and it is three levels down. So every item came
+                    # back with no HSN and no rate.
+                    #
+                    # Naming the leaves does not make this one smaller: Tally
+                    # returns the whole of ``GSTDETAILS.LIST`` either way
+                    # (406 KB for those 144 items). They are named so the
+                    # request says what the parser reads.
+                    fetch=[
+                        "HSNCode",
+                        "GSTRate",
+                        "HSNDetails.ApplicableFrom",
+                        "HSNDetails.HSNCode",
+                        "GSTDetails.ApplicableFrom",
+                        "GSTDetails.StatewiseDetails.RateDetails.GSTRateDutyHead",
+                        "GSTDetails.StatewiseDetails.RateDetails.GSTRate",
+                    ],
                     filters=filters,
                 )
             ],
@@ -648,7 +873,6 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                 continue
 
             reorder = find_text(el, "REORDERLEVEL")
-            gst_rate = find_text(el, "GSTRATE")
             closing_rate = find_text(el, "CLOSINGRATE")
 
             items.append(
@@ -670,11 +894,56 @@ class StockItemListQuery(TallyQuery[StockItemListParams, list[StockItem]]):
                     if closing_rate
                     else None,
                     reorder_level=parse_float(reorder) if reorder else None,
-                    hsn_code=find_text(el, "HSNCODE"),
-                    gst_rate=parse_float(gst_rate) if gst_rate else None,
+                    hsn_code=_item_hsn(el),
+                    gst_rate=_item_gst_rate(el),
                 )
             )
         return items
+
+
+def _latest(el: ET.Element, path: str) -> list[ET.Element]:
+    """A dated child list, newest first.
+
+    Tally appends an entry each time the shop changes an item's tax details and
+    stamps it ``APPLICABLEFROM``; the one in force is the latest. ``yyyymmdd``
+    sorts as text, and an entry with no date sorts last.
+    """
+    return sorted(
+        el.findall(path),
+        key=lambda entry: find_text(entry, "APPLICABLEFROM") or "",
+        reverse=True,
+    )
+
+
+def _item_hsn(el: ET.Element) -> str | None:
+    for entry in _latest(el, "./HSNDETAILS.LIST"):
+        code = find_text(entry, "HSNCODE")
+        if code:
+            return code
+    return find_text(el, "HSNCODE")
+
+
+def _item_gst_rate(el: ET.Element) -> float | None:
+    """The full GST rate on a stock item, or ``None`` when it does not say.
+
+    The integrated rate, for the same reason as on a voucher line: it is the
+    whole rate whichever way a sale is taxed. A zero is read as "not set here"
+    rather than as nil-rated -- an item taxed "as per stock group" carries the
+    same row of zeroes, and a wrong 0% on a tax document is worse than a gap
+    the invoice's own line fills in.
+    """
+    for entry in _latest(el, "./GSTDETAILS.LIST"):
+        rates: dict[str, float] = {}
+        for detail in entry.findall("./STATEWISEDETAILS.LIST/RATEDETAILS.LIST"):
+            head = (find_text(detail, "GSTRATEDUTYHEAD") or "").strip().upper()
+            rate = find_text(detail, "GSTRATE")
+            if head and rate:
+                rates[head] = parse_float(rate)
+        rate = rates.get("IGST") or (rates.get("CGST", 0.0) + rates.get("SGST/UTGST", 0.0))
+        if rate > 0:
+            return rate
+    flat = find_text(el, "GSTRATE")
+    return parse_float(flat) if flat else None
 
 
 # --------------------------------------------------------------------------
@@ -696,11 +965,20 @@ class GodownStockQuery(TallyQuery[GodownStockParams, list[GodownStock]]):
     off still has one, named "Primary Batch" -- so this walks those and folds
     the batches of one item in one godown together.
 
-    **Not yet verified against a live TallyPrime.** Every other read in this
-    file was; this one was written from the TDL reference on a machine with no
-    Tally running. Before it ships, run ``tally-connector livecheck`` against a
-    company that uses godowns: its Stock section compares each item's godown
-    quantities with the item's own closing balance and fails if they disagree.
+    **A ``Batch`` collection is empty unless it names the stock item it
+    belongs to.** Verified live 2026-10-11 on "D.D Enterprises": a bare
+    ``<TYPE>Batch</TYPE>`` returned ``<COLLECTION></COLLECTION>`` with no error
+    for a company holding stock in four godowns, and so did ``BELONGSTO`` and a
+    ``CHILDOF`` of Primary. That is what this query sent until then, and it is
+    why the Godown Summary had nothing to show. ``<CHILDOF>`` a named item
+    returns that item's batches, and writing it as ``$Name`` and walking it from
+    a stock-item collection returns every item's in one request -- 38 KB for
+    144 items, where asking item by item would have been 144 exports against a
+    shop's till.
+
+    The same run reconciled: every item's godown quantities added up to its own
+    closing balance, and the figures matched Tally's Godown Summary line for
+    line. ``tally-connector livecheck`` repeats that comparison.
 
     Balances are always current, like the stock summary's -- there is no period
     to scope this to.
@@ -716,9 +994,13 @@ class GodownStockQuery(TallyQuery[GodownStockParams, list[GodownStock]]):
             request_id="TFGodownStock",
             static_variables=StaticVariables(company=params.company),
             collections=[
+                Collection(name="TFGodownItems", type="StockItem", native_methods=["Name"]),
                 Collection(
-                    name="TFGodownStock",
+                    name="TFGodownBatches",
                     type="Batch",
+                    # Evaluated once per stock item as the walk below reaches
+                    # it. Without a parent this collection is always empty.
+                    child_of="$Name",
                     # Leaf fields by name, as everywhere else: a batch object
                     # also carries its own inward and outward history.
                     native_methods=[
@@ -728,7 +1010,20 @@ class GodownStockQuery(TallyQuery[GodownStockParams, list[GodownStock]]):
                         "ClosingBalance",
                         "ClosingValue",
                     ],
-                )
+                ),
+                Collection(
+                    name="TFGodownStock",
+                    source_collection="TFGodownItems",
+                    walk=["TFGodownBatches"],
+                    # A walked object exports only what is computed onto it, so
+                    # these four are the whole of each row.
+                    compute={
+                        "TFItem": "$Parent",
+                        "TFGodown": "$GodownName",
+                        "TFQuantity": "$ClosingBalance",
+                        "TFValue": "$ClosingValue",
+                    },
+                ),
             ],
         )
 
@@ -737,16 +1032,16 @@ class GodownStockQuery(TallyQuery[GodownStockParams, list[GodownStock]]):
         values: dict[tuple[str, str], Money] = {}
 
         for el in _iter_objects(root, "BATCH"):
-            item = find_text(el, "PARENT")
-            godown = find_text(el, "GODOWNNAME")
+            item = find_text(el, "TFITEM")
+            godown = find_text(el, "TFGODOWN")
             if not item or not godown:
                 continue
             key = (godown, item)
             quantities[key] = quantities.get(key, 0.0) + parse_float(
-                find_text(el, "CLOSINGBALANCE")
+                find_text(el, "TFQUANTITY")
             )
             values[key] = values.get(key, Money.zero()) + Money.from_tally(
-                find_text(el, "CLOSINGVALUE")
+                find_text(el, "TFVALUE")
             )
 
         return [

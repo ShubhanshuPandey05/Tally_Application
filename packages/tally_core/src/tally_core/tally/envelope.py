@@ -98,15 +98,32 @@ class Collection:
     """
 
     name: str
-    type: str
+    #: Absent on a collection derived from another one -- see
+    #: ``source_collection``.
+    type: str | None = None
     native_methods: Sequence[str] = ()
     fetch: Sequence[str] = ()
     filters: Mapping[str, str] = field(default_factory=dict)
     compute: Mapping[str, str] = field(default_factory=dict)
     is_modify: bool = False
+    #: The parent whose children this collection holds. An expression such as
+    #: ``$Name`` is evaluated against whichever object is in context, which is
+    #: what lets one collection be walked once per object of another.
+    child_of: str | None = None
+    #: Build this collection by visiting every object of the named one...
+    source_collection: str | None = None
+    #: ...and, for each, gathering the objects of these.
+    walk: Sequence[str] = ()
 
     def to_xml(self) -> str:
-        parts: list[str] = [tag("TYPE", self.type)]
+        parts: list[str] = []
+        if self.type is not None:
+            parts.append(tag("TYPE", self.type))
+        if self.child_of is not None:
+            parts.append(tag("CHILDOF", self.child_of))
+        if self.source_collection is not None:
+            parts.append(tag("SOURCECOLLECTION", self.source_collection))
+        parts.extend(tag("WALK", w) for w in self.walk)
         parts.extend(tag("NATIVEMETHOD", m) for m in self.native_methods)
         parts.extend(tag("FETCH", f) for f in self.fetch)
         parts.extend(tag("COMPUTE", f"{k} : {v}") for k, v in self.compute.items())

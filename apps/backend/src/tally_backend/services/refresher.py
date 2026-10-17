@@ -60,6 +60,10 @@ WARM_DATASETS: list[tuple[str, bool]] = [
     ("vouchers.list", True),
     ("outstanding.bills", True),
     ("stock_items.list", True),
+    # One tiny object, and the seller block of every invoice somebody shares.
+    # A connector from before this read existed refuses it by name and the
+    # document prints the company name alone, as it always did.
+    ("company.profile", False),
 ]
 
 #: Datasets the history sync takes over once a company has been backfilled.

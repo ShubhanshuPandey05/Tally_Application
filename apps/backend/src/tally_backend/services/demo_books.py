@@ -47,6 +47,7 @@ from typing import Any
 
 from tally_core.domain.masters import (
     CompanyMarkers,
+    CompanyProfile,
     GodownStock,
     Ledger,
     LedgerGroup,
@@ -336,6 +337,7 @@ class DemoBooks:
     voucher_types: list[dict[str, Any]]
     bills: list[dict[str, Any]]
     markers: dict[str, Any]
+    profile: dict[str, Any]
     #: Every voucher, oldest first.
     vouchers: list[dict[str, Any]]
 
@@ -465,6 +467,7 @@ def build_books(*, books_from: date, upto: date) -> DemoBooks:
         voucher_types=[vt.model_dump(mode="json") for vt in _voucher_types()],
         bills=[bill.model_dump(mode="json") for bill in _bills(ledger)],
         markers=_markers(ledger, upto).model_dump(mode="json"),
+        profile=_profile().model_dump(mode="json"),
         vouchers=[v.model_dump(mode="json") for v in ledger.vouchers],
     )
 
@@ -943,6 +946,22 @@ def _bills(books: _Books) -> list[OutstandingBill]:
             )
         )
     return rows
+
+
+def _profile() -> CompanyProfile:
+    """The seller block of the demo's invoices. Invented, like the rest: the
+    GSTIN is the right shape for Madhya Pradesh and belongs to nobody."""
+    return CompanyProfile(
+        name=COMPANY_NAME,
+        mailing_name=COMPANY_NAME,
+        address=["14, Siyaganj Main Road", "Near Jawahar Marg", "Indore - 452007"],
+        state="Madhya Pradesh",
+        pincode="452007",
+        country="India",
+        gstin="23AAKFS4821M1ZQ",
+        phone="0731-4002318",
+        email="accounts@shreebalaji.example",
+    )
 
 
 def _markers(books: _Books, upto: date) -> CompanyMarkers:

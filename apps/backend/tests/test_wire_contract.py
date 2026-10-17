@@ -21,6 +21,7 @@ from __future__ import annotations
 import json
 import os
 from datetime import date, datetime, timedelta
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
@@ -485,7 +486,7 @@ async def _first_voucher_key(client: AsyncClient, linked_company) -> tuple[str, 
 
 
 async def test_voucher_detail_shape(
-    client: AsyncClient, backfilled, dated
+    client: AsyncClient, backfilled, dated, app, settings
 ) -> None:
     key, on = await _first_voucher_key(client, backfilled)
 
@@ -500,6 +501,19 @@ async def test_voucher_detail_shape(
     )
     assert warm.status_code == 200, warm.text
 
+    # And the company's own profile, which only the background sweep reads.
+    # Stored here the way the sweep stores it, for the same reason as the
+    # ledgers above: the seller block is the normal shape, not the absent one.
+    from tally_backend.db.models import Company
+    from tally_backend.services.reads import FetchMode, ReadService
+
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, backfilled["company_id"])
+        await ReadService(session, app.state.hub, settings).fetch(
+            company, dataset="company.profile", mode=FetchMode.LIVE
+        )
+        await session.commit()
+
     response = await client.get(
         f"/v1/companies/{backfilled['company_id']}/reports/voucher"
         f"?key={key}&on={on}",
@@ -507,6 +521,13 @@ async def test_voucher_detail_shape(
     )
     assert response.status_code == 200, response.text
     body = response.json()
+
+    # The seller block: the company's own address and GSTIN, which a voucher
+    # export does not carry and a tax invoice is not one without.
+    seller = body["data"]["company_details"]
+    assert seller is not None, "the profile snapshot was warm"
+    assert seller["gstin"] == "11AAACB1234F1Z2"
+    assert seller["address"] == ["12 MG Marg", "Gangtok"]
 
     # The point of the screen: the lines, with their sides intact.
     assert body["data"]["ledger_entries"], "a voucher detail without its lines is a stub"
@@ -585,7 +606,9 @@ async def test_a_voucher_that_is_gone_says_why(
     assert "Tally" in response.json()["error"]["message"]
 
 
-async def test_ledger_statement_shape(client: AsyncClient, backfilled, dated) -> None:
+async def test_ledger_statement_shape(
+    client: AsyncClient, backfilled, dated, app, settings
+) -> None:
     # The ledger list first, exactly as the app reaches this screen: from the
     # balances report, or from a voucher line on a company whose dashboard has
     # already read the masters. The statement serves "balance today" from that
@@ -596,6 +619,26 @@ async def test_ledger_statement_shape(client: AsyncClient, backfilled, dated) ->
         headers=backfilled["headers"],
     )
     assert warm.status_code == 200, warm.text
+
+    # The groups too, as the background sweep leaves them. Whether an account
+    # carries its balance across years or starts each one from nil is read off
+    # its group, and without that the statement has no opening balance.
+    from tally_backend.db.models import Company
+    from tally_backend.services.reads import FetchMode, ReadService
+
+    dated.set(
+        "groups.list",
+        [
+            {"name": "Sundry Debtors", "parent": "Current Assets", "is_revenue": False},
+            {"name": "Sales Accounts", "parent": None, "is_revenue": True},
+        ],
+    )
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, backfilled["company_id"])
+        await ReadService(session, app.state.hub, settings).fetch(
+            company, dataset="groups.list", mode=FetchMode.LIVE
+        )
+        await session.commit()
 
     response = await client.get(
         # A party rather than an income ledger: parties are what the app links
@@ -613,6 +656,18 @@ async def test_ledger_statement_shape(client: AsyncClient, backfilled, dated) ->
     # of them as the other.
     assert "net_movement" in body["data"]
     assert body["data"]["closing_balance"] is not None
+
+    # The window ends on the day the books were read, so the statement has to
+    # close on the balance Tally reported: opening plus what moved is the
+    # closing balance, and the last row stands on it.
+    data = body["data"]
+    assert data["opening_balance"] is not None
+    assert (
+        Decimal(data["opening_balance"]["signed"]) + Decimal(data["net_movement"]["signed"])
+        == Decimal(data["period_closing_balance"]["signed"])
+    )
+    if data["entries"]:
+        assert data["entries"][-1]["running"] == data["period_closing_balance"]
     check("ledger_statement", body)
 
 
@@ -637,3 +692,51 @@ async def test_stock_movement_shape(client: AsyncClient, backfilled, dated) -> N
     )
     assert response.status_code == 200, response.text
     check("stock_movement", response.json())
+
+
+async def test_a_statement_opens_where_the_one_before_it_closed(
+    client: AsyncClient, backfilled, dated, app, settings
+) -> None:
+    """Two windows back to back are one account read in two sittings.
+
+    The later one ends on the day the books were read, so it must close on the
+    balance Tally reported. The earlier one must close on the figure the later
+    one opens with -- which is the only check an accountant would make, and the
+    one that fails if a voucher after the window is forgotten or counted twice.
+    """
+    from tally_backend.db.models import Company
+    from tally_backend.services.reads import FetchMode, ReadService
+
+    company_id = backfilled["company_id"]
+    warm = await client.get(
+        f"/v1/companies/{company_id}/reports/ledgers", headers=backfilled["headers"]
+    )
+    assert warm.status_code == 200, warm.text
+    dated.set(
+        "groups.list",
+        [{"name": "Sundry Creditors", "parent": "Current Liabilities", "is_revenue": False}],
+    )
+    async with app.state.session_factory() as session:
+        company = await session.get(Company, company_id)
+        await ReadService(session, app.state.hub, settings).fetch(
+            company, dataset="groups.list", mode=FetchMode.LIVE
+        )
+        await session.commit()
+
+    async def statement(start: date, end: date) -> dict[str, Any]:
+        response = await client.get(
+            f"/v1/companies/{company_id}/reports/ledger-statement"
+            f"?ledger=SARA%20DISITIBUTOR&from_date={start.isoformat()}&to_date={end.isoformat()}",
+            headers=backfilled["headers"],
+        )
+        assert response.status_code == 200, response.text
+        return response.json()["data"]
+
+    split = AS_OF - timedelta(days=1)
+    earlier = await statement(date(2026, 1, 1), split)
+    later = await statement(split + timedelta(days=1), AS_OF)
+
+    assert later["entries"], "the sample books post to this supplier on the last day"
+    assert earlier["opening_balance"] is not None and later["opening_balance"] is not None
+    assert earlier["period_closing_balance"] == later["opening_balance"]
+    assert later["period_closing_balance"] == later["closing_balance"]

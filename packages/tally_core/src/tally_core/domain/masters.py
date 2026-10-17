@@ -30,6 +30,50 @@ class Company(BaseModel):
     base_currency: str = "INR"
 
 
+class BankAccount(BaseModel):
+    """The account a business asks to be paid into, as printed on its invoices."""
+
+    model_config = ConfigDict(frozen=True)
+
+    bank_name: str
+    account_number: str
+    ifsc: str | None = None
+    branch: str | None = None
+
+
+class CompanyProfile(BaseModel):
+    """What a company says about itself: the block at the top of its invoices.
+
+    Every field but the name is optional. A shop that never filled in its
+    address in Tally still gets a document, with those lines simply absent --
+    and "Tally holds no address" must never be printed as an empty one.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    #: The name the business trades under on paper, where it differs from the
+    #: name the books are filed under.
+    mailing_name: str | None = None
+    address: list[str] = Field(default_factory=list)
+    state: str | None = None
+    pincode: str | None = None
+    country: str | None = None
+    gstin: str | None = None
+    pan: str | None = None
+    phone: str | None = None
+    #: The mobile numbers, joined the way Tally shows them, ISD code first.
+    mobile: str | None = None
+    email: str | None = None
+    website: str | None = None
+    #: Set only when the books hold exactly one bank ledger with an account
+    #: number on it. Which bank an invoice prints is a choice made in Tally's
+    #: print settings, which no export returns -- so with two candidates the
+    #: block is left off rather than risk asking a customer to pay into the
+    #: wrong account.
+    bank: BankAccount | None = None
+
+
 class CompanyMarkers(BaseModel):
     """A company's change counters, used to decide what needs re-reading.
 
@@ -165,6 +209,7 @@ class Ledger(BaseModel):
     credit_limit: Money | None = None
     gstin: str | None = None
     phone: str | None = None
+    mobile: str | None = None
     email: str | None = None
     address: list[str] = Field(default_factory=list)
     state: str | None = None

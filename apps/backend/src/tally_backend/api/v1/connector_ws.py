@@ -27,8 +27,9 @@ from tally_core.protocol import PROTOCOL_VERSION, Hello, HelloAck, LogBatch, sig
 
 from ...core.crypto import SecretBox, SecretDecryptionError
 from ...core.security import constant_time_equals
-from ...db.models import Connector, ConnectorStatus, utc_now
+from ...db.models import Company, Connector, ConnectorStatus, utc_now
 from ...hub import ConnectorHub, ConnectorLink
+from ...services.audit import record
 from ...services.releases import ConnectorReleaseView
 from ...services.roster import build_roster
 
@@ -149,6 +150,9 @@ async def connector_socket(websocket: WebSocket) -> None:
         # database, so it is a callback rather than something the link could
         # compute -- the link is transport and knows nothing about an account.
         on_roster_request=_roster_sender(session_factory),
+        # The Remove button in the connector's window. Same shape as the roster:
+        # the link only routes the frame, and this decides what it may touch.
+        on_company_remove=_company_remover(session_factory),
         # The link stamps the published version onto every frame it sends and
         # checks the version on every frame it receives, so an outdated connector
         # is told to update within one heartbeat instead of at its next poll.
@@ -285,6 +289,52 @@ def _roster_sender(session_factory):  # noqa: ANN202 - closure over app state
         await _send_roster(session_factory, link)
 
     return send
+
+
+def _company_remover(session_factory):  # noqa: ANN202 - closure over app state
+    """Unlink a company because somebody at the connector's PC asked to.
+
+    The same soft delete as ``DELETE /companies/{id}`` -- history and the audit
+    trail stay, and linking it again from the app brings it back -- but scoped
+    to companies *this* connector feeds. The id arrives from a shop PC, so it
+    is a filter on the connector's own rows, never a lookup that trusts it.
+
+    Answered with a fresh roster either way: the window redraws from that, so a
+    removal that was refused shows as the company still being there.
+    """
+
+    async def remove(link: ConnectorLink, company_id: str) -> None:
+        async with session_factory() as session:
+            company = (
+                await session.execute(
+                    select(Company).where(
+                        Company.id == company_id,
+                        Company.connector_id == link.connector_id,
+                        Company.org_id == link.org_id,
+                    )
+                )
+            ).scalar_one_or_none()
+            if company is not None and company.is_active:
+                company.is_active = False
+                # No user: nobody signed in did this. The connector is the
+                # actor, and naming it is what lets support answer "who removed
+                # my company?" when the answer is "the shop PC did".
+                await record(
+                    session,
+                    action="company.unlink",
+                    org_id=link.org_id,
+                    company_id=company.id,
+                    detail={"source": "connector", "connector_id": link.connector_id},
+                )
+                await session.commit()
+                logger.info(
+                    "company %s unlinked from connector %s's window",
+                    company.id,
+                    link.connector_id,
+                )
+        await _send_roster(session_factory, link)
+
+    return remove
 
 
 def _status_persister(session_factory):  # noqa: ANN202 - closure over app state

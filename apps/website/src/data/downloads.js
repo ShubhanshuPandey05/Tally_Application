@@ -15,16 +15,16 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.7.0',
-    file: 'PrimeAnalystConnector-Setup-0.7.0.exe',
-    url: '/downloads/PrimeAnalystConnector-Setup-0.7.0.exe',
+    version: '0.8.0',
+    file: 'PrimeAnalystConnector-Setup-0.8.0.exe',
+    url: '/downloads/PrimeAnalystConnector-Setup-0.8.0.exe',
     size_bytes: 48622543,
     sha256: '8d46f2369a1a45916d01d8ea9640606c39d6f1bd68516485d17cb795074f0af9',
   },
   android: {
-    version: '0.10.0',
-    file: 'PrimeAnalyst-0.10.0.apk',
-    url: '/downloads/PrimeAnalyst-0.10.0.apk',
+    version: '0.11.0',
+    file: 'PrimeAnalyst-0.11.0.apk',
+    url: '/downloads/PrimeAnalyst-0.11.0.apk',
     size_bytes: 36739900,
     sha256: 'c3e365573f0fd7e294297e8acef0b45c6d61f89d648e01ac5ca6ee31fba29e32',
   },

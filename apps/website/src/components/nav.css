@@ -19,19 +19,13 @@
   height: 72px;
 }
 
-/* The symbol on its black tile, with the name beside it. One shape, so it
-   drops into a nav, a footer or a hero without being redrawn. */
+/* The wide form of the mark: the name alone. One shape, so it drops into a
+   nav, a footer or a hero without being redrawn. */
 .logo {
   display: inline-flex;
   align-items: center;
   gap: 10px;
   text-decoration: none;
-}
-
-.logo-mark {
-  width: 34px;
-  height: 34px;
-  flex: none;
 }
 
 .logo-word {
