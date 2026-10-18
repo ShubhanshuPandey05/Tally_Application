@@ -15,6 +15,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, date, datetime
 from enum import StrEnum
+from typing import Any
 
 from sqlalchemy import (
     BigInteger,
@@ -34,6 +35,8 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 from sqlalchemy.types import JSON
+
+from ..core.sealing import SealedJSON, SealedText
 
 
 def utc_now() -> datetime:
@@ -613,7 +616,9 @@ class Snapshot(Base):
     )
     #: Registered query name, e.g. ``ledgers.list``.
     dataset: Mapped[str] = mapped_column(String(100))
-    payload: Mapped[dict | list] = mapped_column(JSON)
+    #: Sealed with the company's data key (see ``core.sealing``); open it
+    #: through the company's cipher, never read it raw.
+    payload: Mapped[Any] = mapped_column(SealedJSON)
     #: Params the payload was fetched with, so a request with different params
     #: (a different date range) is not served the wrong snapshot.
     params_key: Mapped[str] = mapped_column(String(64), default="")
@@ -629,7 +634,9 @@ class Snapshot(Base):
     #:
     #: Null on rows written before this column existed; refilled by the next
     #: successful refresh, and treated as "unknown, not eligible" until then.
-    params: Mapped[dict | None] = mapped_column(JSON, nullable=True, default=dict)
+    #:
+    #: Sealed too: a ledger report's params name the ledger.
+    params: Mapped[Any] = mapped_column(SealedJSON, nullable=True)
     refreshed_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
     #: Set when a refresh fails, so the UI can say "showing data from 9:15am"
     #: rather than pretending it is current.
@@ -641,6 +648,37 @@ class Snapshot(Base):
     @property
     def age_seconds(self) -> float:
         return (utc_now() - as_utc(self.refreshed_at)).total_seconds()
+
+
+class CompanyKey(Base):
+    """One company's data key, stored only wrapped by the master key.
+
+    The unwrapped key exists in the API process's memory and nowhere else. The
+    master key that wraps it lives in AWS KMS, so this table on its own -- in a
+    dump, a backup, a snapshot -- opens nothing.
+
+    Deleting a company's rows here is **shredding**: every sealed row of that
+    company, in this database and in every backup of it, becomes unreadable at
+    once. The cascade from ``companies`` makes a hard-deleted company do exactly
+    that.
+
+    Versioned so a company's key can be replaced without rewriting history in
+    one transaction: new rows take the highest version, and every sealed value
+    names the version that opens it.
+    """
+
+    __tablename__ = "company_keys"
+
+    company_id: Mapped[str] = mapped_column(
+        ForeignKey("companies.id", ondelete="CASCADE"), primary_key=True
+    )
+    version: Mapped[int] = mapped_column(Integer, primary_key=True)
+    #: Base64 of the wrapped key -- a KMS CiphertextBlob, or a local AES-GCM wrap.
+    wrapped_key: Mapped[str] = mapped_column(Text)
+    #: Which master key wrapped it: ``kms:<key id>`` or ``local:<fingerprint>``.
+    #: What a master-key rotation searches on.
+    master_ref: Mapped[str] = mapped_column(String(300))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 # --------------------------------------------------------------------------
@@ -689,7 +727,10 @@ class VoucherRecord(Base):
     #: BigInteger because AlterID counts every edit ever made to the books and
     #: a busy company will outgrow 2^31 long before it outgrows this product.
     alter_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
-    payload: Mapped[dict] = mapped_column(JSON)
+    #: Sealed with the company's data key. Everything a filter needs -- date,
+    #: AlterID, type, effective -- sits in plain columns beside it, so no query
+    #: ever has to open a payload to decide whether it wants the row.
+    payload: Mapped[Any] = mapped_column(SealedJSON)
     #: Denormalised from the payload so the day book can page without parsing.
     voucher_type: Mapped[str | None] = mapped_column(String(200), nullable=True)
     #: Cancelled and optional vouchers are stored, never dropped: they belong in
@@ -1018,11 +1059,13 @@ class PendingVoucher(Base):
     #: Stored whole rather than as columns so a new field on a draft does not
     #: need a migration here -- this table is a courier, not a second model of
     #: what a voucher is.
-    payload: Mapped[dict] = mapped_column(JSON)
+    #: Sealed with the company's data key, like every other copy of the books.
+    payload: Mapped[Any] = mapped_column(SealedJSON)
     #: Denormalised for the list screen, so it can show "Receipt, Ram & Sons"
-    #: without parsing every payload.
+    #: without parsing every payload. The party is sealed; the kind is not,
+    #: being one of six words.
     kind: Mapped[str] = mapped_column(String(32))
-    party_name: Mapped[str | None] = mapped_column(String(300), nullable=True)
+    party_name: Mapped[str | None] = mapped_column(SealedText, nullable=True)
 
     state: Mapped[PendingVoucherState] = mapped_column(
         String(16), default=PendingVoucherState.WAITING

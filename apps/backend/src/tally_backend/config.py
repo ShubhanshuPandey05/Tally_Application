@@ -12,7 +12,7 @@ import secrets
 from functools import lru_cache
 from typing import Literal
 
-from pydantic import Field, ValidationInfo, field_validator
+from pydantic import Field, ValidationInfo, field_validator, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 Environment = Literal["dev", "staging", "prod"]
@@ -49,6 +49,33 @@ class Settings(BaseSettings):
     #: the JWT secret so dev works out of the box; prod must set it explicitly,
     #: because losing this key means every connector has to be re-paired.
     secret_keys: list[str] = Field(default_factory=list)
+
+    # --- Customer data at rest -----------------------------------------
+    #: The AWS KMS key that wraps every company's data key (an ARN, key id or
+    #: alias ARN). Required in prod: with it, the key that turns a database dump
+    #: back into books never enters this process or the database. Credentials
+    #: come from the usual AWS chain -- on EC2, the instance's IAM role.
+    data_kms_key_id: str | None = None
+    #: Region of that key, when it is not the region the AWS chain resolves.
+    data_kms_region: str | None = None
+    #: Local master secrets, comma-separated, first one wraps. For dev, tests
+    #: and a host with no AWS account. Under KMS they are kept only to read data
+    #: keys wrapped before the move, until ``datakeys rewrap`` has run. Default:
+    #: the connector-secret keys, so a fresh checkout just works.
+    data_master_keys: list[str] = Field(default_factory=list)
+    #: Prod refuses to start on a local master secret unless this is set -- a
+    #: secret in a deployment manifest sits beside the database it protects.
+    allow_local_master_key: bool = False
+    #: How long an unwrapped company key is held in memory. One KMS call per
+    #: company per this window, not per report. On a KMS outage a key past its
+    #: time is still used, with a warning, rather than failing every read.
+    data_key_cache_seconds: int = 3600
+    #: Rows the background resealer converts per batch, and the pause between
+    #: batches -- slow on purpose, so it never competes with a shop's dashboard.
+    reseal_batch_size: int = 200
+    reseal_pause_seconds: float = 0.2
+    #: Off only for a test that wants to inspect plaintext legacy rows.
+    reseal_on_start: bool = True
 
     # --- Storage --------------------------------------------------------
     database_url: str = "sqlite+aiosqlite:///./tallyflow.db"
@@ -335,7 +362,7 @@ class Settings(BaseSettings):
             raise ValueError("TALLYFLOW_JWT_SECRET must be set to a long random value in prod")
         return value
 
-    @field_validator("cors_origins", "secret_keys", mode="before")
+    @field_validator("cors_origins", "secret_keys", "data_master_keys", mode="before")
     @classmethod
     def _split_list(cls, value: object) -> object:
         # Env vars arrive as a single string; a comma-separated list is friendlier
@@ -343,6 +370,18 @@ class Settings(BaseSettings):
         if isinstance(value, str):
             return [item.strip() for item in value.split(",") if item.strip()]
         return value
+
+    @model_validator(mode="after")
+    def _data_master_key_in_prod(self) -> Settings:
+        if self.environment == "prod" and not (
+            self.data_kms_key_id or self.allow_local_master_key
+        ):
+            raise ValueError(
+                "TALLYFLOW_DATA_KMS_KEY_ID must be set in prod: customer books are "
+                "sealed under per-company keys that KMS wraps (set "
+                "TALLYFLOW_ALLOW_LOCAL_MASTER_KEY=true only on a host with no AWS)"
+            )
+        return self
 
     @property
     def is_prod(self) -> bool:
@@ -352,6 +391,11 @@ class Settings(BaseSettings):
     def encryption_keys(self) -> list[str]:
         """Keys for connector-secret encryption, newest first."""
         return self.secret_keys or [self.jwt_secret]
+
+    @property
+    def data_master_secrets(self) -> list[str]:
+        """Local master secrets for data keys, newest first."""
+        return self.data_master_keys or self.encryption_keys
 
     @property
     def heartbeat_grace_seconds(self) -> float:

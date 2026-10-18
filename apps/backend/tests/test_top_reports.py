@@ -212,7 +212,8 @@ def test_non_moving_keeps_stock_unsold_for_180_days_or_never_moved():
     report = _build("non_moving", history=history, stock=stock)
 
     assert _names(report) == ["Never", "Old"]
-    assert report["rows"][0]["cells"]["days"] == 0
+    # Never moved: no day count, rather than a 0 that reads as "today".
+    assert report["rows"][0]["cells"]["days"] is None
 
 
 def test_negative_stock_shows_magnitudes():

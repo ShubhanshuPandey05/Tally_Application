@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import asyncio
+import contextlib
 import logging
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
@@ -19,17 +21,20 @@ from .core.errors import (
     http_error_handler,
     validation_error_handler,
 )
+from .core.master_keys import build_master_keys
 from .core.middleware import RateLimitMiddleware, RequestContextMiddleware
 from .core.version_middleware import ADVISORY_HEADERS, ClientVersionMiddleware
 from .db.session import create_all, create_engine, create_session_factory
 from .hub import ConnectorHub
 from .services.connector_logs import ConnectorLogIngest
+from .services.data_keys import DataKeyring
 from .services.demo import ensure_demo_company
 from .services.logs import LogWriter, ServerLogStore, install_capture
 from .services.portal import bootstrap_owner
 from .services.public_stats import PublicStatsService
 from .services.refresher import SnapshotRefresher
 from .services.releases import build_catalogue
+from .services.resealing import reseal_in_background
 from .services.sync import SyncCoordinator
 from .services.voucher_queue import VoucherQueue
 
@@ -76,7 +81,13 @@ def create_app(settings: Settings | None = None) -> FastAPI:
     async def lifespan(app: FastAPI) -> AsyncIterator[None]:
         engine = create_engine(settings)
         app.state.engine = engine
-        app.state.session_factory = create_session_factory(engine)
+        # Every session carries the keyring, so every service that stores or
+        # reads a company's books seals and opens them with that company's key.
+        keyring = DataKeyring(
+            build_master_keys(settings), cache_seconds=settings.data_key_cache_seconds
+        )
+        app.state.keyring = keyring
+        app.state.session_factory = create_session_factory(engine, keyring)
         app.state.settings = settings
         app.state.secret_box = SecretBox(settings.encryption_keys)
 
@@ -133,6 +144,21 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         app.state.log_writer = log_writer
         await log_writer.start()
 
+        # Rows from before sealing existed. Background, slow, resumable: the
+        # API serves plaintext legacy rows correctly in the meantime.
+        reseal_task = (
+            asyncio.create_task(
+                reseal_in_background(
+                    app.state.session_factory,
+                    batch_size=settings.reseal_batch_size,
+                    pause_seconds=settings.reseal_pause_seconds,
+                ),
+                name="reseal-legacy-rows",
+            )
+            if settings.reseal_on_start
+            else None
+        )
+
         if settings.connector_logs_enabled:
             connector_logs = ConnectorLogIngest(
                 app.state.session_factory, capacity=settings.connector_log_buffer
@@ -152,6 +178,10 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         finally:
             # Logs are stopped last, so the shutdown of everything below is
             # itself recorded rather than lost to the shutdown of the recorder.
+            if reseal_task is not None:
+                reseal_task.cancel()
+                with contextlib.suppress(asyncio.CancelledError):
+                    await reseal_task
             await refresher.stop()
             await queue.stop()
             # Stopped after the refresher so a sweep cannot spawn a backfill

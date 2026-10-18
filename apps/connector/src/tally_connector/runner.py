@@ -250,7 +250,7 @@ class ConnectorRunner:
         so there is no state to carry back.
         """
         client = PairingClient(
-            api_base_url=settings.api_base_url, verify_tls=settings.verify_tls
+            api_base_url=settings.api_base_url, verify_tls=settings.tls_verified
         )
         probe = asyncio.create_task(self._probe_tally_while_pairing(settings))
         try:

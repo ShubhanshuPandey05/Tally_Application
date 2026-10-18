@@ -194,7 +194,7 @@ async def update(settings: ConnectorSettings, *, apply: bool) -> int:
         current_version=__version__,
         manifest_url=settings.manifest_url,
         auto_update=False,
-        verify_tls=settings.verify_tls,
+        verify_tls=settings.tls_verified,
     )
     print(f"Installed : {__version__}")
     print(f"Manifest  : {settings.manifest_url}")
@@ -229,7 +229,7 @@ async def update(settings: ConnectorSettings, *, apply: bool) -> int:
     installer = UpdateManager(
         current_version=__version__,
         manifest_url=settings.manifest_url,
-        verify_tls=settings.verify_tls,
+        verify_tls=settings.tls_verified,
     )
     try:
         # Does not return: apply() hands over to setup and exits this process.

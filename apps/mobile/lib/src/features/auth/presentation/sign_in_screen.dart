@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/widgets/primitives.dart';
+import '../../legal/presentation/legal_screen.dart';
 import '../application/auth_controller.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
@@ -130,6 +131,8 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                       style: theme.textTheme.bodySmall
                           ?.copyWith(color: context.mutedColor),
                     ),
+                    const SizedBox(height: 16),
+                    const LegalLinks(),
                   ],
                 ),
               ),

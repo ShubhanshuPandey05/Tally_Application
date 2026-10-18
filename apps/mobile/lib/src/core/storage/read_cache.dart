@@ -116,16 +116,27 @@ class HiveReadCache implements ReadCache {
   /// restore, say -- means the copy on disk is unreadable. It is deleted and
   /// started again rather than retried: it held nothing that the next read
   /// will not bring back.
+  ///
+  /// The web build keeps reads in memory only. A browser has no hardware
+  /// keystore, so the key to an on-disk copy would sit in the same browser
+  /// profile as the copy it protects; anything an earlier build left there is
+  /// deleted.
+  ///
+  /// Android keeps the copy out of cloud backup (see the manifest): the key
+  /// lives in this phone's Keystore, so a restored copy could never be opened
+  /// anyway, and the ciphertext has no business on anybody else's servers.
   static Future<ReadCache> open({FlutterSecureStorage? secure}) async {
     final FlutterSecureStorage storage = secure ??
         const FlutterSecureStorage(
           aOptions: AndroidOptions(encryptedSharedPreferences: true),
           iOptions: IOSOptions(accessibility: KeychainAccessibility.first_unlock),
         );
+    if (kIsWeb) {
+      await _forgetWebCopy(storage);
+      return MemoryReadCache();
+    }
     try {
-      if (!kIsWeb) {
-        Hive.init((await getApplicationSupportDirectory()).path);
-      }
+      Hive.init((await getApplicationSupportDirectory()).path);
       final HiveAesCipher cipher = HiveAesCipher(await _cipherKey(storage));
       try {
         return await _openBoxes(cipher);
@@ -137,6 +148,16 @@ class HiveReadCache implements ReadCache {
     } catch (error) {
       debugPrint('read cache unavailable, keeping reads in memory: $error');
       return MemoryReadCache();
+    }
+  }
+
+  static Future<void> _forgetWebCopy(FlutterSecureStorage storage) async {
+    try {
+      await Hive.deleteBoxFromDisk(_bodiesBox);
+      await Hive.deleteBoxFromDisk(_indexBox);
+      await storage.delete(key: _keyName);
+    } catch (error) {
+      debugPrint('could not remove an earlier on-disk read cache: $error');
     }
   }
 

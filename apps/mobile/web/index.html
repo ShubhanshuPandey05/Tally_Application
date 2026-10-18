@@ -31,8 +31,28 @@
 
   <title>Prime Analyst</title>
   <link rel="manifest" href="manifest.json">
+  <!--
+    The tile while the engine downloads, at the size the in-app splash paints
+    it, so the first Flutter frame lands on the same picture. White on purpose:
+    the app's skin never follows the system and this page cannot read it.
+  -->
+  <style>
+    html, body { margin: 0; height: 100%; background: #ffffff; }
+    #splash {
+      position: fixed; inset: 0; display: flex;
+      align-items: center; justify-content: center;
+    }
+    #splash img { width: 96px; height: 96px; }
+  </style>
 </head>
 <body>
+  <div id="splash"><img src="icons/Icon-192.png" alt="Prime Analyst"></div>
+  <script>
+    window.addEventListener('flutter-first-frame', function () {
+      var splash = document.getElementById('splash');
+      if (splash) splash.remove();
+    });
+  </script>
   <script src="flutter_bootstrap.js" async></script>
 </body>
 </html>

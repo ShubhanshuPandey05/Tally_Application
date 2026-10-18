@@ -28,7 +28,7 @@ from tally_core.versioning import is_newer
 from websockets.exceptions import ConnectionClosed, InvalidStatus
 
 from .cache import ResponseCache
-from .config import ConnectorSettings
+from .config import ConnectorSettings, is_release_build
 from .executor import JobExecutor
 from .pipeline import TallyPipeline
 from .protocol import (
@@ -235,6 +235,13 @@ class ConnectorSession:
     # -- one connection --------------------------------------------------
 
     async def _run_once(self) -> None:
+        if is_release_build() and not self._settings.backend_url.startswith("wss://"):
+            # Everything this socket carries is somebody's books. A shipped
+            # connector edited to ws:// would send them across the internet in
+            # the clear, so it refuses -- and keeps retrying, in case the
+            # setting is put back -- rather than obey. Plaintext stays possible
+            # from a checkout, which is the only place a test backend lives.
+            raise InsecureTransport(self._settings.backend_url)
         logger.info("connecting to %s", self._settings.backend_url)
 
         async with websockets.connect(
@@ -274,7 +281,15 @@ class ConnectorSession:
             # proxy's private root has to become trusted without un-trusting
             # every public CA on the way.
             context.load_verify_locations(cafile=str(self._settings.tls_ca_bundle))
-        if not self._settings.verify_tls:
+        if not self._settings.verify_tls and is_release_build():
+            # Ignored, not obeyed: without verification anybody on the path
+            # can present a certificate and read every export. A proxy that
+            # re-signs TLS is what ``tls_ca_bundle`` is for.
+            logger.warning(
+                "verify_tls=false is ignored by a release build; use tls_ca_bundle "
+                "for a network whose proxy re-signs TLS"
+            )
+        elif not self._settings.verify_tls:
             # Development only. Loud, because shipping this would expose a
             # customer's books to anyone who can intercept the connection.
             logger.warning("TLS verification is DISABLED - never do this in production")
@@ -661,6 +676,10 @@ class ConnectorSession:
         return {"jobs_accepted": len(self._jobs), **self._pipeline.stats()}
 
 
+class InsecureTransport(ConnectionError):
+    """A release build was configured to connect without TLS."""
+
+
 def _readable(exc: BaseException) -> str:
     """A connection failure in words a shop owner can act on.
 
@@ -670,6 +689,8 @@ def _readable(exc: BaseException) -> str:
     """
     if isinstance(exc, AuthenticationRejected):
         return "Prime Analyst refused this computer's credentials."
+    if isinstance(exc, InsecureTransport):
+        return "This computer is set to connect without encryption, so it will not connect."
     if isinstance(exc, ssl.SSLError):
         return "The secure connection to Prime Analyst could not be established."
     if isinstance(exc, InvalidStatus):

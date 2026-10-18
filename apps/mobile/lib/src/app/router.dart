@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/model/figures.dart';
 import '../core/widgets/period_picker.dart';
+import '../core/widgets/primitives.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
@@ -16,6 +17,8 @@ import '../features/dashboard/presentation/dashboard_screen.dart';
 import '../features/entries/domain/entry_draft.dart';
 import '../features/entries/presentation/new_entry_screen.dart';
 import '../features/entries/presentation/pending_entries_screen.dart';
+import '../features/legal/domain/legal_documents.dart';
+import '../features/legal/presentation/legal_screen.dart';
 import '../features/reports/presentation/daybook_screen.dart';
 import '../features/reports/presentation/godown_screen.dart';
 import '../features/reports/presentation/group_outstanding_screen.dart';
@@ -46,6 +49,11 @@ class Routes {
   static const String splash = '/splash';
   static const String signIn = '/sign-in';
   static const String signUp = '/sign-up';
+
+  /// Readable signed in or out: sign-up links to both, and somebody must be
+  /// able to read what they agree to before they have an account.
+  static const String terms = '/legal/terms';
+  static const String privacy = '/legal/privacy';
   static const String dashboard = '/';
   static const String reports = '/reports';
   static const String summary = '/summary';
@@ -169,6 +177,7 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       if (auth.status == AuthStatus.unknown) {
         return location == Routes.splash ? null : Routes.splash;
       }
+      if (location == Routes.terms || location == Routes.privacy) return null;
       if (!auth.isSignedIn) {
         return onAuthScreen ? null : Routes.signIn;
       }
@@ -209,6 +218,18 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.signUp,
         builder: (BuildContext context, GoRouterState state) => const SignUpScreen(),
+      ),
+      GoRoute(
+        path: Routes.terms,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const LegalScreen(document: termsOfUse),
+      ),
+      GoRoute(
+        path: Routes.privacy,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const LegalScreen(document: privacyPolicy),
       ),
       ShellRoute(
         navigatorKey: _shellKey,
@@ -449,29 +470,21 @@ class _AuthRefresh extends ChangeNotifier {
   }
 }
 
+/// The logo alone, white on every skin.
+///
+/// It continues the native launch screen, which cannot read the skin chosen in
+/// Profile, so it matches that screen rather than the theme: same white, same
+/// tile, same size (`SPLASH` in `tools/brand/generate.py`). Anything else here
+/// -- a title, a spinner, a themed background -- is a visible jump on every
+/// cold start, and this is on screen for one async tick.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.insights_rounded, size: 48, color: theme.colorScheme.primary),
-            const SizedBox(height: 16),
-            Text('Prime Analyst', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 24),
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.2),
-            ),
-          ],
-        ),
-      ),
+    return const Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(child: BrandMark(size: 96)),
     );
   }
 }

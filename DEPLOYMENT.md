@@ -101,6 +101,51 @@ Both matter, and they fail differently:
   encrypted with the JWT secret, so rotating the JWT secret silently orphans the
   entire connector fleet. Set it explicitly. Store a copy offline.
 
+## A2b. Create the KMS key
+
+Every company's stored books -- snapshots, voucher history, queued entries --
+are sealed with AES-256-GCM under that company's own data key, and every data
+key is stored only wrapped by one AWS KMS key. The API refuses to start in prod
+without it. Create it once, in the region the server runs in:
+
+```bash
+aws kms create-key --description "Prime Analyst customer data" \
+    --key-usage ENCRYPT_DECRYPT --key-spec SYMMETRIC_DEFAULT
+aws kms enable-key-rotation --key-id <KeyId from above>
+aws kms create-alias --alias-name alias/prime-analyst-data --target-key-id <KeyId>
+```
+
+Give the server permission to use it and nothing else. On EC2, attach this to
+the instance role (and set the instance's IMDSv2 hop limit to 2, or the
+container cannot reach the role's credentials):
+
+```json
+{"Effect": "Allow",
+ "Action": ["kms:GenerateDataKey", "kms:Decrypt", "kms:Encrypt"],
+ "Resource": "arn:aws:kms:<region>:<account>:key/<KeyId>",
+ "Condition": {"StringEquals": {"kms:EncryptionContext:app": "prime-analyst/company-data-key"}}}
+```
+
+Then set `TALLYFLOW_DATA_KMS_KEY_ID` to the key's ARN and
+`TALLYFLOW_DATA_KMS_REGION` to its region. Off EC2, put `AWS_ACCESS_KEY_ID` and
+`AWS_SECRET_ACCESS_KEY` for an IAM user with the same policy in `prod.env`.
+
+Three rules:
+
+- **Never schedule this key for deletion.** Without it, every customer's stored
+  history is ciphertext. Restrict `kms:ScheduleKeyDeletion` and
+  `kms:DisableKey` to the account root.
+- KMS rotates the key material yearly by itself, and old material stays able
+  to decrypt. Nothing to do on our side.
+- The API holds an unwrapped company key for an hour, so KMS sees roughly one
+  call per active company per hour. During a KMS outage keys already in memory
+  keep working.
+
+Upgrading an existing deployment: the migration converts the columns to text in
+a moment, and the API then seals the old plaintext rows in the background,
+slowly, while it serves. Watch it finish with
+`docker compose exec api python -m tally_backend.datakeys status`.
+
 ## A3. Write the production environment
 
 The full annotated list is `apps/backend/.env.example`. Minimum viable production
@@ -111,6 +156,8 @@ TALLYFLOW_ENVIRONMENT=prod
 TALLYFLOW_DEBUG=false
 TALLYFLOW_JWT_SECRET=<from A2>
 TALLYFLOW_SECRET_KEYS=<from A2>
+TALLYFLOW_DATA_KMS_KEY_ID=<from A2b>
+TALLYFLOW_DATA_KMS_REGION=<from A2b>
 TALLYFLOW_DATABASE_URL=postgresql+asyncpg://tallyflow:<password>@db-host:5432/tallyflow
 TALLYFLOW_CORS_ORIGINS=https://tallyflow.app
 TALLYFLOW_REDIS_URL=            # leave empty for a single instance; see A9
@@ -404,6 +451,24 @@ TALLYFLOW_SECRET_KEYS=<new key>,<old key>
 The first key encrypts, all keys are tried on decrypt. Leave the old key in place
 until every connector has reconnected and had its secret re-encrypted, then drop
 it in a later deploy.
+
+**The KMS key for customer data.** KMS rotates its material yearly on its own;
+nothing to do. To move to a *different* KMS key (another account, another
+region), keep the old key's grants in place, point `TALLYFLOW_DATA_KMS_KEY_ID`
+at the new one, deploy, then run:
+
+```bash
+docker compose exec api python -m tally_backend.datakeys rewrap
+```
+
+It rewraps one row per company -- never the books themselves -- and `status`
+then shows every company under the new key. Only after that can the old key's
+grants go.
+
+**Destroying one company's books.** `python -m tally_backend.datakeys shred
+<company_id> --yes` deletes its stored rows and its data key. The key is the
+only thing that opens those rows, so copies in old backups become unreadable
+too. There is no undo.
 
 ## A12. Rolling back
 

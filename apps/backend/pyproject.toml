@@ -21,6 +21,8 @@ dependencies = [
     "pyjwt>=2.8",
     "argon2-cffi>=23.1",
     "cryptography>=42.0",
+    # AWS KMS wraps every company's data key in production (core.master_keys).
+    "boto3>=1.34",
     "python-multipart>=0.0.9",
     "websockets>=12.0",
 ]
