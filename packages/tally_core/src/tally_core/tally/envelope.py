@@ -57,6 +57,25 @@ def tag(name: str, value: object) -> str:
     return f"<{name}>{xml_escape(str(value))}</{name}>"
 
 
+def date_tag(name: str, value: date) -> str:
+    """A static variable holding a date, typed as one.
+
+    **The ``TYPE="Date"`` attribute is what makes Tally use the period at
+    all.** Without it ``SVFROMDATE``/``SVTODATE`` are accepted and ignored: a
+    Voucher collection answers from whatever period is selected in TallyPrime
+    (Alt+F2), so every other year of the books is unreachable and a backfill of
+    one reads back empty -- which the store then records as a year with no
+    trade in it.
+
+    Verified live 2026-10-18 on "D.D Enterprises", whose selected period is
+    FY 2025-26 while its vouchers run to 2 Sep 2026: an untyped request for
+    FY 2026-27 returned 0 vouchers and the typed one returned all 49, and for
+    August 2026 alone 0 against 8. FY 2025-26 returned the same 80 either way.
+    It is how BizAnalyst's connector sends every dated read.
+    """
+    return f'<{name} TYPE="Date">{tally_date(value)}</{name}>'
+
+
 @dataclass(frozen=True)
 class StaticVariables:
     """The ``<STATICVARIABLES>`` block: what Tally scopes the export to.
@@ -78,9 +97,9 @@ class StaticVariables:
         if self.company is not None:
             parts.append(tag("SVCURRENTCOMPANY", self.company))
         if self.from_date is not None:
-            parts.append(tag("SVFROMDATE", tally_date(self.from_date)))
+            parts.append(date_tag("SVFROMDATE", self.from_date))
         if self.to_date is not None:
-            parts.append(tag("SVTODATE", tally_date(self.to_date)))
+            parts.append(date_tag("SVTODATE", self.to_date))
         if self.explode_flag is not None:
             parts.append(tag("EXPLODEFLAG", "Yes" if self.explode_flag else "No"))
         parts.extend(tag(key, value) for key, value in self.extra.items())

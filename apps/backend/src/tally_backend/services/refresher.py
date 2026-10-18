@@ -33,6 +33,7 @@ from ..core.errors import AppError
 from ..db.models import (
     Company,
     CompanySyncState,
+    Connector,
     Organisation,
     OrgStatus,
     Snapshot,
@@ -43,7 +44,7 @@ from ..hub import ConnectorHub
 from .dashboard import voucher_params
 from .demo import ensure_demo_company
 from .reads import FetchMode, ReadService
-from .sync import SyncCoordinator
+from .sync import SyncCoordinator, history_owed
 
 logger = logging.getLogger(__name__)
 
@@ -60,6 +61,11 @@ WARM_DATASETS: list[tuple[str, bool]] = [
     ("vouchers.list", True),
     ("outstanding.bills", True),
     ("stock_items.list", True),
+    # The Godown Summary's only source. Without a snapshot that screen had
+    # nothing to show until somebody opened it while the PC was answering --
+    # "waiting for your first read" on a report the shop had every right to.
+    # A connector from before this read refuses it by name and is skipped.
+    ("godown_stock.list", True),
     # One tiny object, and the seller block of every invoice somebody shares.
     # A connector from before this read existed refuses it by name and the
     # document prints the company name alone, as it always did.
@@ -180,11 +186,15 @@ class SnapshotRefresher:
             state = await session.get(CompanySyncState, company.id)
             has_history = state is not None and state.has_history
             last_delta = state.last_delta_at if state is not None else None
+            owed = history_owed(state, await session.get(Connector, company.connector_id))
 
         if self._sync.is_running(company.id):
             return True
 
-        if not has_history:
+        # `owed`: history read under older rules -- one year, no old item
+        # lines -- by a connector that can now read every year. The one full
+        # re-read runs as a backfill; the deltas resume once it has landed.
+        if not has_history or owed:
             started = await self._sync.ensure_backfill(company.id)
             # A backfill in flight owns the vouchers even before it finishes:
             # its first slice will publish them.

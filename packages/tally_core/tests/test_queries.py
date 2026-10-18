@@ -481,8 +481,10 @@ def test_voucher_date_range_is_validated():
 def test_voucher_envelope_carries_date_range():
     query = get_query("vouchers.list")
     xml = query.build(query.validate_params({"company": "Acme", **VOUCHER_PARAMS}))
-    assert "<SVFROMDATE>20250701</SVFROMDATE>" in xml
-    assert "<SVTODATE>20250731</SVTODATE>" in xml
+    # Typed as dates, or Tally ignores them and answers from whatever period
+    # is selected in TallyPrime -- see envelope.date_tag.
+    assert '<SVFROMDATE TYPE="Date">20250701</SVFROMDATE>' in xml
+    assert '<SVTODATE TYPE="Date">20250731</SVTODATE>' in xml
 
 
 def test_voucher_envelope_filters_on_date_because_the_period_does_not():
@@ -732,8 +734,8 @@ def test_outstanding_scopes_both_date_bounds():
     query = get_query("outstanding.bills")
     xml = query.build(query.validate_params({"company": "Acme", "as_of": AS_OF}))
 
-    assert "<SVFROMDATE>" in xml
-    assert f"<SVTODATE>{AS_OF:%Y%m%d}</SVTODATE>" in xml
+    assert '<SVFROMDATE TYPE="Date">' in xml
+    assert f'<SVTODATE TYPE="Date">{AS_OF:%Y%m%d}</SVTODATE>' in xml
     # A $$IsNonZero filter on this collection made Tally return nothing at all,
     # so settled bills are dropped in the mapper instead.
     assert "IsNonZero" not in xml

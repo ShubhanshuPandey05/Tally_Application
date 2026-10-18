@@ -17,10 +17,11 @@ what should happen.
 UAT here means **real customers, real books, real credentials**. Three things
 are true today and the pilot has to be designed around them:
 
-1. **Only the currently-open financial year can be read.** TallyPrime exposes a
-   custom voucher collection scoped to the company's open period, so a backfill
-   cannot reach earlier years. Do not promise "4 years of history". The UAT env
-   template sets `SYNC_MAX_HISTORY_YEARS=1` for this reason.
+1. **Every year is read only from connector 0.9.0 on.** Older connectors send
+   their period dates untyped, which TallyPrime ignores, so they can read only
+   the period selected on the PC. With a current connector the backfill reads
+   from the first day of the books; with an older one it keeps to
+   `SYNC_MAX_HISTORY_YEARS`, which the env templates set to 1 for that reason.
 2. **TallyPrime can crash (`c0000005`) while serving exports.** That is a fault
    inside `tally.exe`, not in this code. It is mitigated — 7.6× smaller
    payloads, no retry of the request that killed it, a cooldown — but not
