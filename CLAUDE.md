@@ -291,6 +291,41 @@ re-read in full and reconciled. Slices older than `sync_inventory_days` omit
 inventory lines — line items are what make a voucher export large, and no report
 reads the lines on a three-year-old invoice.
 
+### Customer books are sealed at rest
+
+Every stored copy of somebody's books -- `snapshots.payload` and `params`,
+`voucher_records.payload`, `pending_vouchers.payload` and `party_name` -- is
+**sealed**: zlib-compressed JSON, AES-256-GCM, under a key that belongs to that
+one company (decided 2026-10-17). Company keys live in `company_keys` only
+wrapped by a master key in **AWS KMS**, which prod refuses to start without, so
+a dump, backup or disk image of the database opens nothing.
+
+It is not end-to-end, and cannot be: the server computes every report, so the
+books exist in plaintext in the API's memory for the request that needs them,
+and nowhere else. The rules that keep that true:
+
+- **Seal and open in the service, with the company's cipher**
+  (`services.data_keys.company_cipher`). The `SealedJSON` column type refuses
+  to store anything unsealed, so a new path that forgets fails its first test.
+- **Associated data is `company_id|purpose`.** A row copied onto another company,
+  or a payload moved into another column, fails to open.
+- **Filters use plain columns, never payloads.** Date, AlterID, voucher type and
+  `is_effective` stay in the clear beside the payload so no query has to open
+  one. Adding a filterable field means adding a column, not peeking inside.
+- **A company's first key is created inside the transaction that first writes
+  for it**, and cached only after commit -- sealed rows committed under a key
+  that was not are books nobody can open again.
+- **Reads never create keys**, and legacy plaintext rows still read; the API
+  seals them in the background at start (`services.resealing`).
+- **Shredding is deleting the key.** `python -m tally_backend.datakeys shred`
+  removes a company's rows and key, which also kills every backup copy.
+
+In transit the connector's socket is TLS, and an installed (frozen) connector
+refuses `ws://` and ignores `verify_tls=false`; those exist only for a checkout
+against a test backend. On the phone, the offline copy is a Hive box under
+AES-256 with its key in Keystore/Keychain, kept out of Android backup; the
+web build keeps reads in memory only.
+
 ### Writing back
 
 A person can create a **receipt, payment, sale, purchase, sales order or purchase order**

@@ -26,7 +26,7 @@ from tally_connector.protocol import (
     verify_handshake,
 )
 from tally_connector.remote_logs import RemoteLogHandler
-from tally_connector.session import AuthenticationRejected, ConnectorSession
+from tally_connector.session import AuthenticationRejected, ConnectorSession, InsecureTransport
 
 SECRET = "test-secret"
 CONNECTOR_ID = "con_test"
@@ -475,3 +475,31 @@ async def test_a_session_without_a_log_handler_ships_nothing():
         )
 
     assert backend.log_batches == []
+
+
+async def test_an_installed_connector_will_not_send_books_in_the_clear(monkeypatch):
+    """A release build set to ws:// refuses to connect rather than obey."""
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    backend = FakeBackend()
+    async with running(backend) as url:
+        assert url.startswith("ws://")
+        session = ConnectorSession(make_settings(url), version="0.1.0-test", tally=fake_tally())
+        with pytest.raises(InsecureTransport):
+            await session._run_once()
+    assert backend.connections == 0
+
+
+def test_an_installed_connector_always_verifies_certificates(monkeypatch):
+    settings = make_settings("wss://example.invalid/v1/connector", verify_tls=False)
+    assert settings.tls_verified is False  # a checkout may, for a test backend
+    monkeypatch.setattr("sys.frozen", True, raising=False)
+    assert settings.tls_verified is True
+    assert settings_context_verifies(settings)
+
+
+def settings_context_verifies(settings: ConnectorSettings) -> bool:
+    import ssl
+
+    session = ConnectorSession(settings, version="0.1.0-test", tally=fake_tally())
+    context = session._ssl_context()
+    return context is not None and context.verify_mode == ssl.CERT_REQUIRED

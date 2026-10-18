@@ -18,9 +18,16 @@
     <uses-feature android:name="android.hardware.camera" android:required="false"/>
     <uses-feature android:name="android.hardware.camera.autofocus" android:required="false"/>
 
+    <!-- No backup. The offline copy of somebody's books is encrypted under a
+         key held in this phone's Keystore; a cloud backup would carry the
+         ciphertext to Google's servers and restore it beside a key that no
+         longer exists. Sessions are not worth carrying either: a restored
+         phone signs in again. -->
     <application
         android:label="Prime Analyst"
         android:name="${applicationName}"
+        android:allowBackup="false"
+        android:fullBackupContent="false"
         android:icon="@mipmap/ic_launcher">
         <activity
             android:name=".MainActivity"

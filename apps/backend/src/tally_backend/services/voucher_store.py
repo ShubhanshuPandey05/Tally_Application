@@ -33,9 +33,14 @@ from typing import Any
 from sqlalchemy import delete, func, select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from ..core.sealing import CompanyCipher
 from ..db.models import VoucherRecord, utc_now
+from .data_keys import company_cipher
 
 logger = logging.getLogger(__name__)
+
+#: What a sealed voucher payload is bound to (see ``core.sealing``).
+PURPOSE = "voucher.payload"
 
 
 def record_key(voucher: dict[str, Any]) -> str:
@@ -118,12 +123,15 @@ class VoucherStore:
                 result.max_alter_id = alter
 
         stored = await self._existing(company_id, keys=list(incoming), window=window)
+        cipher = (
+            await company_cipher(self._session, company_id, create=True) if incoming else None
+        )
 
         new_rows: list[dict[str, Any]] = []
         for key, voucher in incoming.items():
             row = stored.get(key)
             if row is None:
-                new_rows.append(_row_values(company_id, key, voucher))
+                new_rows.append(_row_values(cipher, company_id, key, voucher))
                 result.inserted += 1
                 continue
             if not _beats(_alter_id(voucher), row.alter_id):
@@ -134,7 +142,7 @@ class VoucherStore:
             await self._session.execute(
                 update(VoucherRecord)
                 .where(VoucherRecord.id == row.id)
-                .values(**_row_values(company_id, key, voucher, include_id=False))
+                .values(**_row_values(cipher, company_id, key, voucher, include_id=False))
             )
             result.updated += 1
 
@@ -261,7 +269,11 @@ class VoucherStore:
             )
             .order_by(VoucherRecord.voucher_date, VoucherRecord.record_key)
         )
-        return [payload for (payload,) in (await self._session.execute(stmt)).all()]
+        rows = (await self._session.execute(stmt)).all()
+        if not rows:
+            return []
+        cipher = await company_cipher(self._session, company_id)
+        return [cipher.open(payload, purpose=PURPOSE) for (payload,) in rows]
 
     async def find(self, company_id: str, *, key: str, on: date) -> dict[str, Any] | None:
         """One stored voucher, by the key a listed row carried.
@@ -283,7 +295,11 @@ class VoucherStore:
             VoucherRecord.record_key == key,
             VoucherRecord.voucher_date == on,
         )
-        return await self._session.scalar(stmt)
+        payload = await self._session.scalar(stmt)
+        if payload is None:
+            return None
+        cipher = await company_cipher(self._session, company_id)
+        return cipher.open(payload, purpose=PURPOSE)
 
     async def count(self, company_id: str) -> int:
         return int(
@@ -309,14 +325,20 @@ class VoucherStore:
 
 
 def _row_values(
-    company_id: str, key: str, voucher: dict[str, Any], *, include_id: bool = True
+    cipher: CompanyCipher | None,
+    company_id: str,
+    key: str,
+    voucher: dict[str, Any],
+    *,
+    include_id: bool = True,
 ) -> dict[str, Any]:
+    assert cipher is not None  # created whenever there is anything to write
     when = _voucher_date(voucher)
     assert when is not None  # callers filter undated vouchers first
     values: dict[str, Any] = {
         "voucher_date": when,
         "alter_id": _alter_id(voucher),
-        "payload": voucher,
+        "payload": cipher.seal(voucher, purpose=PURPOSE),
         "voucher_type": (voucher.get("voucher_type") or None),
         "is_effective": not (
             bool(voucher.get("is_cancelled")) or bool(voucher.get("is_optional"))

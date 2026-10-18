@@ -259,6 +259,17 @@ class ConnectorSettings(BaseSettings):
         host = base.split("/v1/", 1)[0].rstrip("/")
         return f"{host}/downloads/manifest.json"
 
+    @property
+    def tls_verified(self) -> bool:
+        """Whether certificates are checked -- always, in an installed build.
+
+        ``verify_tls=false`` exists for a developer against a self-signed test
+        backend. On a shop's PC it would let anyone on the path read the books
+        and collect the pairing secret, and a support call is exactly when
+        somebody is tempted to set it.
+        """
+        return self.verify_tls or is_release_build()
+
     @field_validator("backend_url")
     @classmethod
     def _require_websocket_url(cls, value: str) -> str:
@@ -430,3 +441,8 @@ def save_pairing(connector_id: str, connector_secret: str, config_path: Path | N
     return save_settings(
         {"connector_id": connector_id, "connector_secret": connector_secret}, config_path
     )
+
+
+def is_release_build() -> bool:
+    """Whether this is the installed connector rather than a checkout."""
+    return bool(getattr(sys, "frozen", False))
