@@ -32,9 +32,12 @@ import '../features/reports/presentation/ledger_statement_screen.dart';
 import '../features/reports/presentation/voucher_screen.dart';
 import '../features/reports/domain/reports.dart';
 import '../features/settings/presentation/settings_screen.dart';
+import '../features/summary/presentation/monthly_summary_screen.dart';
 import '../features/summary/presentation/summary_screen.dart';
 import '../features/team/presentation/change_password_screen.dart';
 import '../features/team/presentation/team_screen.dart';
+import '../features/top_reports/presentation/top_report_screen.dart';
+import '../features/top_reports/presentation/top_reports_screen.dart';
 import 'shell.dart';
 
 class Routes {
@@ -46,6 +49,13 @@ class Routes {
   static const String dashboard = '/';
   static const String reports = '/reports';
   static const String summary = '/summary';
+
+  /// The two report sets behind the Summary tab's cards, opened over it.
+  static const String monthlySummary = '/summary/monthly';
+  static const String topReports = '/summary/top';
+
+  /// One Top Prime report, named by its key: `?key=customers`.
+  static const String topReport = '/summary/top/report';
   static const String settings = '/settings';
   static const String companies = '/companies';
   static const String connectors = '/connectors';
@@ -228,6 +238,25 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         path: Routes.settings,
         parentNavigatorKey: _rootKey,
         builder: (BuildContext context, GoRouterState state) => const SettingsScreen(),
+      ),
+      // Longest first, for the same reason as the outstanding pair below.
+      GoRoute(
+        path: Routes.topReport,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => TopReportScreen(
+          reportKey: state.uri.queryParameters['key'] ?? '',
+        ),
+      ),
+      GoRoute(
+        path: Routes.topReports,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) => const TopReportsScreen(),
+      ),
+      GoRoute(
+        path: Routes.monthlySummary,
+        parentNavigatorKey: _rootKey,
+        builder: (BuildContext context, GoRouterState state) =>
+            const MonthlySummaryScreen(),
       ),
       GoRoute(
         path: Routes.pendingEntries,

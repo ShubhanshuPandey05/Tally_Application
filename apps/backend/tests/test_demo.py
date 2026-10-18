@@ -321,6 +321,42 @@ async def test_reports_are_populated(demo_client: AsyncClient):
     assert daybook.json()["data"]["vouchers"]
 
 
+async def test_every_top_report_answers_from_the_demo_books(demo_client: AsyncClient):
+    """Every Top Prime report reads through the same code a customer's books
+    do, so the demo is the closest thing to a live run the suite has."""
+    from tally_backend.services.top_reports import REPORT_KEYS
+
+    company_id = await _demo_id(demo_client)
+    today = date.today()
+    window = {
+        "from_date": financial_year_start(today).isoformat(),
+        "to_date": today.isoformat(),
+    }
+
+    populated = set()
+    for key in REPORT_KEYS:
+        response = await demo_client.get(
+            f"/v1/companies/{company_id}/reports/top/{key}", params=window
+        )
+        assert response.status_code == 200, (key, response.text)
+        body = response.json()
+        assert body["meta"]["refreshed_at"], key
+        data = body["data"]
+        assert len(data["rows"]) <= 10, key
+        if data["rows"]:
+            populated.add(key)
+            assert set(data["rows"][0]["cells"]) == {c["key"] for c in data["columns"]}
+
+    # The demo trades every day, so the reports that read its sales must
+    # find something. A regression to an empty table is the failure to catch.
+    assert {"customers", "suppliers", "selling_products", "expenses"} <= populated
+
+    missing = await demo_client.get(
+        f"/v1/companies/{company_id}/reports/top/not_a_report", params=window
+    )
+    assert missing.status_code == 404
+
+
 async def test_a_year_ago_still_answers_from_the_store(demo_client: AsyncClient):
     """History is what makes the year filter worth having."""
     company_id = await _demo_id(demo_client)
