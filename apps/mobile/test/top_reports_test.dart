@@ -168,25 +168,27 @@ void main() {
     expect(overdue.format(-4), 'due in 4 d');
   });
 
-  test('every catalogue key is unique, and only the order reports are held back', () {
+  test('every catalogue key is unique, and the order reports are held back off it', () {
     final List<TopReportEntry> entries = <TopReportEntry>[
       for (final TopReportGroup group in topReportCatalog) ...group.entries,
     ];
-    expect(entries, hasLength(23));
-    expect(entries.map((TopReportEntry e) => e.key).toSet(), hasLength(23));
+    expect(entries, hasLength(19));
+    expect(entries.map((TopReportEntry e) => e.key).toSet(), hasLength(19));
+    expect(entries.where((TopReportEntry e) => e.unavailable != null), isEmpty);
     expect(
-      entries.where((TopReportEntry e) => e.unavailable != null).map((TopReportEntry e) => e.key),
+      heldBackOrderReports.entries.map((TopReportEntry e) => e.key),
       <String>['so_customers', 'po_suppliers', 'so_items', 'po_items'],
     );
   });
 
-  testWidgets('the list names every report and says why the order ones wait',
+  testWidgets('the list names the reports and leaves the order ones off',
       (WidgetTester tester) async {
     await _pump(tester, const TopReportsScreen(), const <Override>[]);
 
     expect(find.text('Top Prime Customers'), findsOneWidget);
-    await tester.scrollUntilVisible(find.text('Top Purchase Order Item Outstanding'), 300);
-    expect(find.textContaining('Needs order tracking'), findsWidgets);
+    await tester.scrollUntilVisible(find.text('Top Customers Payment Performance'), 300);
+    expect(find.text('Orders'), findsNothing);
+    expect(find.textContaining('Needs order tracking'), findsNothing);
   });
 
   testWidgets('a report ranks its rows, leads with the sorted figure and totals them',
