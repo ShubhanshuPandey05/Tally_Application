@@ -14,7 +14,7 @@ JSON column is not a conversion Postgres can do, and dropping ``company_keys``
 first would destroy the only way to open those rows.
 
 Revision ID: b8e1d4f27a90
-Revises: a3c7e2d9f814
+Revises: b8d41f6e2a97
 Create Date: 2026-10-17 12:30:00.000000
 """
 from __future__ import annotations
@@ -23,7 +23,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = 'b8e1d4f27a90'
-down_revision = 'a3c7e2d9f814'
+down_revision = 'b8d41f6e2a97'
 branch_labels = None
 depends_on = None
 
