@@ -281,6 +281,40 @@ async def test_legacy_plaintext_rows_are_read_then_sealed_in_place(app, linked_c
         assert (await count_plaintext(session))["voucher_records"] == 0
 
 
+def test_none_in_a_not_null_column_is_sealed_rather_than_dropped() -> None:
+    cipher = CompanyCipher("c1", {1: KEY})
+    assert cipher.seal(None, purpose="p") is None
+    sealed = cipher.seal(None, purpose="p", nullable=False)
+    assert sealed is not None and sealed.startswith("pa1.")
+    assert cipher.open(sealed, purpose="p") is None
+
+
+async def test_a_legacy_json_null_payload_is_sealed_not_nulled(app, linked_company) -> None:
+    # The old JSON column stored Python None as JSON `null`. Writing that back
+    # as SQL NULL breaks NOT NULL and stops the resealer at this row forever.
+    company_id = linked_company["company_id"]
+    async with app.state.engine.begin() as conn:
+        await conn.execute(
+            text(
+                "INSERT INTO snapshots (id, company_id, dataset, payload, params_key, "
+                "params, refreshed_at, is_stale, row_count, duration_ms) VALUES "
+                "('nullsnap', :c, 'company.info', 'null', 'k-null', NULL, "
+                "CURRENT_TIMESTAMP, 0, 0, 0)"
+            ),
+            {"c": company_id},
+        )
+
+    report = await reseal_all(app.state.session_factory, batch_size=10, pause_seconds=0)
+    assert report.sealed["snapshots"] >= 1
+
+    (raw,) = await _raw(app, "SELECT payload FROM snapshots WHERE id = 'nullsnap'")
+    assert raw[0].startswith("pa1.")
+    async with app.state.session_factory() as session:
+        assert (await count_plaintext(session))["snapshots"] == 0
+        cipher = await company_cipher(session, company_id)
+        assert cipher.open(raw[0], purpose="snapshot.payload") is None
+
+
 async def test_a_shredded_company_gets_a_fresh_key_not_its_old_one(app, linked_company) -> None:
     company_id = linked_company["company_id"]
     voucher = {"guid": "g", "date": "2026-10-01", "alter_id": 1}

@@ -571,8 +571,10 @@ def non_moving(inputs: Inputs) -> Report:
             continue
         key = _norm(item.name)
         reference = sold.get(key) or bought.get(key)
-        days = (inputs.until - reference).days if reference else 0
-        if reference is not None and days <= IDLE_DAYS:
+        # None, not 0, for an item that never moved: "0 days" reads as "moved
+        # today", the opposite of what the row is saying.
+        days = (inputs.until - reference).days if reference else None
+        if days is not None and days <= IDLE_DAYS:
             continue
         rows.append(
             Row(

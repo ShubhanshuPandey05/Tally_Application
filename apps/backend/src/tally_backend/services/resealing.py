@@ -37,17 +37,20 @@ class _Column:
     purpose: str
     #: Legacy value is JSON text; otherwise a bare string (a party name).
     json: bool = True
+    #: Whether the column takes SQL NULL. A legacy JSON ``null`` in a NOT NULL
+    #: column is sealed as ``null`` rather than written as NULL.
+    nullable: bool = False
 
 
 #: Each table, and the sealed columns in it with what each is bound to.
 _TABLES: list[tuple[Any, list[_Column]]] = [
-    (Snapshot, [_Column("payload", _PAYLOAD), _Column("params", _PARAMS)]),
+    (Snapshot, [_Column("payload", _PAYLOAD), _Column("params", _PARAMS, nullable=True)]),
     (VoucherRecord, [_Column("payload", voucher_store.PURPOSE)]),
     (
         PendingVoucher,
         [
             _Column("payload", voucher_queue.PAYLOAD),
-            _Column("party_name", voucher_queue.PARTY, json=False),
+            _Column("party_name", voucher_queue.PARTY, json=False, nullable=True),
         ],
     ),
 ]
@@ -129,8 +132,11 @@ async def _reseal_batch(
                 if raw is None or raw.startswith(PREFIX):
                     continue
                 value = json.loads(raw) if column.json else raw
-                # A JSON `null` becomes an SQL NULL; anything else is sealed.
-                values[column.name] = cipher.seal(value, purpose=column.purpose)
+                # A JSON `null` becomes an SQL NULL where the column allows
+                # one, and a sealed `null` where it does not.
+                values[column.name] = cipher.seal(
+                    value, purpose=column.purpose, nullable=column.nullable
+                )
                 # Still plaintext at the moment of writing, or leave it: a
                 # concurrent sync may have written newer, sealed content.
                 guards.append(getattr(model, column.name).not_like(f"{PREFIX}%"))

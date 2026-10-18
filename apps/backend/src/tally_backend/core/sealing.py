@@ -90,9 +90,15 @@ class CompanyCipher:
     def can_seal(self) -> bool:
         return bool(self.keys)
 
-    def seal(self, value: Any, *, purpose: str) -> str | None:
-        """Encrypt ``value`` (anything JSON can hold). ``None`` stays ``None``."""
-        if value is None:
+    def seal(self, value: Any, *, purpose: str, nullable: bool = True) -> str | None:
+        """Encrypt ``value`` (anything JSON can hold).
+
+        ``None`` stays ``None`` for a nullable column. For a NOT NULL one it is
+        sealed as JSON ``null``, which is what the old JSON column stored for
+        it: turning it into SQL NULL there fails the write -- and, in the
+        resealer, fails the same batch on every start, forever.
+        """
+        if value is None and nullable:
             return None
         version = self.current
         if version is None:

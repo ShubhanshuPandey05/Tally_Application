@@ -677,7 +677,7 @@ class ReadService:
 
         cipher = await company_cipher(self._session, company_id, create=True)
         snapshot.params = cipher.seal(stored_params(params), purpose=_PARAMS)
-        snapshot.payload = cipher.seal(payload, purpose=_PAYLOAD)
+        snapshot.payload = cipher.seal(payload, purpose=_PAYLOAD, nullable=False)
         snapshot.refreshed_at = utc_now()
         snapshot.is_stale = False
         snapshot.last_error = None
