@@ -224,8 +224,8 @@ class TopReportGroup {
 const String _ordersNotYet =
     'Needs order tracking from TallyPrime, which the connector does not read yet';
 
-/// The twenty-three reports of the Top Prime set, grouped by who or what they
-/// rank. Keys match the backend's `top_reports.REPORT_KEYS`.
+/// The Top Prime reports on screen, grouped by who or what they rank. Keys
+/// match the backend's `top_reports.REPORT_KEYS`.
 const List<TopReportGroup> topReportCatalog = <TopReportGroup>[
   TopReportGroup('Customers and suppliers', <TopReportEntry>[
     TopReportEntry(
@@ -349,34 +349,39 @@ const List<TopReportGroup> topReportCatalog = <TopReportGroup>[
       icon: Icons.timer_outlined,
     ),
   ]),
-  TopReportGroup('Orders', <TopReportEntry>[
-    TopReportEntry(
-      key: 'so_customers',
-      title: 'Top Sales Order Outstanding Customers',
-      question: 'Customers with the most pending sales orders',
-      icon: Icons.pending_actions_outlined,
-      unavailable: _ordersNotYet,
-    ),
-    TopReportEntry(
-      key: 'po_suppliers',
-      title: 'Top Purchase Order Outstanding Suppliers',
-      question: 'Suppliers with the most pending purchase orders',
-      icon: Icons.pending_outlined,
-      unavailable: _ordersNotYet,
-    ),
-    TopReportEntry(
-      key: 'so_items',
-      title: 'Top Sales Order Item Outstanding',
-      question: 'Items with the most pending sales orders',
-      icon: Icons.inventory_outlined,
-      unavailable: _ordersNotYet,
-    ),
-    TopReportEntry(
-      key: 'po_items',
-      title: 'Top Purchase Order Item Outstanding',
-      question: 'Items with the most pending purchase orders',
-      icon: Icons.inventory_2_outlined,
-      unavailable: _ordersNotYet,
-    ),
-  ]),
 ];
+
+/// The four order reports, hidden until the connector reads order tracking from
+/// TallyPrime. A row that can only say "not yet" is noise on a list people
+/// open to act on, so the group is kept here rather than shown locked. Add it
+/// back to [topReportCatalog] once the data exists.
+const TopReportGroup heldBackOrderReports = TopReportGroup('Orders', <TopReportEntry>[
+  TopReportEntry(
+    key: 'so_customers',
+    title: 'Top Sales Order Outstanding Customers',
+    question: 'Customers with the most pending sales orders',
+    icon: Icons.pending_actions_outlined,
+    unavailable: _ordersNotYet,
+  ),
+  TopReportEntry(
+    key: 'po_suppliers',
+    title: 'Top Purchase Order Outstanding Suppliers',
+    question: 'Suppliers with the most pending purchase orders',
+    icon: Icons.pending_outlined,
+    unavailable: _ordersNotYet,
+  ),
+  TopReportEntry(
+    key: 'so_items',
+    title: 'Top Sales Order Item Outstanding',
+    question: 'Items with the most pending sales orders',
+    icon: Icons.inventory_outlined,
+    unavailable: _ordersNotYet,
+  ),
+  TopReportEntry(
+    key: 'po_items',
+    title: 'Top Purchase Order Item Outstanding',
+    question: 'Items with the most pending purchase orders',
+    icon: Icons.inventory_2_outlined,
+    unavailable: _ordersNotYet,
+  ),
+]);

@@ -165,10 +165,14 @@ def _tally_date(value: date) -> str:
 def _date_window_filter(from_date: date, to_date: date) -> str:
     """Restrict a Voucher collection to a date range.
 
-    **``SVFROMDATE``/``SVTODATE`` do not do this.** They are still sent -- they
-    set the period other parts of the response are computed against -- but a
-    custom ``<COLLECTION><TYPE>Voucher</TYPE>`` ignores them for membership and
-    yields the company's *current period* whatever the envelope asks for.
+    **``SVFROMDATE``/``SVTODATE`` do not do this.** Typed as dates they choose
+    the *period* the collection is drawn from -- which is what lets a read
+    reach a year other than the one selected in TallyPrime -- but membership
+    still runs to the whole of it: verified live 2026-10-18, a typed request
+    for April 2025 alone returned all 80 vouchers of FY 2025-26. Before they
+    were typed they were ignored outright, and a custom
+    ``<COLLECTION><TYPE>Voucher</TYPE>`` yielded the company's *current period*
+    whatever the envelope asked for.
     Verified live 2026-08-09 against company "Bhtia Supermarket": asking for
     1--9 Aug, for the whole of April, and for a two-year span all returned the
     identical 21 vouchers spanning 2026-04-01 to 2026-08-09. With this filter
@@ -258,6 +262,12 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
     """
 
     name = "vouchers.list"
+    #: 2: reads any period, not only the one selected in TallyPrime -- the
+    #: static variables are typed as dates (see ``envelope.date_tag``). The
+    #: backend plans a backfill reaching back to the first day of the books
+    #: only for a connector reporting this, because a version-1 connector reads
+    #: every other year back as empty, and empty would be stored as no trade.
+    version = 2
     params_model = VoucherListParams
     heavy = True
 
@@ -291,7 +301,7 @@ class VoucherListQuery(TallyQuery[VoucherListParams, list[Voucher]]):
                 fetch += _INVOICE_FIELDS
                 fetch += _leaf_fetch(_INVENTORY_WRAPPERS, _INVENTORY_ENTRY_FIELDS)
 
-        # Always present. Tally will happily return the whole open year without
+        # Always present. Tally will happily return the whole period without
         # it -- see _date_window_filter.
         filters = {"TFDateFilter": _date_window_filter(params.from_date, params.to_date)}
         if params.voucher_type:

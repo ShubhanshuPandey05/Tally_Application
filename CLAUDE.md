@@ -184,15 +184,21 @@ asset, so Dr), Capital `+700000` (Cr), Sales `+114000` (Cr), Purchases `-197000`
 
 ### Date windows do not work the way the envelope suggests
 
-**`SVFROMDATE`/`SVTODATE` do not scope a custom `<COLLECTION><TYPE>Voucher</TYPE>`.**
-They set the period other parts of the response are computed against, but
-collection *membership* ignores them and yields the company's current period
-whatever you ask for.
+**`SVFROMDATE`/`SVTODATE` are ignored unless typed: `<SVFROMDATE TYPE="Date">`.**
+Untyped, Tally accepts them and answers from whatever period is selected in
+TallyPrime (Alt+F2) — so every other year of the books reads back *empty*, with
+no error. Typed, they choose the period the collection is drawn from, and any
+year is reachable. `envelope.date_tag` does this for every dated read.
 
-Verified live 2026-08-09: asking for 1–9 Aug, all of April, and a two-year span
-each returned the identical 21 vouchers. Filter on `$Date` explicitly
-(`_date_window_filter` in `queries/transactions.py`). Before this, the chunking
-that exists to keep exports small was doing nothing at all.
+Verified live 2026-10-18 on "D.D Enterprises", selected period FY 2025-26 with
+vouchers running to 2 Sep 2026: untyped FY 2026-27 returned 0 vouchers, typed
+returned all 49. It is how BizAnalyst's connector sends every dated read, and
+before it the product could only ever see one year.
+
+**Even typed, they do not scope collection *membership*.** A typed request for
+April alone returned the whole financial year. Filter on `$Date` explicitly
+(`_date_window_filter` in `queries/transactions.py`) — verified live 2026-08-09,
+before which the chunking that exists to keep exports small was doing nothing.
 
 Use `yyyymmdd` date literals — the month-name form depends on Tally's interface
 language, and `dd-mm-yyyy` is indistinguishable from `mm-dd-yyyy` to a reader.
@@ -220,7 +226,8 @@ the changed *vouchers* name, which the voucher delta already returns.
 
 Closing balance and stock value ignore any date range. **The dashboard's period
 view cannot scope cash or inventory** — a period selection must say so rather
-than imply the figure was scoped. Prior financial years are largely unreachable.
+than imply the figure was scoped. A prior year's *vouchers* are reachable (see
+above); its closing balances are not, and are worked out from the vouchers.
 
 ### A closed company fails silently
 
@@ -287,9 +294,21 @@ hold a different set with no way to route between them.
 
 Chunked backfill (newest first) plus AlterID deltas. An AlterID delta reports
 what changed but never what was *deleted*, so a recent window is periodically
-re-read in full and reconciled. Slices older than `sync_inventory_days` omit
-inventory lines — line items are what make a voucher export large, and no report
-reads the lines on a three-year-old invoice.
+re-read in full and reconciled.
+
+**Every year, from the first day of the books, with every item line**
+(`HISTORY_VERSION` 2 in `services/sync.py`). The year picker offers every year
+the books cover, and a year the sync never read is a screen that says "waiting
+for your first read" for ever — or worse, a year stored empty that shows ₹0.
+Export size is still bounded by the slice, which the planner keeps sizing from
+what it reads.
+
+That needs a connector reporting `vouchers.list` version 2 (typed period dates).
+For an older one the sync keeps the old rules — `sync_max_history_years`, and no
+item lines past `sync_inventory_days` — because it reads every other year back
+as empty, and empty would be stored as no trade. A company whose history was
+read under older rules is read again in full, once, as soon as its connector
+can; until then the store keeps answering with what it has.
 
 ### Customer books are sealed at rest
 

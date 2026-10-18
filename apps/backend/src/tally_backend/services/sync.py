@@ -72,6 +72,42 @@ logger = logging.getLogger(__name__)
 
 VOUCHERS = "vouchers.list"
 MARKERS = "company.markers"
+
+#: The rules the voucher history is read under. Bumped when stored history is
+#: short of what a fresh read would hold; every company below it is then read
+#: again in full, once, the next time its connector can do it.
+#:
+#: 2 -- every voucher from the first day of the books, each with its item
+#: lines. Version 1 stopped at ``sync_max_history_years`` and dropped the lines
+#: of anything older than ``sync_inventory_days``, and could not have done more:
+#: until ``vouchers.list`` version 2 a connector read only the period selected
+#: in TallyPrime, so every other year came back empty.
+HISTORY_VERSION = 2
+#: The ``vouchers.list`` version that reads any period, not only the one
+#: selected in TallyPrime. See ``tally_core.tally.envelope.date_tag``.
+ANY_PERIOD_VOUCHERS = 2
+
+
+def reads_any_period(connector: Connector | None) -> bool:
+    """Whether this connector can read a year other than Tally's selected one.
+
+    Everything that reaches past one year hangs on this. An older connector
+    reads every other year back as *empty*, and a backfill that stored that
+    would show a year of no trade where there was trade -- so for one, the sync
+    keeps to the old rules rather than recording a hole as a fact.
+    """
+    if connector is None:
+        return False
+    version = connector.query_version(VOUCHERS)
+    return version is not None and version >= ANY_PERIOD_VOUCHERS
+
+
+def history_owed(state: CompanySyncState | None, connector: Connector | None) -> bool:
+    """Whether stored history is older than its connector could now make it."""
+    if state is None or not state.has_history:
+        return False
+    return state.history_version < HISTORY_VERSION and reads_any_period(connector)
+
 #: Master datasets re-read only when the company's master change id moves. They
 #: are cheap individually and pointless collectively: a shop adds a ledger every
 #: few weeks, and re-reading all of them every quarter hour is most of what a
@@ -258,6 +294,7 @@ def plan_backfill(
     inventory_days: int,
     chunk_days: int | None = None,
     probe_days: int | None = None,
+    full_books: bool = False,
 ) -> list[Window]:
     """Cut a company's history into readable slices, newest first.
 
@@ -277,10 +314,17 @@ def plan_backfill(
     sized properly. This is only safe because ``_resize_remaining`` widens as
     well as narrows -- otherwise a quiet shop would inherit the probe's span and
     pay a round trip a month for four years.
+
+    ``full_books`` reads every voucher from ``books_from``, each with its item
+    lines; ``max_history_years`` and ``inventory_days`` then apply only while
+    the books' first day is unknown. Every year the app's year picker offers is
+    a year somebody can open, and a year the sync never read is a screen that
+    says "waiting" for ever. The size of each export is still bounded the same
+    way: by the slice, which the planner keeps sizing from what it reads.
     """
     floor = today.replace(year=today.year - max_history_years)
     if books_from is not None:
-        floor = max(floor, books_from)
+        floor = books_from if full_books else max(floor, books_from)
     if floor > today:
         # Books that start in the future: nothing sensible to read, and looping
         # on it would produce an unbounded plan.
@@ -317,7 +361,7 @@ def plan_backfill(
                 label=_label(start, end),
                 # Stock lines are most of a voucher export's bytes and nothing
                 # reads them on old invoices.
-                include_inventory=end >= inventory_cutoff,
+                include_inventory=full_books or end >= inventory_cutoff,
             )
         )
         if start <= floor:
@@ -454,6 +498,7 @@ class SyncService:
 
         connector = await self._session.get(Connector, company.connector_id)
         pace = pace_for(connector.sync_speed if connector else None, self._settings)
+        full_books = reads_any_period(connector)
         windows = plan_backfill(
             books_from=books_from,
             today=today,
@@ -461,6 +506,7 @@ class SyncService:
             max_history_years=self._settings.sync_max_history_years,
             inventory_days=self._settings.sync_inventory_days,
             probe_days=pace.probe_days,
+            full_books=full_books,
         )
         run = SyncRun(
             company_id=company.id,
@@ -468,6 +514,7 @@ class SyncService:
             state=SyncState.PENDING,
             total_chunks=len(windows),
             current_label=windows[0].label if windows else None,
+            history_version=HISTORY_VERSION if full_books else 1,
         )
         self._session.add(run)
         await self._session.flush()
@@ -660,7 +707,24 @@ class SyncCoordinator:
             if resumable is None:
                 state = await session.get(CompanySyncState, company_id)
                 if state is not None and state.has_history:
-                    return None
+                    company = await session.get(Company, company_id)
+                    connector = (
+                        await session.get(Connector, company.connector_id)
+                        if company is not None
+                        else None
+                    )
+                    # History read under older rules is read again in full,
+                    # once. Until it lands the store keeps answering with what
+                    # it has: coverage only ever widens.
+                    if not history_owed(state, connector):
+                        return None
+                    logger.info(
+                        "reading company %s again in full: its history follows "
+                        "version %d of the rules and its connector can now "
+                        "reach every year",
+                        company_id,
+                        state.history_version,
+                    )
             if resumable is not None:
                 run_id = resumable.id
                 revived = await self._revive_stalled_chunks(session, run_id)
@@ -812,6 +876,14 @@ class SyncCoordinator:
             run = await session.get(SyncRun, run_id)
             if run is None or run.cancel_requested:
                 return None
+            # `_fail_chunk` abandons the plan when a slice fails for good, and
+            # this is where that has to be honoured. Without it the loop claimed
+            # the next slice anyway and set the run back to RUNNING, so a
+            # company not open in TallyPrime walked its whole plan -- a refused
+            # request a slice, every few seconds, on the shop's till -- and then
+            # did it again at every sweep.
+            if run.state is SyncState.FAILED:
+                return None
 
             chunk = await session.scalar(
                 select(SyncChunk)
@@ -841,8 +913,9 @@ class SyncCoordinator:
             if company is None or chunk is None or run is None:
                 return None
 
-            include_inventory = chunk.to_date >= date.today() - timedelta(
-                days=self._settings.sync_inventory_days
+            include_inventory = run.history_version >= HISTORY_VERSION or (
+                chunk.to_date
+                >= date.today() - timedelta(days=self._settings.sync_inventory_days)
             )
             result = await self._hub.run(
                 connector_id=company.connector_id,
@@ -975,6 +1048,9 @@ class SyncCoordinator:
             max_history_years=self._settings.sync_max_history_years,
             inventory_days=self._settings.sync_inventory_days,
             chunk_days=target,
+            # The pending slices' own floor is the plan's floor; a re-cut must
+            # not let the history-year cap pull it forward again.
+            full_books=run.history_version >= HISTORY_VERSION,
         )
         for old_chunk in pending:
             await session.delete(old_chunk)
@@ -1145,6 +1221,10 @@ class SyncCoordinator:
                 run.current_label = None
                 run.user_message = None
                 run.error = None
+                # Only a run that read every slice of its plan may say the store
+                # now meets that plan's rules.
+                state = await SyncService(session, self._settings).state_for(company_id)
+                state.history_version = max(state.history_version or 0, run.history_version)
 
             run.finished_at = utc_now()
             run.heartbeat_at = utc_now()

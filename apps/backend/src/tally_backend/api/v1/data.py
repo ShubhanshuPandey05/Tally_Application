@@ -30,7 +30,7 @@ from ...services.audit import record
 from ...services.dashboard import voucher_kinds
 from ...services.demo_books import financial_year_start
 from ...services.reads import DataResult, FetchMode, NoDataYet, ReadService
-from ...services.sync import SyncCoordinator
+from ...services.sync import HISTORY_VERSION, SyncCoordinator
 from ..deps import (
     CompanyDep,
     DashboardServiceDep,
@@ -606,10 +606,14 @@ async def voucher_detail(
         request=request,
     )
 
-    # The sync stores no stock lines for slices older than this, so an empty
-    # item list on an old voucher has to be reported as "not kept" rather than
-    # drawn as a voucher that sold nothing.
-    inventory_kept = on >= date.today() - timedelta(days=settings.sync_inventory_days)
+    # History read under the old rules holds no stock lines for slices older
+    # than this, so an empty item list on an old voucher there has to be
+    # reported as "not kept" rather than drawn as a voucher that sold nothing.
+    # A store read under the current rules kept every line.
+    sync_state = await session.get(CompanySyncState, company.id)
+    inventory_kept = (
+        sync_state is not None and sync_state.history_version >= HISTORY_VERSION
+    ) or on >= date.today() - timedelta(days=settings.sync_inventory_days)
 
     return DataEnvelope(
         data=an.voucher_detail(

@@ -428,6 +428,14 @@ class Connector(Base, TimestampMixin):
             return True
         return any(entry.get("name") == query for entry in self.capabilities)
 
+    def query_version(self, query: str) -> int | None:
+        """The version of ``query`` this connector last reported, if any."""
+        for entry in self.capabilities or ():
+            if entry.get("name") == query:
+                version = entry.get("version")
+                return version if isinstance(version, int) else None
+        return None
+
 
 class ConnectorClaim(Base):
     """A shop PC waiting to be told which account it belongs to.
@@ -798,6 +806,13 @@ class CompanySyncState(Base):
     #: Set when Tally does not report change ids at all. The sync then keeps
     #: working, by re-reading a recent date window instead.
     supports_incremental: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: Which rules the stored history was read under; see
+    #: ``services.sync.HISTORY_VERSION``. A store below the current version is
+    #: read again in full, once, rather than trusted: before version 2 every
+    #: year outside the one selected in TallyPrime came back empty, and the
+    #: store recorded those years as covered -- a year of no trade, not a year
+    #: not read.
+    history_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, onupdate=utc_now
     )
@@ -892,6 +907,11 @@ class SyncRun(Base):
     #: aborting mid-export, because a half-read export still costs Tally the
     #: whole read.
     cancel_requested: Mapped[bool] = mapped_column(Boolean, default=False)
+    #: The ``HISTORY_VERSION`` this run was planned under. Only a run that
+    #: finishes under the current rules may raise the company's own version: a
+    #: backfill planned before an upgrade and resumed after it covers only the
+    #: span the old rules allowed.
+    history_version: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
 
     chunks: Mapped[list[SyncChunk]] = relationship(
         back_populates="run", cascade="all, delete-orphan", order_by="SyncChunk.seq"

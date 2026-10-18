@@ -18,6 +18,7 @@ from tally_core.tally import get_query
 from tally_backend.db.models import (
     Company,
     CompanySyncState,
+    Connector,
     SyncChunk,
     SyncRun,
     SyncState,
@@ -25,11 +26,13 @@ from tally_backend.db.models import (
     utc_now,
 )
 from tally_backend.services.sync import (
+    HISTORY_VERSION,
     SyncCoordinator,
     SyncService,
     _merge_by_name,
     _touched_masters,
     plan_backfill,
+    reads_any_period,
 )
 from tally_backend.services.voucher_store import VoucherStore, record_key
 
@@ -1417,3 +1420,196 @@ def test_answering_behind_needs_a_window_that_runs_past_the_last_sync() -> None:
     assert not state.answers_behind(date(2026, 7, 1), date(2026, 9, 29))
     # Wholly after: the store holds none of it.
     assert not state.answers_behind(date(2026, 9, 30), date(2026, 9, 30))
+
+
+# --------------------------------------------------------------------------
+# Every year of the books
+# --------------------------------------------------------------------------
+#
+# A connector reporting vouchers.list version 2 types its period as a date, so
+# Tally answers for the year asked about rather than the one selected on the
+# PC. Only then may a backfill reach past one year: an older connector reads
+# every other year back as empty, and empty would be stored as no trade.
+
+
+def test_a_full_books_plan_reaches_the_first_day_of_the_books() -> None:
+    windows = plan_backfill(
+        books_from=date(2018, 4, 1),
+        today=TODAY,
+        chunk_months=6,
+        max_history_years=1,
+        inventory_days=400,
+        full_books=True,
+    )
+
+    assert windows[-1].from_date == date(2018, 4, 1), "not floored at the history cap"
+    assert all(w.include_inventory for w in windows), "item lines on every year"
+
+
+def test_a_full_books_plan_without_a_known_start_is_still_bounded() -> None:
+    windows = plan_backfill(
+        books_from=None,
+        today=TODAY,
+        chunk_months=6,
+        max_history_years=4,
+        inventory_days=400,
+        full_books=True,
+    )
+    assert windows[-1].from_date == date(2022, 8, 5)
+
+
+def _capable(version: int | None) -> Connector:
+    caps = [] if version is None else [{"name": "vouchers.list", "version": version}]
+    return Connector(name="PC", capabilities=caps)
+
+
+def test_only_a_version_2_voucher_read_reaches_every_period() -> None:
+    assert reads_any_period(_capable(2))
+    assert not reads_any_period(_capable(1))
+    assert not reads_any_period(_capable(None)), "nothing reported is not a promise"
+    assert not reads_any_period(None)
+
+
+async def _report_capability(app, connector_id: str, version: int) -> None:
+    async with app.state.session_factory() as session:
+        connector = await session.get(Connector, connector_id)
+        connector.capabilities = [{"name": "vouchers.list", "version": version}]
+        await session.commit()
+
+
+def old_books_markers() -> dict:
+    return {**markers(), "books_from": date(2019, 4, 1).isoformat()}
+
+
+async def test_a_capable_connector_backfills_every_year_with_its_lines(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    await _report_capability(app, linked_company["connector_id"], 2)
+    fake_connector.set("company.markers", old_books_markers())
+    vouchers_by_window(fake_connector)
+
+    await run_backfill(coordinator, linked_company["company_id"])
+
+    reads = [p for q, p in fake_connector.calls if q == "vouchers.list"]
+    assert min(p["from_date"] for p in reads) == "2019-04-01"
+    assert all(p["include_inventory"] for p in reads)
+    async with app.state.session_factory() as session:
+        state = await session.get(CompanySyncState, linked_company["company_id"])
+        assert state.backfilled_from == date(2019, 4, 1)
+        assert state.history_version == HISTORY_VERSION
+
+
+async def test_an_old_connector_keeps_to_the_history_cap(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """It would read the years past the cap back as empty, and store them so."""
+    await _report_capability(app, linked_company["connector_id"], 1)
+    fake_connector.set("company.markers", old_books_markers())
+    vouchers_by_window(fake_connector)
+
+    await run_backfill(coordinator, linked_company["company_id"])
+
+    async with app.state.session_factory() as session:
+        state = await session.get(CompanySyncState, linked_company["company_id"])
+        assert state.backfilled_from == date(2022, 8, 5)
+        assert state.history_version == 1
+
+
+async def test_history_read_under_old_rules_is_read_again_once_it_can_be(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    company_id = linked_company["company_id"]
+    await _report_capability(app, linked_company["connector_id"], 1)
+    fake_connector.set("company.markers", old_books_markers())
+    vouchers_by_window(fake_connector)
+    await run_backfill(coordinator, company_id)
+
+    # Up to date for what that connector can do: nothing to re-read.
+    assert await coordinator.ensure_backfill(company_id) is None
+
+    # The shop's connector is updated.
+    await _report_capability(app, linked_company["connector_id"], 2)
+    assert await coordinator.ensure_backfill(company_id) is not None
+    await coordinator._tasks[company_id]
+
+    async with app.state.session_factory() as session:
+        state = await session.get(CompanySyncState, company_id)
+        assert state.backfilled_from == date(2019, 4, 1)
+        assert state.history_version == HISTORY_VERSION
+
+    # And once is enough.
+    assert await coordinator.ensure_backfill(company_id) is None
+
+
+async def test_a_full_read_that_stops_short_does_not_claim_the_new_rules(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """Coverage keeps what landed; the version waits for every slice."""
+    company_id = linked_company["company_id"]
+    await _report_capability(app, linked_company["connector_id"], 2)
+    fake_connector.set("company.markers", old_books_markers())
+
+    vouchers_by_window(fake_connector)
+
+    async def failing_run(**kwargs):
+        # Everything before 2024 fails, as a PC switched off mid-backfill would.
+        if kwargs["query"] == "vouchers.list" and kwargs["params"]["from_date"] < "2024-01-01":
+            from tally_core.protocol import JobError, JobResult
+
+            return JobResult.failure(
+                "job",
+                JobError(
+                    code="connector_offline",
+                    message="offline",
+                    user_message="Your Tally PC is offline.",
+                    retryable=False,
+                ),
+            )
+        return await fake_connector.run(**kwargs)
+
+    app.state.hub.run = failing_run
+    await run_backfill(coordinator, company_id)
+
+    async with app.state.session_factory() as session:
+        state = await session.get(CompanySyncState, company_id)
+        assert state.has_history
+        assert state.history_version < HISTORY_VERSION
+
+
+async def test_a_slice_that_fails_for_good_stops_the_whole_run(
+    app, coordinator, linked_company, fake_connector
+) -> None:
+    """A company not open in TallyPrime costs one refused read, not one per slice.
+
+    The run used to be marked failed and then carry straight on: the next slice
+    was claimed regardless, so a closed company walked its whole plan every few
+    seconds -- and again at every sweep.
+    """
+    fake_connector.set("company.markers", old_books_markers())
+    asked: list[str] = []
+
+    async def closed_company(**kwargs):
+        if kwargs["query"] == "vouchers.list":
+            from tally_core.protocol import JobError, JobResult
+
+            asked.append(kwargs["params"]["from_date"])
+            return JobResult.failure(
+                "job",
+                JobError(
+                    code="company_not_loaded",
+                    message="not open",
+                    user_message="'Bhtia Supermarket' is not open in TallyPrime.",
+                    retryable=False,
+                ),
+            )
+        return await fake_connector.run(**kwargs)
+
+    app.state.hub.run = closed_company
+    await run_backfill(coordinator, linked_company["company_id"])
+
+    assert len(asked) == 1
+    async with app.state.session_factory() as session:
+        run = await SyncService(session, app.state.settings).latest_run(
+            linked_company["company_id"]
+        )
+        assert run.state is SyncState.FAILED

@@ -162,9 +162,12 @@ class Settings(BaseSettings):
     #: Ceiling on an adaptive slice, so a quiet shop cannot talk the planner
     #: into one enormous export. Deliberately about ``sync_chunk_months``.
     sync_chunk_max_days: int = 186
-    #: Ceiling on how far back a backfill reaches, even when the books start
-    #: earlier. Nobody opens a phone to read a six-year-old day book, and every
-    #: extra year is another multi-minute export against a live shop.
+    #: How far back a backfill reaches when it cannot read the whole of the
+    #: books: a connector older than ``vouchers.list`` version 2, which reads
+    #: only the period selected in TallyPrime, or books whose first day Tally
+    #: did not report. A current connector reads from the first day of the
+    #: books, because every year the app offers is a year somebody can open --
+    #: see ``services.sync.HISTORY_VERSION``.
     sync_max_history_years: int = 4
     #: The ceiling on one slice, in vouchers. Calendar spans are a poor proxy
     #: for size -- a shop doing fifty vouchers a month and one doing five
@@ -198,9 +201,11 @@ class Settings(BaseSettings):
     #: and a slice that times out is retried rather than abandoned.
     sync_chunk_timeout_seconds: float = 300.0
     sync_chunk_attempts: int = 2
-    #: Slices newer than this carry inventory lines; older ones do not. Stock
-    #: detail is what makes a voucher export large, and no report looks at the
-    #: line items on a three-year-old invoice.
+    #: For a connector older than ``vouchers.list`` version 2 only: slices newer
+    #: than this carry inventory lines and older ones do not. A current
+    #: connector keeps every line, because the year picker lets somebody open a
+    #: product report for any year and lineless vouchers would read as a year
+    #: that sold nothing.
     sync_inventory_days: int = 400
     #: Floor between delta syncs for one company.
     sync_delta_interval_seconds: int = 300
