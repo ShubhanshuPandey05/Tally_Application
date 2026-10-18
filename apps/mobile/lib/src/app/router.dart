@@ -4,6 +4,7 @@ import 'package:go_router/go_router.dart';
 
 import '../core/model/figures.dart';
 import '../core/widgets/period_picker.dart';
+import '../core/widgets/primitives.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
@@ -469,29 +470,21 @@ class _AuthRefresh extends ChangeNotifier {
   }
 }
 
+/// The logo alone, white on every skin.
+///
+/// It continues the native launch screen, which cannot read the skin chosen in
+/// Profile, so it matches that screen rather than the theme: same white, same
+/// tile, same size (`SPLASH` in `tools/brand/generate.py`). Anything else here
+/// -- a title, a spinner, a themed background -- is a visible jump on every
+/// cold start, and this is on screen for one async tick.
 class _SplashScreen extends StatelessWidget {
   const _SplashScreen();
 
   @override
   Widget build(BuildContext context) {
-    final ThemeData theme = Theme.of(context);
-    return Scaffold(
-      body: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Icon(Icons.insights_rounded, size: 48, color: theme.colorScheme.primary),
-            const SizedBox(height: 16),
-            Text('Prime Analyst', style: theme.textTheme.headlineSmall),
-            const SizedBox(height: 24),
-            const SizedBox(
-              width: 22,
-              height: 22,
-              child: CircularProgressIndicator(strokeWidth: 2.2),
-            ),
-          ],
-        ),
-      ),
+    return const Scaffold(
+      backgroundColor: Colors.white,
+      body: Center(child: BrandMark(size: 96)),
     );
   }
 }
