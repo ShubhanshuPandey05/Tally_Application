@@ -1,25 +1,25 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-17T07:17:41+00:00",
+  "generated_at": "2026-10-20T10:42:42+00:00",
   "connector": {
-    "version": "0.8.0",
-    "file": "PrimeAnalystConnector-Setup-0.8.0.exe",
-    "url": "/downloads/PrimeAnalystConnector-Setup-0.8.0.exe",
-    "sha256": "2e0b69b5fb9a8f6fd68088e81e78f64bdb9885d16940466aeb918c231222efb5",
-    "size_bytes": 48659743,
+    "version": "0.9.0",
+    "file": "PrimeAnalystConnector-Setup-0.9.0.exe",
+    "url": "/downloads/PrimeAnalystConnector-Setup-0.9.0.exe",
+    "sha256": "401aad4f29541ab3d83fad11c3fdef4ccc9960f89702976776413f24549579b6",
+    "size_bytes": 48661169,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "The connector window is simpler: a company can now be removed from this computer on the Companies tab, the People tab is now called Users, and server addresses and other technical details are no longer shown. Nothing needs to be set up again."
+    "notes": "Every year of your books can now be read, not only the year selected in TallyPrime. After this update, earlier years fill in on their own. Nothing needs to be set up again."
   },
   "android": {
-    "version": "0.11.0",
-    "file": "PrimeAnalyst-0.11.0.apk",
-    "url": "/downloads/PrimeAnalyst-0.11.0.apk",
-    "sha256": "74e4a5638f8402d4bdc60ed8c1198c8d029d4c9057d6113287e1745f9880ce15",
-    "size_bytes": 36819142,
+    "version": "0.12.0",
+    "file": "PrimeAnalyst-0.12.0.apk",
+    "url": "/downloads/PrimeAnalyst-0.12.0.apk",
+    "sha256": "1df7b7b7fa33dd635f26f414ed2170841b776861a75e57b93961bafa866c24dc",
+    "size_bytes": 37224298,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "A new Prime Analyst icon, and improvements to the vouchers and tax invoices you share from the app.",
-    "build_number": 12
+    "notes": "Summary is now two tabs, Monthly Voucher Summary and Top Prime Reports. Earlier financial years can be opened from the year picker. Terms of Use and Privacy Policy are in Profile, and the splash screen shows just the logo.",
+    "build_number": 13
   }
 }

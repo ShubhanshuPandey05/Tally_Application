@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "The connector window is simpler: a company can now be removed from this computer on the Companies tab, the People tab is now called Users, and server addresses and other technical details are no longer shown. Nothing needs to be set up again."
+    "notes": "Every year of your books can now be read, not only the year selected in TallyPrime. After this update, earlier years fill in on their own. Nothing needs to be set up again."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "A new Prime Analyst icon, and improvements to the vouchers and tax invoices you share from the app."
+    "notes": "Summary is now two tabs, Monthly Voucher Summary and Top Prime Reports. Earlier financial years can be opened from the year picker. Terms of Use and Privacy Policy are in Profile, and the splash screen shows just the logo."
   }
 }
