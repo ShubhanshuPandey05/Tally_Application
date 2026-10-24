@@ -47,6 +47,9 @@ class PortalUserResponse(BaseModel):
     #: How many customer accounts this person is responsible for. Shown on the
     #: partner list, which is otherwise a list of names that says nothing.
     accounts: int = 0
+    #: What a customer types at signup to be attributed to this person. Set
+    #: once and never changed -- see ``PlatformUser.partner_code``.
+    partner_code: str | None = None
 
 
 class PortalSessionResponse(BaseModel):
@@ -75,6 +78,9 @@ class CreatePartnerRequest(BaseModel):
     email: EmailStr
     full_name: str | None = Field(default=None, max_length=200)
     role: PlatformRole = PlatformRole.PARTNER
+    #: Required for a partner, optional for an owner. Chosen here, by the owner
+    #: creating them, and fixed from then on.
+    partner_code: str | None = Field(default=None, max_length=40)
 
 
 class PartnerCreatedResponse(BaseModel):
@@ -88,6 +94,10 @@ class UpdatePartnerRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=200)
     role: PlatformRole | None = None
     is_active: bool | None = None
+    #: Accepted only for somebody who has no code yet -- a partner created
+    #: before codes existed. Once set it is refused here, not ignored, so the
+    #: portal cannot appear to have changed a code it did not change.
+    partner_code: str | None = Field(default=None, max_length=40)
 
 
 # --------------------------------------------------------------------------
@@ -102,6 +112,9 @@ class AccountAdmin(BaseModel):
     email: str
     full_name: str | None
     last_login_at: UtcDatetime | None = None
+    #: The number they gave at signup. The reason a partner looks at this row
+    #: is usually to ring somebody.
+    phone: str | None = None
 
 
 class AccountResponse(BaseModel):
@@ -134,6 +147,12 @@ class AccountResponse(BaseModel):
     #: The organisation's admins, so a decision can be made without a second
     #: request. There are rarely more than a handful.
     admins: list[AccountAdmin] = Field(default_factory=list)
+    #: On the free trial rather than a plan somebody approved. Approving it
+    #: ends the trial; ``trial_started_at`` is empty until the business links
+    #: its first company, which is when the trial's days start counting.
+    is_trial: bool = False
+    trial_granted_at: UtcDatetime | None = None
+    trial_started_at: UtcDatetime | None = None
 
 
 class ApproveAccountRequest(BaseModel):
@@ -183,6 +202,9 @@ class PortalStats(BaseModel):
     """
 
     pending: int = 0
+    #: Live on the free trial. Counted apart from ``active`` because a trial is
+    #: the partner's next phone call, not a customer already won.
+    trial: int = 0
     active: int = 0
     suspended: int = 0
     rejected: int = 0

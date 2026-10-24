@@ -21,6 +21,7 @@ import './accounts.css';
 const TABS = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
+  { value: 'trial', label: 'Free trial' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'rejected', label: 'Rejected' },
@@ -176,7 +177,9 @@ export default function Accounts({ me, onCounts }) {
                         <strong>{account.name}</strong>
                         <span className="dim" style={{ fontSize: 12 }}>
                           {account.admins[0]
-                            ? account.admins[0].email
+                            ? [account.admins[0].email, account.admins[0].phone]
+                                .filter(Boolean)
+                                .join(' · ')
                             : 'no admin has signed in yet'}
                         </span>
                       </div>
@@ -195,7 +198,13 @@ export default function Accounts({ me, onCounts }) {
                       </span>
                     </td>
                     <td className="muted nowrap">
-                      {account.expires_at ? fmtDate(account.expires_at) : 'Open-ended'}
+                      {account.is_trial
+                        ? account.trial_started_at
+                          ? `Trial to ${fmtDate(account.expires_at)}`
+                          : 'Trial, not started'
+                        : account.expires_at
+                          ? fmtDate(account.expires_at)
+                          : 'Open-ended'}
                     </td>
                     <td className="muted nowrap">{fmtAgo(account.created_at)}</td>
                   </tr>

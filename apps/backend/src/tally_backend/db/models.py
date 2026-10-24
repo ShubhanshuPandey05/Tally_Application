@@ -169,6 +169,16 @@ class PlatformUser(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: What a shop owner types at signup to say which partner brought them in.
+    #: Set by an owner when the partner is created and **never changed after**:
+    #: it is printed on a partner's cards and leaflets, and a code that could be
+    #: edited would quietly stop attributing every signup that still carries
+    #: the old one. Stored normalised (upper case), unique, and nullable only
+    #: for owners and for partners created before codes existed -- each of
+    #: those may be given one, once.
+    partner_code: Mapped[str | None] = mapped_column(
+        String(20), unique=True, nullable=True
+    )
 
 
 class OrgStatus(StrEnum):
@@ -263,6 +273,21 @@ class Organisation(Base, TimestampMixin):
     #: themselves a colleague on an account thousands of other people also open.
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    #: When this business was given the free trial -- at signup, or at the
+    #: first sign-in after its admin added a phone number. Set once and never
+    #: cleared, so a business gets one trial however many times it signs in,
+    #: and the portal can still tell a converted trial from a direct approval.
+    trial_granted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: When the trial's clock started: the first time the business linked a
+    #: company of its own. Not signup -- a new account sees only the lent demo
+    #: company, and counting days spent looking at somebody else's invented
+    #: books would spend the trial before the customer's own Tally arrived.
+    trial_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
     memberships: Mapped[list[Membership]] = relationship(back_populates="organisation")
     connectors: Mapped[list[Connector]] = relationship(back_populates="organisation")
     companies: Mapped[list[Company]] = relationship(back_populates="organisation")
@@ -276,6 +301,13 @@ class User(Base, TimestampMixin):
     #: Argon2id. The column is wide enough for a future parameter bump.
     password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Mobile number, normalised to ``+<country><number>`` by
+    #: ``services.trial.normalise_phone``. Unique, because a free trial is
+    #: granted to a business whose admin has given one, and a number that
+    #: could sit on any number of accounts would be a trial per email address.
+    #: Nullable for accounts made before it was asked for; the app asks those
+    #: people for it at their next sign-in.
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     #: Set when an admin created this account with a temporary password. Until it
     #: is cleared the only thing the session can do is set a new password.

@@ -405,7 +405,7 @@ async def test_only_an_owner_can_create_portal_accounts(
 
     allowed = await client.post(
         "/v1/portal/partners",
-        json={"email": "new@partner.in", "full_name": "New Partner"},
+        json={"email": "new@partner.in", "full_name": "New Partner", "partner_code": "NEW-01"},
         headers=platform_owner["headers"],
     )
     assert allowed.status_code == 201
@@ -440,7 +440,7 @@ async def test_an_owner_can_reissue_a_partners_password(
     """A generated password, shown once, that must be replaced -- as on creation."""
     created = await client.post(
         "/v1/portal/partners",
-        json={"email": "forgot@partner.in"},
+        json={"email": "forgot@partner.in", "partner_code": "FORGOT-01"},
         headers=platform_owner["headers"],
     )
     partner_id = created.json()["partner"]["id"]

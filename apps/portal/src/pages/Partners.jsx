@@ -21,6 +21,7 @@ export default function Partners({ me }) {
   const [issued, setIssued] = useState(null);
   const [renaming, setRenaming] = useState(null);
   const [resetting, setResetting] = useState(null);
+  const [coding, setCoding] = useState(null);
   const [busy, setBusy] = useState('');
 
   async function update(partner, patch) {
@@ -62,6 +63,7 @@ export default function Partners({ me }) {
                 <tr>
                   <th>Person</th>
                   <th>Role</th>
+                  <th>Partner code</th>
                   <th>Accounts</th>
                   <th>Last signed in</th>
                   <th className="right">Manage</th>
@@ -92,6 +94,22 @@ export default function Partners({ me }) {
                         <option value="partner">Partner</option>
                         <option value="owner">Owner</option>
                       </select>
+                    </td>
+                    <td>
+                      {partner.partner_code ? (
+                        <span className="mono">{partner.partner_code}</span>
+                      ) : (
+                        // Only somebody created before codes existed lands
+                        // here, and they may be given one -- once.
+                        <button
+                          type="button"
+                          className="btn btn-sm"
+                          disabled={busy === partner.id}
+                          onClick={() => setCoding(partner)}
+                        >
+                          Set code
+                        </button>
+                      )}
                     </td>
                     <td className="muted">{partner.accounts}</td>
                     <td className="muted nowrap">
@@ -178,6 +196,18 @@ export default function Partners({ me }) {
             setResetting(null);
             setIssued(created);
             partners.reload();
+          }}
+        />
+      ) : null}
+
+      {coding ? (
+        <SetPartnerCode
+          partner={coding}
+          onClose={() => setCoding(null)}
+          onSaved={() => {
+            setCoding(null);
+            partners.reload();
+            toast('Partner code set.');
           }}
         />
       ) : null}
@@ -283,10 +313,76 @@ function ResetPassword({ partner, onClose, onReset }) {
   );
 }
 
+/**
+ * The field both forms share. Upper-cased as it is typed so what the owner sees
+ * is exactly what gets stored, and printed on the partner's cards.
+ */
+function PartnerCodeField({ value, onChange, required }) {
+  return (
+    <Field
+      label={required ? 'Partner code' : 'Partner code (optional)'}
+      hint="What customers type when they sign up, like RAVI-01. 4 to 20 letters, digits or hyphens. It can never be changed once saved."
+    >
+      <input
+        className="input mono"
+        required={required}
+        maxLength={20}
+        pattern="[A-Za-z0-9][A-Za-z0-9\-]{2,18}[A-Za-z0-9]"
+        value={value}
+        onChange={(event) => onChange(event.target.value.toUpperCase().replace(/\s/g, ''))}
+      />
+    </Field>
+  );
+}
+
+function SetPartnerCode({ partner, onClose, onSaved }) {
+  const [code, setCode] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  async function submit(event) {
+    event.preventDefault();
+    setBusy(true);
+    setError('');
+    try {
+      await api(`/partners/${partner.id}`, { method: 'PATCH', body: { partner_code: code } });
+      onSaved();
+    } catch (failure) {
+      setError(failure.message);
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Modal
+      title="Set partner code"
+      subtitle={`For ${partner.full_name || partner.email}. Check it carefully: it cannot be changed afterwards.`}
+      onClose={onClose}
+      footer={
+        <>
+          <button className="btn" type="button" onClick={onClose}>
+            Cancel
+          </button>
+          <button className="btn btn-primary" type="submit" form="set-code" disabled={busy}>
+            {busy ? <span className="spinner" /> : null}
+            Save code
+          </button>
+        </>
+      }
+    >
+      <form id="set-code" onSubmit={submit} style={{ display: 'grid', gap: 14 }}>
+        <PartnerCodeField value={code} onChange={setCode} required />
+        {error ? <p className="error-text">{error}</p> : null}
+      </form>
+    </Modal>
+  );
+}
+
 function AddPartner({ onClose, onCreated }) {
   const [email, setEmail] = useState('');
   const [name, setName] = useState('');
   const [role, setRole] = useState('partner');
+  const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -298,7 +394,7 @@ function AddPartner({ onClose, onCreated }) {
       onCreated(
         await api('/partners', {
           method: 'POST',
-          body: { email, full_name: name || null, role },
+          body: { email, full_name: name || null, role, partner_code: code || null },
         }),
       );
     } catch (failure) {
@@ -355,6 +451,7 @@ function AddPartner({ onClose, onCreated }) {
             <option value="owner">Owner</option>
           </select>
         </Field>
+        <PartnerCodeField value={code} onChange={setCode} required={role === 'partner'} />
         {error ? <p className="error-text">{error}</p> : null}
       </form>
     </Modal>
@@ -390,6 +487,13 @@ function ShowSecret({ created, onClose }) {
       }
     >
       <div className="secret">{created.temporary_password}</div>
+      {created.partner.partner_code ? (
+        <p className="hint" style={{ margin: 0 }}>
+          Their partner code is{' '}
+          <strong className="mono">{created.partner.partner_code}</strong>. Customers type
+          it when they sign up so their account lands with this partner.
+        </p>
+      ) : null}
       <p className="hint" style={{ margin: 0 }}>
         Send it over a channel you trust. They will be made to replace it before they can
         do anything.

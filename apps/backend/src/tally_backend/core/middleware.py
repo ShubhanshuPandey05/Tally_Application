@@ -79,6 +79,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
     #: Endpoints that trade a guessable secret for a session. These are the ones
     #: worth brute-forcing, and no legitimate client signs in ten times a minute.
     _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register")
+    #: The signup form's live partner-code check. Worth guessing too -- a valid
+    #: code names a partner -- but it fires as somebody types, so it gets a
+    #: bucket of its own rather than spending the sign-in allowance of the
+    #: person filling in the form.
+    _LOOKUP_PATHS = ("/v1/auth/partner-code",)
 
     def _bucket_for(self, path: str) -> tuple[str, int]:
         """The counter this request belongs in, and the ceiling for it.
@@ -99,6 +104,8 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         """
         if path.startswith(self._CREDENTIAL_PATHS):
             return "credential", self._auth
+        if path.startswith(self._LOOKUP_PATHS):
+            return "lookup", self._auth * 3
         return "default", self._default
 
     async def dispatch(self, request: Request, call_next: Handler) -> Response:

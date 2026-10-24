@@ -33,7 +33,7 @@ from fastapi import APIRouter, Query, Request, status
 from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from ...core.errors import ConflictError, NotFound
+from ...core.errors import ConflictError, InvalidInput, NotFound
 from ...core.security import (
     generate_temporary_password,
     hash_password,
@@ -55,6 +55,11 @@ from ...db.models import (
 from ...services.audit import record
 from ...services.entitlements import Entitlement
 from ...services.portal import PortalAuthService
+from ...services.trial import (
+    is_on_trial,
+    is_well_formed_partner_code,
+    normalise_partner_code,
+)
 from ..deps import HubDep, PlatformPrincipal, PlatformPrincipalDep, SessionDep, SettingsDep
 from ..portal_schemas import (
     AccountAdmin,
@@ -183,6 +188,8 @@ async def portal_stats(
         # dashboard that files it under active is one that hides the problem.
         if entitlement.is_expired and org.status is OrgStatus.ACTIVE:
             stats.expired += 1
+        elif entitlement.is_trial and org.status is OrgStatus.ACTIVE:
+            stats.trial += 1
         else:
             setattr(stats, org.status.value, getattr(stats, org.status.value) + 1)
 
@@ -218,7 +225,16 @@ async def list_accounts(
     account ever approved.
     """
     query = _scoped(select(Organisation), principal.partner_scope)
-    if status_filter.strip():
+    if status_filter.strip() == "trial":
+        # Not an OrgStatus -- a trial is a live account nobody has approved a
+        # plan for yet -- but it is the list a partner works through, so it
+        # filters like one.
+        query = query.where(
+            Organisation.status == OrgStatus.ACTIVE,
+            Organisation.trial_granted_at.is_not(None),
+            Organisation.approved_at.is_(None),
+        )
+    elif status_filter.strip():
         try:
             query = query.where(Organisation.status == OrgStatus(status_filter.strip()))
         except ValueError as exc:
@@ -266,13 +282,15 @@ async def approve_account(
 
     # Not an error, but not a no-op either -- silently re-approving would reset
     # `approved_at` and lose who actually made the original decision.
-    if org.status is OrgStatus.ACTIVE:
+    # A trial is live but nobody has decided its plan, so approving one is the
+    # ordinary next step rather than a re-approval.
+    if org.status is OrgStatus.ACTIVE and not is_on_trial(org):
         raise ConflictError(
             f"org {org.id} is already active",
             user_message="That account is already active. Edit its limits instead.",
         )
 
-    previous = org.status
+    previous = "trial" if is_on_trial(org) else org.status.value
     org.status = OrgStatus.ACTIVE
     org.max_users = payload.max_users
     org.max_companies = payload.max_companies
@@ -290,7 +308,7 @@ async def approve_account(
         org_id=org.id,
         user_id=principal.user.id,
         detail={
-            "from": previous.value,
+            "from": previous,
             "max_users": org.max_users,
             "max_companies": org.max_companies,
             "expires_at": org.expires_at.isoformat() if org.expires_at else None,
@@ -437,6 +455,17 @@ async def create_partner(
             user_message="Someone already uses that email in the portal.",
         )
 
+    code = await _new_partner_code(session, payload.partner_code)
+    # A partner without a code has no way for a customer to name them at
+    # signup, and every account they bring in would arrive unattributed. An
+    # owner may go without -- they see every account anyway.
+    if code is None and not payload.role.allows(PlatformRole.OWNER):
+        raise InvalidInput(
+            "partner created without a partner code",
+            user_message="Give this partner a partner code.",
+            detail={"field": "partner_code"},
+        )
+
     password = generate_temporary_password()
     partner = PlatformUser(
         email=email,
@@ -444,6 +473,7 @@ async def create_partner(
         full_name=payload.full_name,
         role=payload.role,
         must_change_password=True,
+        partner_code=code,
     )
     session.add(partner)
     await session.flush()
@@ -452,7 +482,12 @@ async def create_partner(
         session,
         action="portal.create_partner",
         user_id=principal.user.id,
-        detail={"partner_id": partner.id, "email": email, "role": partner.role.value},
+        detail={
+            "partner_id": partner.id,
+            "email": email,
+            "role": partner.role.value,
+            "partner_code": partner.partner_code,
+        },
         request=request,
     )
     return PartnerCreatedResponse(
@@ -490,6 +525,21 @@ async def update_partner(
             ),
         )
 
+    new_code = None
+    if payload.partner_code is not None:
+        # Set once, never changed. The code is printed on the partner's cards,
+        # and changing it would quietly stop attributing every signup that
+        # still carries the old one -- so a second attempt is refused, even
+        # with the same value, rather than looking like it did something.
+        if partner.partner_code is not None:
+            raise ConflictError(
+                f"portal user {partner.id} already has a partner code",
+                user_message="A partner code cannot be changed once it is set.",
+                detail={"field": "partner_code"},
+            )
+        new_code = await _new_partner_code(session, payload.partner_code)
+        partner.partner_code = new_code
+
     if payload.full_name is not None:
         # A blank name clears it; the list then falls back to the email.
         partner.full_name = payload.full_name.strip() or None
@@ -506,6 +556,7 @@ async def update_partner(
             "partner_id": partner.id,
             "role": partner.role.value,
             "is_active": partner.is_active,
+            **({"partner_code": new_code} if new_code else {}),
         },
         request=request,
     )
@@ -584,6 +635,32 @@ async def _account_or_404(
             user_message="That account was not found.",
         )
     return org
+
+
+async def _new_partner_code(session: AsyncSession, raw: str | None) -> str | None:
+    """A code that is well formed and nobody else's, or ``None`` for none given."""
+    code = normalise_partner_code(raw)
+    if code is None:
+        return None
+    if not is_well_formed_partner_code(code):
+        raise InvalidInput(
+            f"malformed partner code {code!r}",
+            user_message=(
+                "A partner code is 4 to 20 letters, digits or hyphens, "
+                "like RAVI-01."
+            ),
+            detail={"field": "partner_code"},
+        )
+    taken = await session.scalar(
+        select(PlatformUser.id).where(PlatformUser.partner_code == code)
+    )
+    if taken is not None:
+        raise ConflictError(
+            f"partner code {code} already exists",
+            user_message="Another partner already has that code. Choose a different one.",
+            detail={"field": "partner_code"},
+        )
+    return code
 
 
 def _resolve_partner(principal: PlatformPrincipal, requested: str | None) -> str | None:
@@ -711,6 +788,7 @@ async def _account_responses(
                 email=user.email,
                 full_name=user.full_name,
                 last_login_at=user.last_login_at,
+                phone=user.phone,
             )
         )
 
@@ -748,6 +826,9 @@ async def _account_responses(
             partner_name=names.get(org.partner_id or ""),
             notes=org.notes,
             admins=admins.get(org.id, []),
+            is_trial=is_on_trial(org),
+            trial_granted_at=org.trial_granted_at,
+            trial_started_at=org.trial_started_at,
         )
         for org in orgs
     ]
@@ -772,6 +853,7 @@ async def _portal_user_response(
         must_change_password=user.must_change_password,
         last_login_at=user.last_login_at,
         accounts=accounts,
+        partner_code=user.partner_code,
     )
 
 

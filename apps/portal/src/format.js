@@ -81,6 +81,11 @@ export function fmtCount(value) {
  * account, so the portal treats it as its own state everywhere it is shown.
  */
 export function shownStatus(account) {
+  // A trial is a live account nobody has chosen a plan for, and one that ran
+  // out is not the same conversation as a paid term that lapsed.
+  if (account?.status === 'active' && account.is_trial) {
+    return account.is_expired ? 'trial_ended' : 'trial';
+  }
   return account?.is_expired && account.status === 'active' ? 'expired' : account?.status;
 }
 
@@ -90,6 +95,8 @@ export const STATUS_LABEL = {
   suspended: 'Suspended',
   rejected: 'Rejected',
   expired: 'Expired',
+  trial: 'Free trial',
+  trial_ended: 'Trial ended',
 };
 
 export const STATUS_TONE = {
@@ -98,6 +105,8 @@ export const STATUS_TONE = {
   suspended: 'stop',
   rejected: 'off',
   expired: 'stop',
+  trial: 'accent',
+  trial_ended: 'stop',
 };
 
 /** Level -> pill tone. Anything below WARNING is deliberately colourless. */

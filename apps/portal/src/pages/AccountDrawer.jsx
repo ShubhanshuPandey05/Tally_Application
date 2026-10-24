@@ -21,11 +21,17 @@ import './accounts.css';
 export default function AccountDrawer({ account, me, partners, onClose, onChanged }) {
   const toast = useToast();
   const owner = me.role === 'owner';
-  const pending = account.status !== 'active';
+  // A trial is live, but nobody has chosen its plan yet -- approving it is
+  // the next step, exactly as for a signup still waiting.
+  const pending = account.status !== 'active' || account.is_trial;
 
   const [maxUsers, setMaxUsers] = useState(account.max_users || 5);
   const [maxCompanies, setMaxCompanies] = useState(account.max_companies || 3);
-  const [expires, setExpires] = useState(toDateInput(account.expires_at));
+  // A trial's end date is the trial's, not the plan's: carried into the form
+  // it would end the paid plan on the day the trial would have.
+  const [expires, setExpires] = useState(
+    account.is_trial ? '' : toDateInput(account.expires_at),
+  );
   const [partnerId, setPartnerId] = useState(account.partner_id || (owner ? '' : me.id));
   const [notes, setNotes] = useState(account.notes || '');
   const [busy, setBusy] = useState(false);
@@ -52,7 +58,13 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
             body: { ...body, clear_expiry: !expires },
           });
       onChanged(updated);
-      toast(approving ? `${updated.name} is now active.` : 'Saved.');
+      toast(
+        approving
+          ? account.is_trial
+            ? `${updated.name} is now on a plan.`
+            : `${updated.name} is now active.`
+          : 'Saved.',
+      );
       if (approving) onClose();
     } catch (failure) {
       setError(failure.message);
@@ -130,7 +142,11 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
             onClick={() => save(pending)}
           >
             {busy ? <span className="spinner" /> : null}
-            {pending ? 'Approve and activate' : 'Save changes'}
+            {account.is_trial
+              ? 'Approve plan'
+              : pending
+                ? 'Approve and activate'
+                : 'Save changes'}
           </button>
         </>
       }
@@ -147,7 +163,18 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
         </Link>
       </div>
 
-      {pending ? (
+      {account.is_trial ? (
+        <p className="hint" style={{ margin: 0 }}>
+          {account.trial_started_at
+            ? `On the free trial since they linked their first company on ${fmtDate(
+                account.trial_started_at,
+              )}. ${account.is_expired ? 'It ended' : 'It ends'} on ${fmtDate(
+                account.expires_at,
+              )}.`
+            : 'On the free trial. Its days start counting when they link their first company.'}{' '}
+          Approving a plan ends the trial.
+        </p>
+      ) : pending ? (
         <p className="hint" style={{ margin: 0 }}>
           Until this is approved the business can add no Tally PC, company or
           colleague — both ceilings are zero. Meanwhile its people can sign in and
@@ -198,7 +225,15 @@ export default function AccountDrawer({ account, me, partners, onClose, onChange
               <span className="avatar">{initials(admin.full_name, admin.email)}</span>
               <div className="stack grow">
                 <strong style={{ fontSize: 13 }}>{admin.full_name || admin.email}</strong>
-                <span className="dim" style={{ fontSize: 12 }}>{admin.email}</span>
+                <span className="dim" style={{ fontSize: 12 }}>
+                  {admin.email}
+                  {admin.phone ? (
+                    <>
+                      {' · '}
+                      <a href={`tel:${admin.phone}`}>{admin.phone}</a>
+                    </>
+                  ) : null}
+                </span>
               </div>
               <span className="dim nowrap" style={{ fontSize: 12 }}>
                 {admin.last_login_at ? `last in ${fmtAgo(admin.last_login_at)}` : 'never signed in'}

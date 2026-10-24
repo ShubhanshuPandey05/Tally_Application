@@ -58,6 +58,13 @@ export default function Overview({ me, onCounts }) {
             note={data.pending ? 'Needs a decision' : 'Nothing waiting'}
             to="/accounts?status=pending"
           />
+          <Stat
+            tone="accent"
+            value={data.trial || 0}
+            label="On free trial"
+            note={data.trial ? 'Worth a call' : null}
+            to="/accounts?status=trial"
+          />
           <Stat tone="ok" value={data.active} label="Active" to="/accounts?status=active" />
           <Stat
             tone={data.expired ? 'stop' : 'plain'}
