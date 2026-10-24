@@ -696,6 +696,18 @@ again: an unknown code is **refused, never dropped**, because a signup that
 silently lost its partner is an account the partner who brought it in can never
 see. A valid code sets `partner_id`, which is what scopes the account to them.
 
+**Two plans, a year each, and every sale is written down** (decided
+2026-10-24): Standard at ₹3,000 and Premium at ₹5,000, both plus 18% GST
+(`services/plans.py`). Approving an account requires choosing one, and the term
+is set to a year from that day rather than typed; renewing adds a year to the
+current end. Each approval or renewal writes a `plan_sales` row with the price,
+GST and partner **copied in**, in integer paise, so the portal's Sales report
+reads the same for a closed month however prices or partners change later. An
+owner approving a partner's signup leaves it with that partner; moving an
+account is the owner-only `/transfer` route, and sales already made stay with
+whoever made them. A signup with no partner code is seen only by owners
+("No partner yet") until it is transferred.
+
 The organisation row is still the onboarding request; there is no second table,
 because two ids for one business is a reconciliation step that only ever goes
 wrong.

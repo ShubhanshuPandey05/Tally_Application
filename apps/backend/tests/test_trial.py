@@ -14,7 +14,7 @@ What these pin, in the order a customer meets them:
 
 from __future__ import annotations
 
-from datetime import timedelta
+from datetime import datetime, timedelta
 
 import pytest
 from httpx import AsyncClient
@@ -346,13 +346,15 @@ async def test_approving_a_trial_ends_it(app, client: AsyncClient, platform_owne
 
     approved = await client.post(
         f"/v1/portal/accounts/{org_id}/approve",
-        json={"max_users": 5, "max_companies": 3},
+        json={"plan": "standard", "max_users": 5, "max_companies": 3},
         headers=platform_owner["headers"],
     )
     assert approved.status_code == 200, approved.text
     assert approved.json()["is_trial"] is False
-    # The trial's end date does not survive into the plan.
-    assert approved.json()["expires_at"] is None
+    # The trial's end date does not survive into the plan: a plan runs a year.
+    ends = datetime.fromisoformat(approved.json()["expires_at"])
+    assert ends > utc_now() + timedelta(days=360)
+    assert approved.json()["plan"] == "standard"
 
     plan = (await client.get("/v1/auth/me", headers=account["headers"])).json()["subscription"]
     assert plan["is_trial"] is False

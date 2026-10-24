@@ -46,14 +46,17 @@ from ...db.models import (
     Membership,
     Organisation,
     OrgStatus,
+    PlanSale,
     PlatformRole,
     PlatformUser,
     Role,
     User,
+    as_utc,
     utc_now,
 )
 from ...services.audit import record
 from ...services.entitlements import Entitlement
+from ...services.plans import CATALOGUE, Plan, PlanCode, plan_for, term_from
 from ...services.portal import PortalAuthService
 from ...services.trial import (
     is_on_trial,
@@ -67,12 +70,15 @@ from ..portal_schemas import (
     ApproveAccountRequest,
     CreatePartnerRequest,
     PartnerCreatedResponse,
+    PlanResponse,
     PortalChangePasswordRequest,
     PortalLoginRequest,
     PortalSessionResponse,
     PortalStats,
     PortalUserResponse,
+    RenewAccountRequest,
     StatusChangeRequest,
+    TransferAccountRequest,
     UpdateAccountRequest,
     UpdatePartnerRequest,
     UpdatePortalProfileRequest,
@@ -192,6 +198,14 @@ async def portal_stats(
             stats.trial += 1
         else:
             setattr(stats, org.status.value, getattr(stats, org.status.value) + 1)
+        # Counted for an owner only -- a partner's scope never contains one --
+        # and only while the signup is still live, because a rejected stray is
+        # nobody's next task.
+        if org.partner_id is None and not org.is_demo and org.status in {
+            OrgStatus.PENDING,
+            OrgStatus.ACTIVE,
+        }:
+            stats.unassigned += 1
 
     org_ids = [org.id for org in orgs]
     if org_ids:
@@ -216,6 +230,10 @@ async def list_accounts(
     # validation error on the way to seeing everything is a poor answer.
     status_filter: Annotated[str, Query(alias="status", max_length=20)] = "",
     search: Annotated[str, Query(max_length=200)] = "",
+    #: ``unassigned`` for the signups no partner code brought in; a partner id
+    #: for one partner's book. A partner is already scoped to their own, so
+    #: for them this can only narrow to nothing.
+    partner: Annotated[str, Query(max_length=40)] = "",
     limit: Annotated[int, Query(ge=1, le=200)] = 100,
 ) -> list[AccountResponse]:
     """Customer accounts, newest first.
@@ -244,6 +262,12 @@ async def list_accounts(
             ) from exc
     if search.strip():
         query = query.where(Organisation.name.ilike(f"%{search.strip()}%"))
+    if partner.strip() == "unassigned":
+        query = query.where(
+            Organisation.partner_id.is_(None), Organisation.is_demo.is_(False)
+        )
+    elif partner.strip():
+        query = query.where(Organisation.partner_id == partner.strip())
 
     orgs = (
         (await session.execute(query.order_by(Organisation.created_at.desc()).limit(limit)))
@@ -291,15 +315,29 @@ async def approve_account(
         )
 
     previous = "trial" if is_on_trial(org) else org.status.value
+    now = utc_now()
     org.status = OrgStatus.ACTIVE
     org.max_users = payload.max_users
     org.max_companies = payload.max_companies
-    org.expires_at = payload.expires_at
-    org.approved_at = utc_now()
+    # A plan is a year from the day it is sold. Not a date anybody types: a
+    # term that could be set to anything is a price that could be.
+    org.expires_at = term_from(now)
+    org.approved_at = now
     org.approved_by = principal.user.id
-    org.partner_id = _resolve_partner(principal, payload.partner_id)
+    # An owner approving without naming a partner leaves the account with the
+    # partner it has. It used to clear it -- harmless while nothing hung off
+    # the field, but now the sale below is credited by it, and an owner
+    # approving a partner's signup would have taken the sale off them.
+    # Moving an account is the transfer route's job, not a side effect.
+    if principal.partner_scope is not None or payload.partner_id is not None:
+        org.partner_id = _resolve_partner(principal, payload.partner_id)
     if payload.notes is not None:
         org.notes = payload.notes
+    # After the partner is settled, so the sale is credited to whoever the
+    # account belongs to as of this decision.
+    sale = _record_sale(
+        session, principal, org, payload.plan, kind="new", starts_at=now
+    )
     await session.flush()
 
     await record(
@@ -309,6 +347,8 @@ async def approve_account(
         user_id=principal.user.id,
         detail={
             "from": previous,
+            "plan": sale.plan,
+            "total_paise": sale.total_paise,
             "max_users": org.max_users,
             "max_companies": org.max_companies,
             "expires_at": org.expires_at.isoformat() if org.expires_at else None,
@@ -365,6 +405,106 @@ async def update_account(
         request=request,
     )
     return (await _account_responses(session, hub, [org]))[0]
+
+
+@router.post("/accounts/{org_id}/renew", response_model=AccountResponse)
+async def renew_account(
+    org_id: str,
+    payload: RenewAccountRequest,
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    hub: HubDep,
+    request: Request,
+) -> AccountResponse:
+    """Sell another year, on the same plan or a different one.
+
+    The new year starts where the current one ends, so renewing a month early
+    loses the customer nothing; a plan that has already run out starts again
+    from today. Only for an account that has been approved onto a plan --
+    a trial or a waiting signup is approved, not renewed, and a suspended one
+    is reinstated through approval so its numbers are restated.
+    """
+    org = await _account_or_404(session, principal, org_id)
+    if org.status is not OrgStatus.ACTIVE or is_on_trial(org) or org.is_demo:
+        raise ConflictError(
+            f"org {org.id} cannot be renewed from {org.status}",
+            user_message="Only an active account on a plan can be renewed. Approve it instead.",
+        )
+
+    now = utc_now()
+    current_end = as_utc(org.expires_at) if org.expires_at else None
+    starts_at = current_end if current_end and current_end > now else now
+    sale = _record_sale(
+        session, principal, org, payload.plan, kind="renewal", starts_at=starts_at
+    )
+    org.expires_at = sale.ends_at
+    await session.flush()
+
+    await record(
+        session,
+        action="portal.renew_account",
+        org_id=org.id,
+        user_id=principal.user.id,
+        detail={
+            "plan": sale.plan,
+            "total_paise": sale.total_paise,
+            "expires_at": org.expires_at.isoformat(),
+            "partner_id": org.partner_id,
+        },
+        request=request,
+    )
+    return (await _account_responses(session, hub, [org]))[0]
+
+
+@router.post("/accounts/{org_id}/transfer", response_model=AccountResponse)
+async def transfer_account(
+    org_id: str,
+    payload: TransferAccountRequest,
+    principal: PlatformPrincipalDep,
+    session: SessionDep,
+    hub: HubDep,
+    request: Request,
+) -> AccountResponse:
+    """Hand an account to a partner. Owner-only.
+
+    How a signup that came in without a partner code reaches somebody who will
+    look after it. Sales already made stay credited to whoever made them;
+    everything from now on -- renewals included -- goes to the new partner.
+    """
+    principal.require(PlatformRole.OWNER)
+    org = await _account_or_404(session, principal, org_id)
+    if org.is_demo:
+        raise ConflictError(
+            "the demo cannot be transferred",
+            user_message="The demo account belongs to nobody.",
+        )
+    if payload.partner_id is not None:
+        target = await session.get(PlatformUser, payload.partner_id)
+        if target is None or not target.is_active:
+            raise NotFound(
+                f"portal user {payload.partner_id}",
+                user_message="That partner was not found, or is switched off.",
+            )
+
+    previous = org.partner_id
+    org.partner_id = payload.partner_id
+    await session.flush()
+
+    await record(
+        session,
+        action="portal.transfer_account",
+        org_id=org.id,
+        user_id=principal.user.id,
+        detail={"from": previous, "to": org.partner_id},
+        request=request,
+    )
+    return (await _account_responses(session, hub, [org]))[0]
+
+
+@router.get("/plans", response_model=list[PlanResponse])
+async def list_plans(principal: PlatformPrincipalDep) -> list[PlanResponse]:
+    """The catalogue, so the portal's plan picker shows the server's prices."""
+    return [_plan_response(plan) for plan in CATALOGUE.values()]
 
 
 @router.post("/accounts/{org_id}/suspend", response_model=AccountResponse)
@@ -637,6 +777,47 @@ async def _account_or_404(
     return org
 
 
+def _record_sale(
+    session: AsyncSession,
+    principal: PlatformPrincipal,
+    org: Organisation,
+    code: PlanCode,
+    *,
+    kind: str,
+    starts_at,  # noqa: ANN001 - datetime
+) -> PlanSale:
+    """Write down one plan sold, at today's price, credited to the account's partner."""
+    plan = plan_for(code)
+    sale = PlanSale(
+        org_id=org.id,
+        partner_id=org.partner_id,
+        sold_by=principal.user.id,
+        plan=plan.code.value,
+        kind=kind,
+        price_paise=plan.price_paise,
+        gst_paise=plan.gst_paise,
+        total_paise=plan.total_paise,
+        starts_at=starts_at,
+        ends_at=term_from(starts_at),
+        created_at=utc_now(),
+    )
+    session.add(sale)
+    org.plan = plan.code.value
+    return sale
+
+
+def _plan_response(plan: Plan) -> PlanResponse:
+    return PlanResponse(
+        code=plan.code,
+        name=plan.name,
+        price_paise=plan.price_paise,
+        gst_paise=plan.gst_paise,
+        total_paise=plan.total_paise,
+        suggested_users=plan.suggested_users,
+        suggested_companies=plan.suggested_companies,
+    )
+
+
 async def _new_partner_code(session: AsyncSession, raw: str | None) -> str | None:
     """A code that is well formed and nobody else's, or ``None`` for none given."""
     code = normalise_partner_code(raw)
@@ -829,6 +1010,10 @@ async def _account_responses(
             is_trial=is_on_trial(org),
             trial_granted_at=org.trial_granted_at,
             trial_started_at=org.trial_started_at,
+            plan=org.plan,
+            plan_name=CATALOGUE[PlanCode(org.plan)].name
+            if org.plan in CATALOGUE
+            else None,
         )
         for org in orgs
     ]

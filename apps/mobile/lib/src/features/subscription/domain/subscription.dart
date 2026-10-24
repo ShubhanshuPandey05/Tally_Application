@@ -51,6 +51,7 @@ class OrgSubscription {
     this.isTrial = false,
     this.trialStartedAt,
     this.trialDays,
+    this.planName,
   });
 
   final SubscriptionStatus status;
@@ -84,6 +85,10 @@ class OrgSubscription {
   /// How long the trial runs once it starts. Sent only on a trial.
   final int? trialDays;
 
+  /// The plan bought ("Standard", "Premium"), or null on a trial or on an
+  /// account approved before plans existed.
+  final String? planName;
+
   /// A trial that has been given but whose clock is not running yet -- the
   /// business has not linked a company of its own.
   bool get isTrialWaitingToStart => isTrial && trialStartedAt == null;
@@ -94,6 +99,10 @@ class OrgSubscription {
   String get stateLabel {
     if (isTrial) return isExpired ? 'Trial ended' : 'Free trial';
     if (isExpired) return 'Expired';
+    final String? plan = planName;
+    if (status == SubscriptionStatus.active && plan != null && plan.isNotEmpty) {
+      return '$plan plan';
+    }
     return status.label;
   }
 
@@ -140,5 +149,6 @@ class OrgSubscription {
             ? null
             : DateTime.tryParse(json['trial_started_at'] as String)?.toLocal(),
         trialDays: (json['trial_days'] as num?)?.toInt(),
+        planName: json['plan_name'] as String?,
       );
 }

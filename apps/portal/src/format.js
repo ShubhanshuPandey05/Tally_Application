@@ -140,3 +140,19 @@ export function fromDateInput(value) {
 export function platformName(platform) {
   return { android: 'Android', ios: 'iPhone', web: 'Web', windows: 'Windows' }[platform] || platform;
 }
+
+/**
+ * Paise -> `₹3,540` (or `₹3,540.50` when there are paise).
+ *
+ * The API sends money as whole paise so nothing on the way here is a float;
+ * the division happens once, at the last moment, for display only.
+ */
+export function fmtRupees(paise) {
+  const value = Number(paise ?? 0) / 100;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}

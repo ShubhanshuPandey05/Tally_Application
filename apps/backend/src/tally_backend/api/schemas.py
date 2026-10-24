@@ -21,6 +21,7 @@ from ..db.models import (
     as_utc,
 )
 from ..services.entitlements import Entitlement
+from ..services.plans import CATALOGUE, PlanCode
 
 
 def _as_utc(value: Any) -> Any:
@@ -146,6 +147,9 @@ class SubscriptionResponse(BaseModel):
     is_trial: bool = False
     trial_started_at: UtcDatetime | None = None
     trial_days: int | None = None
+    #: The plan's name ("Standard", "Premium") for the account screen, or
+    #: ``None`` on a trial or an account approved before plans existed.
+    plan_name: str | None = None
 
     @classmethod
     def build(
@@ -171,6 +175,9 @@ class SubscriptionResponse(BaseModel):
             is_trial=entitlement.is_trial,
             trial_started_at=entitlement.trial_started_at,
             trial_days=trial_days if entitlement.is_trial else None,
+            plan_name=CATALOGUE[PlanCode(entitlement.plan)].name
+            if entitlement.plan in CATALOGUE and not entitlement.is_trial
+            else None,
         )
 
 

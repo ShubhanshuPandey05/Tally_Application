@@ -64,6 +64,8 @@ class Entitlement:
     #: When the trial's days started counting -- the first company of the
     #: business's own. ``None`` on a trial means the clock has not started.
     trial_started_at: datetime | None = None
+    #: The plan bought most recently (``services.plans.PlanCode``), if any.
+    plan: str | None = None
 
     @classmethod
     def of(cls, org: Organisation) -> Entitlement:
@@ -75,6 +77,7 @@ class Entitlement:
             is_demo=org.is_demo,
             is_trial=org.trial_granted_at is not None and org.approved_at is None,
             trial_started_at=org.trial_started_at,
+            plan=org.plan,
         )
 
     @property

@@ -19,6 +19,7 @@
     "max_companies": 50,
     "max_users": 50,
     "message": "",
+    "plan_name": null,
     "status": "active",
     "trial_days": null,
     "trial_started_at": null,

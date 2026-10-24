@@ -23,6 +23,7 @@ const ICONS = {
   connector: 'M9 3v5M15 3v5M6 8h12v5a6 6 0 0 1-12 0zM12 19v3',
   activity: 'M3 12h4l3 8 4-16 3 8h4',
   usage: 'M4 20V10M10 20V4M16 20v-7M22 20H2',
+  sales: 'M12 2v20M17 6.5c0-1.9-2.2-3.5-5-3.5S7 4.6 7 6.5 9.2 10 12 10s5 1.6 5 3.5-2.2 3.5-5 3.5-5-1.6-5-3.5',
   settings:
     'M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7M19.4 15a1.7 1.7 0 0 0 .34 1.87l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.7 1.7 0 0 0-1.87-.34 1.7 1.7 0 0 0-1.03 1.56V21a2 2 0 1 1-4 0v-.1A1.7 1.7 0 0 0 8.9 19.3a1.7 1.7 0 0 0-1.87.34l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06A1.7 1.7 0 0 0 4.6 15a1.7 1.7 0 0 0-1.56-1.03H3a2 2 0 1 1 0-4h.1A1.7 1.7 0 0 0 4.7 8.9a1.7 1.7 0 0 0-.34-1.87l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06A1.7 1.7 0 0 0 9 4.6h.08A1.7 1.7 0 0 0 10.1 3.04V3a2 2 0 1 1 4 0v.1a1.7 1.7 0 0 0 1.03 1.56 1.7 1.7 0 0 0 1.87-.34l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06A1.7 1.7 0 0 0 19.4 9v.08a1.7 1.7 0 0 0 1.56 1.03H21a2 2 0 1 1 0 4h-.1a1.7 1.7 0 0 0-1.5 1.03',
 };
@@ -141,6 +142,7 @@ export default function Shell({ me, pending, onSignOut, children }) {
           <span className="nav-group">Manage</span>
           <Item to="/" icon="overview" label="Overview" end />
           <Item to="/accounts" icon="accounts" label="Accounts" badge={pending || null} />
+          <Item to="/sales" icon="sales" label="Sales" />
           <Item to="/usage" icon="usage" label="Usage" />
           {owner ? <Item to="/partners" icon="partners" label="Partners" /> : null}
 

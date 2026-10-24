@@ -114,6 +114,16 @@ void main() {
       expect(plan.isStopped, isTrue);
     });
 
+    test('a paid account is named by its plan', () {
+      final OrgSubscription plan = OrgSubscription.fromJson(<String, Object?>{
+        'status': 'active',
+        'allows_changes': true,
+        'plan_name': 'Premium',
+        'expires_at': '2027-10-24T09:00:00+00:00',
+      });
+      expect(plan.stateLabel, 'Premium plan');
+    });
+
     test('a backend from before trials reads as no trial at all', () {
       final OrgSubscription plan = OrgSubscription.fromJson(<String, Object?>{
         'status': 'active',

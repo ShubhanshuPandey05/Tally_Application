@@ -18,6 +18,7 @@ from datetime import date
 from pydantic import BaseModel, EmailStr, Field
 
 from ..db.models import OrgStatus, PlatformRole
+from ..services.plans import PlanCode
 from .schemas import UtcDatetime
 
 # --------------------------------------------------------------------------
@@ -153,6 +154,9 @@ class AccountResponse(BaseModel):
     is_trial: bool = False
     trial_granted_at: UtcDatetime | None = None
     trial_started_at: UtcDatetime | None = None
+    #: The plan bought most recently, by code and by name.
+    plan: str | None = None
+    plan_name: str | None = None
 
 
 class ApproveAccountRequest(BaseModel):
@@ -164,13 +168,87 @@ class ApproveAccountRequest(BaseModel):
     of the decision. The *form* suggests values; the API insists on them.
     """
 
+    #: Which plan was sold. Required: every activation is a sale, and the
+    #: sales report can only count what was written down. The plan also sets
+    #: the term -- one year from today -- so there is no end date to type.
+    plan: PlanCode
     max_users: int = Field(ge=1, le=10_000)
     max_companies: int = Field(ge=1, le=10_000)
-    expires_at: UtcDatetime | None = None
     #: Which partner owns the relationship. Only an owner may set it to someone
     #: other than themselves.
     partner_id: str | None = None
     notes: str | None = Field(default=None, max_length=4000)
+
+
+class RenewAccountRequest(BaseModel):
+    """Another year on a plan -- the same plan, or a change at renewal."""
+
+    plan: PlanCode
+
+
+class TransferAccountRequest(BaseModel):
+    """Hand an account to a partner, or take it back to unassigned (``None``)."""
+
+    partner_id: str | None = None
+
+
+class PlanResponse(BaseModel):
+    code: PlanCode
+    name: str
+    price_paise: int
+    gst_paise: int
+    total_paise: int
+    suggested_users: int
+    suggested_companies: int
+
+
+class SalesFigures(BaseModel):
+    """Plans sold and what they came to. Money in paise, never a float."""
+
+    count: int = 0
+    new: int = 0
+    renewals: int = 0
+    price_paise: int = 0
+    gst_paise: int = 0
+    total_paise: int = 0
+
+
+class PartnerSalesRow(BaseModel):
+    """One partner's line in the sales report.
+
+    ``partner_id`` is ``None`` for sales made directly -- accounts nobody's
+    partner code brought in -- which only an owner sees.
+    """
+
+    partner_id: str | None
+    partner_name: str
+    partner_code: str | None = None
+    #: Keyed by plan code.
+    plans: dict[str, SalesFigures]
+    total: SalesFigures
+    #: The book as it stands today, not within the window: what this partner
+    #: looks after and what needs a call.
+    active_accounts: int = 0
+    expiring_soon: int = 0
+    on_trial: int = 0
+    awaiting_approval: int = 0
+
+
+class MonthSales(BaseModel):
+    month: str
+    plans: dict[str, int]
+    total_paise: int = 0
+
+
+class SalesReportResponse(BaseModel):
+    date_from: date
+    date_to: date
+    plans: list[PlanResponse]
+    partners: list[PartnerSalesRow]
+    totals: PartnerSalesRow
+    months: list[MonthSales]
+    #: How many days ahead "expiring soon" looks.
+    expiring_within_days: int
 
 
 class UpdateAccountRequest(BaseModel):
@@ -202,6 +280,9 @@ class PortalStats(BaseModel):
     """
 
     pending: int = 0
+    #: Signups no partner code brought in, waiting for an owner to hand them
+    #: to somebody. Always zero for a partner, who cannot see them.
+    unassigned: int = 0
     #: Live on the free trial. Counted apart from ``active`` because a trial is
     #: the partner's next phone call, not a customer already won.
     trial: int = 0

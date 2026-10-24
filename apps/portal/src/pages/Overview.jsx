@@ -66,6 +66,15 @@ export default function Overview({ me, onCounts }) {
             to="/accounts?status=trial"
           />
           <Stat tone="ok" value={data.active} label="Active" to="/accounts?status=active" />
+          {me.role === 'owner' ? (
+            <Stat
+              tone={data.unassigned ? 'wait' : 'plain'}
+              value={data.unassigned || 0}
+              label="No partner yet"
+              note={data.unassigned ? 'Transfer to a partner' : null}
+              to="/accounts?partner=unassigned"
+            />
+          ) : null}
           <Stat
             tone={data.expired ? 'stop' : 'plain'}
             value={data.expired}

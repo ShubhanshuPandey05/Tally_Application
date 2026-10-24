@@ -288,9 +288,62 @@ class Organisation(Base, TimestampMixin):
         DateTime(timezone=True), nullable=True
     )
 
+    #: The plan bought most recently (``services.plans.PlanCode``), or ``None``
+    #: for an account on the trial, waiting, or approved before plans existed.
+    #: A plain string rather than an enum column so adding a plan is a
+    #: catalogue change, not a migration.
+    plan: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     memberships: Mapped[list[Membership]] = relationship(back_populates="organisation")
     connectors: Mapped[list[Connector]] = relationship(back_populates="organisation")
     companies: Mapped[list[Company]] = relationship(back_populates="organisation")
+
+
+class PlanSale(Base):
+    """One plan sold: an account activated or renewed on a plan, for a year.
+
+    The sales report counts these rows and nothing else, so "how many Premium
+    plans did Ravi sell in March" has one answer however the accounts have
+    changed since. Written in the same transaction as the activation it
+    records -- a sale that could commit without its activation, or the other
+    way round, is a report that disagrees with the portal.
+
+    The price, the GST and the partner are copied onto the row at the moment
+    of sale. Prices change and accounts move between partners; neither may
+    move a sale that was already made. No cascade from the organisation or the
+    partner for the same reason: a removed partner's sales still happened.
+    """
+
+    __tablename__ = "plan_sales"
+    __table_args__ = (
+        # The report's two shapes: everything in a window, and one partner's
+        # rows in a window.
+        Index("ix_plan_sales_created", "created_at"),
+        Index("ix_plan_sales_partner_created", "partner_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    org_id: Mapped[str | None] = mapped_column(
+        ForeignKey("organisations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: Who the account belonged to when it was sold -- the partner credited.
+    partner_id: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Who pressed the button. Usually the partner; an owner when it was sold
+    #: directly or on a partner's behalf.
+    sold_by: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True
+    )
+    plan: Mapped[str] = mapped_column(String(20))
+    #: ``new`` for the first plan an account buys, ``renewal`` after that.
+    kind: Mapped[str] = mapped_column(String(10))
+    price_paise: Mapped[int] = mapped_column(BigInteger)
+    gst_paise: Mapped[int] = mapped_column(BigInteger)
+    total_paise: Mapped[int] = mapped_column(BigInteger)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class User(Base, TimestampMixin):
