@@ -82,6 +82,20 @@ class AmountInWords {
     return buffer.toString();
   }
 
+  /// `INR Two Thousand One Hundred only` -- the currency's code in front, as a
+  /// receipt or payment print words it. The same words as [rupees], so the two
+  /// can never disagree about an amount.
+  static String withCode(Decimal amount, {String currency = 'INR'}) {
+    final String words = rupees(amount, currency: currency);
+    final (String major, _) = _units(currency);
+    final String body =
+        words.startsWith(major) ? words.substring(major.length) : ' $words';
+    final String trimmed = body.endsWith(' Only')
+        ? body.substring(0, body.length - ' Only'.length)
+        : body;
+    return '${currency.toUpperCase()}$trimmed only';
+  }
+
   /// Rupees and paise, or the neutral wording for any other currency. A book
   /// kept in dollars must not have "Paise" printed on its documents.
   static (String, String) _units(String currency) => switch (currency.toUpperCase()) {

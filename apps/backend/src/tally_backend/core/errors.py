@@ -73,6 +73,20 @@ class ConflictError(AppError):
     user_message = "That already exists."
 
 
+class InvalidInput(AppError):
+    """A field the person typed is not something we can use.
+
+    Distinct from pydantic's 422, which answers in field paths a shop owner
+    cannot read. This one carries a sentence they can act on -- "That partner
+    code is not valid" -- and names the field so the app can put it under the
+    right box.
+    """
+
+    status_code = status.HTTP_400_BAD_REQUEST
+    code = "invalid_input"
+    user_message = "Please check what you entered."
+
+
 class SubscriptionInactive(AppError):
     """The account exists and the caller is who they say, but it is not live.
 

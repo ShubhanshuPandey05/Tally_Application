@@ -17,6 +17,7 @@ from . import (
     pairing,
     portal,
     portal_logs,
+    portal_sales,
     portal_usage,
     public,
     sync,
@@ -45,6 +46,8 @@ api_router.include_router(portal.router)
 api_router.include_router(portal_logs.router)
 #: Who is using the product and how much. Counts only, same authority again.
 api_router.include_router(portal_usage.router)
+#: Plans sold, by partner. Same authority and scoping as the rest of the portal.
+api_router.include_router(portal_sales.router)
 api_router.include_router(connectors.router)
 api_router.include_router(companies.router)
 api_router.include_router(sync.router)

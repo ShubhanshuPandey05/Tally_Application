@@ -34,6 +34,7 @@ a.stat:focus-visible { outline: 2px solid var(--ring); outline-offset: 2px; }
 .stat-wait { border-color: color-mix(in srgb, var(--wait) 35%, var(--line)); }
 .stat-ok   .stat-value { color: var(--ok); }
 .stat-stop .stat-value { color: var(--stop); }
+.stat-accent .stat-value { color: var(--accent); }
 
 
 /* ---- Usage at a glance -------------------------------------------- */

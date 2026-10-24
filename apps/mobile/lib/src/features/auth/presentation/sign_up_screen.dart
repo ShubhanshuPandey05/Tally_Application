@@ -6,6 +6,8 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../legal/presentation/legal_screen.dart';
 import '../application/auth_controller.dart';
+import '../domain/phone.dart';
+import 'partner_code_field.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
   const SignUpScreen({super.key});
@@ -20,6 +22,9 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   final TextEditingController _name = TextEditingController();
   final TextEditingController _email = TextEditingController();
   final TextEditingController _password = TextEditingController();
+  final TextEditingController _phone = TextEditingController();
+  final TextEditingController _partnerCode = TextEditingController();
+  PartnerCodeState _codeState = PartnerCodeState.empty;
   bool _busy = false;
   bool _obscure = true;
 
@@ -29,17 +34,24 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     _name.dispose();
     _email.dispose();
     _password.dispose();
+    _phone.dispose();
+    _partnerCode.dispose();
     super.dispose();
   }
 
   Future<void> _submit() async {
     if (!(_form.currentState?.validate() ?? false)) return;
+    // A code the server has said is wrong would only be refused again; the
+    // box already says why, and clearing it is one of the two fixes.
+    if (!_codeState.allowsSubmit) return;
     setState(() => _busy = true);
     await ref.read(authControllerProvider.notifier).signUp(
           email: _email.text,
           password: _password.text,
           orgName: _business.text,
+          phone: _phone.text,
           fullName: _name.text,
+          partnerCode: _partnerCode.text,
         );
     if (mounted) setState(() => _busy = false);
   }
@@ -70,7 +82,8 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     Text('Create your account', style: theme.textTheme.headlineSmall),
                     const SizedBox(height: 6),
                     Text(
-                      'One account per business. You can add your Tally PC next.',
+                      'One account per business. Your free trial starts when you '
+                      'connect your first company.',
                       style: theme.textTheme.bodyMedium
                           ?.copyWith(color: context.mutedColor),
                     ),
@@ -111,6 +124,19 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     ),
                     const SizedBox(height: 14),
                     TextFormField(
+                      controller: _phone,
+                      keyboardType: TextInputType.phone,
+                      textInputAction: TextInputAction.next,
+                      autofillHints: const <String>[AutofillHints.telephoneNumber],
+                      decoration: const InputDecoration(
+                        labelText: 'Mobile number',
+                        helperText: 'Your partner uses it to help you get set up',
+                        prefixIcon: Icon(Icons.phone_iphone),
+                      ),
+                      validator: validatePhone,
+                    ),
+                    const SizedBox(height: 14),
+                    TextFormField(
                       controller: _password,
                       obscureText: _obscure,
                       textInputAction: TextInputAction.done,
@@ -134,6 +160,12 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                           ? 'Use at least 10 characters'
                           : null,
                     ),
+                    const SizedBox(height: 14),
+                    PartnerCodeField(
+                      controller: _partnerCode,
+                      onStateChanged: (PartnerCodeState state) =>
+                          setState(() => _codeState = state),
+                    ),
                     if (error != null) ...<Widget>[
                       const SizedBox(height: 16),
                       Container(
@@ -151,7 +183,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
                     ],
                     const SizedBox(height: 24),
                     FilledButton(
-                      onPressed: _busy ? null : _submit,
+                      onPressed: _busy || !_codeState.allowsSubmit ? null : _submit,
                       child: _busy
                           ? const SizedBox(
                               width: 20,

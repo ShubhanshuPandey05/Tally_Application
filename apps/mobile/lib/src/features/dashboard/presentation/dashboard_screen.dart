@@ -976,7 +976,7 @@ class _NoCompaniesScreen extends ConsumerWidget {
               : Icons.lock_outline,
           title: subscription.isAwaitingApproval
               ? 'Almost there'
-              : subscription.status.label,
+              : subscription.stateLabel,
           // The server's wording, not a second version of it written here.
           message: user?.role.isAdmin ?? false
               ? subscription.message

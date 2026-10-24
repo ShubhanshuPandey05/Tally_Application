@@ -11,6 +11,46 @@ from .masters import VoucherTypeKind
 from .money import Money, Side
 
 
+class BillLine(BaseModel):
+    """One bill-wise allocation on a voucher line, as that voucher recorded it.
+
+    ``bill_type`` is Tally's own word -- ``New Ref``, ``Agst Ref``, ``Advance``,
+    ``On Account`` -- kept as text because it is what decides whether this line
+    raised a bill or settled one, and a shop's Tally is the authority on it.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    name: str
+    bill_type: str | None = None
+    bill_date: date | None = None
+    #: Side intact: on a party's line it says whether the bill was raised or
+    #: settled, which is the whole of a receipt's adjustment table.
+    amount: Money | None = None
+    credit_days: int | None = None
+
+
+class BankDetails(BaseModel):
+    """How a bank line moved: the cheque, transfer or card behind it.
+
+    Read from ``BANKALLOCATIONS`` on the bank ledger's line. Every field is
+    optional and most are blank on most vouchers -- a cash receipt carries a
+    transaction type and nothing else -- and a blank is left off the print
+    rather than written as an empty caption.
+    """
+
+    model_config = ConfigDict(frozen=True)
+
+    #: "Cheque/DD", "e-Fund Transfer", "Cash" -- Tally's words.
+    transaction_type: str | None = None
+    instrument_number: str | None = None
+    instrument_date: date | None = None
+    #: The *other* side's bank on a receipt: the one the customer's cheque was
+    #: drawn on. Blank on most payments, where the bank is our own ledger.
+    bank_name: str | None = None
+    favouring: str | None = None
+
+
 class LedgerEntry(BaseModel):
     """One ledger line inside a voucher."""
 
@@ -21,6 +61,13 @@ class LedgerEntry(BaseModel):
     is_party: bool = False
     cost_centre: str | None = None
     bill_references: list[str] = Field(default_factory=list)
+    #: The same allocations with their type, date and amount. Empty on a
+    #: voucher read by a connector from before these were fetched, where
+    #: ``bill_references`` still carries the names.
+    bills: list[BillLine] = Field(default_factory=list)
+    #: Null on every line that is not a bank's, and on vouchers read before
+    #: these were fetched.
+    bank: BankDetails | None = None
     #: The percentage a tax line was charged at, as Tally recorded it on the
     #: invoice (``RATEOFINVOICETAX``). Tally prints it beside the tax ledger --
     #: "IGST 12 ... 12 %" -- and it is null on every line that is not a tax.

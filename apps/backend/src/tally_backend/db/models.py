@@ -169,6 +169,16 @@ class PlatformUser(Base, TimestampMixin):
     last_login_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    #: What a shop owner types at signup to say which partner brought them in.
+    #: Set by an owner when the partner is created and **never changed after**:
+    #: it is printed on a partner's cards and leaflets, and a code that could be
+    #: edited would quietly stop attributing every signup that still carries
+    #: the old one. Stored normalised (upper case), unique, and nullable only
+    #: for owners and for partners created before codes existed -- each of
+    #: those may be given one, once.
+    partner_code: Mapped[str | None] = mapped_column(
+        String(20), unique=True, nullable=True
+    )
 
 
 class OrgStatus(StrEnum):
@@ -263,9 +273,77 @@ class Organisation(Base, TimestampMixin):
     #: themselves a colleague on an account thousands of other people also open.
     is_demo: Mapped[bool] = mapped_column(Boolean, default=False)
 
+    #: When this business was given the free trial -- at signup, or at the
+    #: first sign-in after its admin added a phone number. Set once and never
+    #: cleared, so a business gets one trial however many times it signs in,
+    #: and the portal can still tell a converted trial from a direct approval.
+    trial_granted_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    #: When the trial's clock started: the first time the business linked a
+    #: company of its own. Not signup -- a new account sees only the lent demo
+    #: company, and counting days spent looking at somebody else's invented
+    #: books would spend the trial before the customer's own Tally arrived.
+    trial_started_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+
+    #: The plan bought most recently (``services.plans.PlanCode``), or ``None``
+    #: for an account on the trial, waiting, or approved before plans existed.
+    #: A plain string rather than an enum column so adding a plan is a
+    #: catalogue change, not a migration.
+    plan: Mapped[str | None] = mapped_column(String(20), nullable=True)
+
     memberships: Mapped[list[Membership]] = relationship(back_populates="organisation")
     connectors: Mapped[list[Connector]] = relationship(back_populates="organisation")
     companies: Mapped[list[Company]] = relationship(back_populates="organisation")
+
+
+class PlanSale(Base):
+    """One plan sold: an account activated or renewed on a plan, for a year.
+
+    The sales report counts these rows and nothing else, so "how many Premium
+    plans did Ravi sell in March" has one answer however the accounts have
+    changed since. Written in the same transaction as the activation it
+    records -- a sale that could commit without its activation, or the other
+    way round, is a report that disagrees with the portal.
+
+    The price, the GST and the partner are copied onto the row at the moment
+    of sale. Prices change and accounts move between partners; neither may
+    move a sale that was already made. No cascade from the organisation or the
+    partner for the same reason: a removed partner's sales still happened.
+    """
+
+    __tablename__ = "plan_sales"
+    __table_args__ = (
+        # The report's two shapes: everything in a window, and one partner's
+        # rows in a window.
+        Index("ix_plan_sales_created", "created_at"),
+        Index("ix_plan_sales_partner_created", "partner_id", "created_at"),
+    )
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    org_id: Mapped[str | None] = mapped_column(
+        ForeignKey("organisations.id", ondelete="SET NULL"), nullable=True, index=True
+    )
+    #: Who the account belonged to when it was sold -- the partner credited.
+    partner_id: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True
+    )
+    #: Who pressed the button. Usually the partner; an owner when it was sold
+    #: directly or on a partner's behalf.
+    sold_by: Mapped[str | None] = mapped_column(
+        ForeignKey("platform_users.id", ondelete="SET NULL"), nullable=True
+    )
+    plan: Mapped[str] = mapped_column(String(20))
+    #: ``new`` for the first plan an account buys, ``renewal`` after that.
+    kind: Mapped[str] = mapped_column(String(10))
+    price_paise: Mapped[int] = mapped_column(BigInteger)
+    gst_paise: Mapped[int] = mapped_column(BigInteger)
+    total_paise: Mapped[int] = mapped_column(BigInteger)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class User(Base, TimestampMixin):
@@ -276,6 +354,13 @@ class User(Base, TimestampMixin):
     #: Argon2id. The column is wide enough for a future parameter bump.
     password_hash: Mapped[str] = mapped_column(String(255))
     full_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    #: Mobile number, normalised to ``+<country><number>`` by
+    #: ``services.trial.normalise_phone``. Unique, because a free trial is
+    #: granted to a business whose admin has given one, and a number that
+    #: could sit on any number of accounts would be a trial per email address.
+    #: Nullable for accounts made before it was asked for; the app asks those
+    #: people for it at their next sign-in.
+    phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     #: Set when an admin created this account with a temporary password. Until it
     #: is cleared the only thing the session can do is set a new password.

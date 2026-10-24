@@ -270,6 +270,19 @@ class Settings(BaseSettings):
     #: first seed of a fresh database take noticeably long.
     demo_years: int = 2
 
+    # --- Free trial -----------------------------------------------------
+    #: A business whose admin gives an email and a phone number is activated
+    #: straight away on a trial, instead of waiting in the portal's queue. Off
+    #: restores the old rule: every signup waits for somebody to approve it.
+    trial_enabled: bool = True
+    #: Counted from the first company the business links of its own, not from
+    #: signup -- see ``Organisation.trial_started_at``.
+    trial_days: int = 7
+    #: What a trial covers. One company is enough to judge the product on and
+    #: little enough that a trial is not a free way to run a whole group.
+    trial_max_companies: int = 1
+    trial_max_users: int = 2
+
     # --- Diagnostics ----------------------------------------------------
     #: Lines held in memory for the portal's live tail. Every level lands here;
     #: only WARNING and above is persisted. Five thousand is roughly an hour of
