@@ -10,6 +10,8 @@ from pydantic import model_validator
 from ...domain.masters import VoucherTypeKind
 from ...domain.money import Money, Side
 from ...domain.transactions import (
+    BankDetails,
+    BillLine,
     InventoryEntry,
     InvoiceDetails,
     LedgerEntry,
@@ -69,6 +71,25 @@ _LEDGER_ENTRY_FIELDS = (
     "IsDeemedPositive",
     "IsPartyLedger",
     "BillAllocations.Name",
+    # What a receipt or payment prints under "Adjustment Details": whether the
+    # line raised a bill or settled one, against what date, for how much. All
+    # four were in a live export's allocation (live/vouchers.xml, sale 1 of
+    # D.D Enterprises: BILLDATE, NAME, BILLTYPE, AMOUNT); BILLCREDITPERIOD is
+    # the field outstanding bills already read for their due date.
+    "BillAllocations.BillType",
+    "BillAllocations.BillDate",
+    "BillAllocations.Amount",
+    "BillAllocations.BillCreditPeriod",
+    # The cheque behind a bank line, for the "Mode of Payment" block of a
+    # receipt or payment print. Only bank lines carry an allocation, so these
+    # cost nothing on the rest. TRANSACTIONTYPE and INSTRUMENTDATE are in the
+    # same live export; the other three are Tally's import-format names for
+    # the same object and have not yet been seen on a live cheque.
+    "BankAllocations.TransactionType",
+    "BankAllocations.InstrumentNumber",
+    "BankAllocations.InstrumentDate",
+    "BankAllocations.BankName",
+    "BankAllocations.PaymentFavouring",
     "CategoryAllocations.Category",
     # The rate a tax line was charged at, which Tally prints beside it.
     "RateOfInvoiceTax",
@@ -420,12 +441,70 @@ def _ledger_entries_at(voucher: ET.Element, path: str) -> list[LedgerEntry]:
                 is_party=parse_bool(find_text(entry, "ISPARTYLEDGER")),
                 cost_centre=find_text(entry, "./CATEGORYALLOCATIONS.LIST/CATEGORY"),
                 bill_references=bills,
+                bills=_parse_bill_lines(entry),
+                bank=_parse_bank(entry),
                 tax_rate=_optional_float(
                     find_text(entry, "./RATEOFINVOICETAX.LIST/RATEOFINVOICETAX")
                 ),
             )
         )
     return entries
+
+
+def _parse_bill_lines(entry: ET.Element) -> list[BillLine]:
+    """Every named bill allocation on one ledger line.
+
+    An allocation with no name is skipped: Tally emits an empty
+    ``<BILLALLOCATIONS.LIST>`` on every line of an export, and one carrying
+    only an amount (live/voucher_tax_invoice.xml) names no bill a print could
+    show.
+    """
+    lines: list[BillLine] = []
+    for el in entry.findall("./BILLALLOCATIONS.LIST"):
+        name = find_text(el, "NAME")
+        if not name:
+            continue
+        bill_date = parse_date(find_text(el, "BILLDATE"))
+        due = _bill_due_date(el, bill_date)
+        amount = find_text(el, "AMOUNT")
+        lines.append(
+            BillLine(
+                name=name,
+                bill_type=find_text(el, "BILLTYPE"),
+                bill_date=bill_date,
+                amount=Money.from_tally(amount) if amount else None,
+                credit_days=(
+                    (due - bill_date).days
+                    if due is not None and bill_date is not None
+                    else _credit_period_days(find_text(el, "BILLCREDITPERIOD"))
+                ),
+            )
+        )
+    return lines
+
+
+def _parse_bank(entry: ET.Element) -> BankDetails | None:
+    """The first bank allocation on a line, or ``None`` when it carries none.
+
+    The first, because a print has one "Mode of Payment" row. A line split
+    across two cheques is rare enough that showing the first is better than
+    showing neither -- and the amounts above are the voucher's, not the
+    cheque's, so nothing printed is wrong.
+    """
+    el = entry.find("./BANKALLOCATIONS.LIST")
+    if el is None:
+        return None
+    details = BankDetails(
+        transaction_type=find_text(el, "TRANSACTIONTYPE"),
+        instrument_number=find_text(el, "INSTRUMENTNUMBER"),
+        instrument_date=parse_date(find_text(el, "INSTRUMENTDATE")),
+        bank_name=find_text(el, "BANKNAME"),
+        favouring=find_text(el, "PAYMENTFAVOURING"),
+    )
+    # Tally sends an empty wrapper on every line that is not a bank's.
+    if details == BankDetails():
+        return None
+    return details
 
 
 def _parse_inventory_entries(voucher: ET.Element) -> list[InventoryEntry]:

@@ -74,7 +74,7 @@ class VoucherScreen extends ConsumerWidget {
                 context,
                 fileName: _document(state.valueOrNull!.data, company).fileName,
                 subject: _subject(state.valueOrNull!.data, company),
-                build: () => _document(state.valueOrNull!.data, company).build(),
+                build: () => _build(ref, companyId, state.valueOrNull!.data, company),
               ),
             ),
         ],
@@ -93,8 +93,37 @@ class VoucherScreen extends ConsumerWidget {
     );
   }
 
-  static VoucherDocument _document(VoucherDetail detail, Company company) =>
-      VoucherDocument(detail: detail, companyName: company.name);
+  static VoucherDocument _document(
+    VoucherDetail detail,
+    Company company, {
+    List<BillAdjustment> adjustments = const <BillAdjustment>[],
+  }) =>
+      VoucherDocument(detail: detail, companyName: company.name, adjustments: adjustments);
+
+  /// The print, with a receipt's or payment's settled bills looked up first.
+  ///
+  /// Looked up here rather than with the voucher: finding each bill reads a
+  /// stretch of history on the server, and a voucher is opened far more often
+  /// than it is printed. A failed lookup costs the print its bill figures, not
+  /// the print -- the table then shows what the voucher itself records.
+  Future<List<int>> _build(
+    WidgetRef ref,
+    String companyId,
+    VoucherDetail detail,
+    Company company,
+  ) async {
+    List<BillAdjustment> adjustments = const <BillAdjustment>[];
+    if (VoucherDocument.hasOwnPrint(detail) && detail.key.isNotEmpty) {
+      try {
+        adjustments = await ref
+            .read(reportsRepositoryProvider)
+            .voucherAdjustments(companyId, key: detail.key, on: detail.date);
+      } catch (_) {
+        adjustments = const <BillAdjustment>[];
+      }
+    }
+    return _document(detail, company, adjustments: adjustments).build();
+  }
 
   /// What lands in the subject line of a mail or the caption of a chat share.
   static String _subject(VoucherDetail detail, Company company) => <String?>[
