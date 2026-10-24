@@ -6,6 +6,12 @@ shop owner can install the app, register, and sign in — and then finds there i
 nothing to add until someone in the management portal approves the account and
 says how many people and how many companies it covers.
 
+Since 2026-10-24 a signup whose admin gives a phone number skips most of that
+wait: ``services.trial`` activates it on a free trial with small fixed limits,
+and the portal's approval turns the trial into a plan. A trial is not a status
+of its own -- it is ``ACTIVE`` with an ``expires_at`` like any other term -- so
+every rule below applies to it unchanged.
+
 Two separate permissions come out of that, and conflating them is the mistake
 this module exists to prevent:
 
@@ -53,6 +59,13 @@ class Entitlement:
     #: The shared demo account. Live enough to read, frozen against every
     #: change -- see :attr:`allows_changes`.
     is_demo: bool = False
+    #: On the free trial rather than an approved plan (``services.trial``).
+    is_trial: bool = False
+    #: When the trial's days started counting -- the first company of the
+    #: business's own. ``None`` on a trial means the clock has not started.
+    trial_started_at: datetime | None = None
+    #: The plan bought most recently (``services.plans.PlanCode``), if any.
+    plan: str | None = None
 
     @classmethod
     def of(cls, org: Organisation) -> Entitlement:
@@ -62,6 +75,9 @@ class Entitlement:
             max_companies=org.max_companies,
             expires_at=org.expires_at,
             is_demo=org.is_demo,
+            is_trial=org.trial_granted_at is not None and org.approved_at is None,
+            trial_started_at=org.trial_started_at,
+            plan=org.plan,
         )
 
     @property
@@ -104,6 +120,11 @@ class Entitlement:
             return (
                 "This is the Prime Analyst demo, so nothing here can be changed. "
                 "Create your own account to connect your TallyPrime."
+            )
+        if self.is_expired and self.status is OrgStatus.ACTIVE and self.is_trial:
+            return (
+                "Your free trial has ended. Contact your Prime Analyst partner "
+                "to choose a plan and keep using your reports."
             )
         if self.is_expired and self.status is OrgStatus.ACTIVE:
             return (

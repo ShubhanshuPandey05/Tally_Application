@@ -126,7 +126,7 @@ async def test_approval_unlocks_the_account(
 
     approved = await client.post(
         f"/v1/portal/accounts/{org_id}/approve",
-        json={"max_users": 3, "max_companies": 2},
+        json={"plan": "standard", "max_users": 3, "max_companies": 2},
         headers=platform_owner["headers"],
     )
     assert approved.status_code == 200, approved.text
@@ -148,7 +148,7 @@ async def test_the_approved_ceiling_is_what_bites(
     me = await client.get("/v1/auth/me", headers=signed_up["headers"])
     await client.post(
         f"/v1/portal/accounts/{me.json()['org_id']}/approve",
-        json={"max_users": 2, "max_companies": 5},
+        json={"plan": "standard", "max_users": 2, "max_companies": 5},
         headers=platform_owner["headers"],
     )
 
@@ -169,7 +169,7 @@ async def test_approving_twice_is_refused(
     """Silently re-approving would overwrite who made the original decision."""
     response = await client.post(
         f"/v1/portal/accounts/{registered['org_id']}/approve",
-        json={"max_users": 9, "max_companies": 9},
+        json={"plan": "standard", "max_users": 9, "max_companies": 9},
         headers=platform_owner["headers"],
     )
     assert response.status_code == 409
@@ -275,7 +275,7 @@ async def test_reinstating_restates_the_numbers(
     )
     back = await client.post(
         f"/v1/portal/accounts/{registered['org_id']}/approve",
-        json={"max_users": 4, "max_companies": 4},
+        json={"plan": "standard", "max_users": 4, "max_companies": 4},
         headers=platform_owner["headers"],
     )
     assert back.status_code == 200
@@ -385,7 +385,7 @@ async def test_a_partner_cannot_hand_an_account_to_someone_else(
 
     approved = await client.post(
         f"/v1/portal/accounts/{org_id}/approve",
-        json={"max_users": 2, "max_companies": 2, "partner_id": theirs["id"]},
+        json={"plan": "standard", "max_users": 2, "max_companies": 2, "partner_id": theirs["id"]},
         headers=mine["headers"],
     )
     assert approved.status_code == 200
@@ -405,7 +405,7 @@ async def test_only_an_owner_can_create_portal_accounts(
 
     allowed = await client.post(
         "/v1/portal/partners",
-        json={"email": "new@partner.in", "full_name": "New Partner"},
+        json={"email": "new@partner.in", "full_name": "New Partner", "partner_code": "NEW-01"},
         headers=platform_owner["headers"],
     )
     assert allowed.status_code == 201
@@ -440,7 +440,7 @@ async def test_an_owner_can_reissue_a_partners_password(
     """A generated password, shown once, that must be replaced -- as on creation."""
     created = await client.post(
         "/v1/portal/partners",
-        json={"email": "forgot@partner.in"},
+        json={"email": "forgot@partner.in", "partner_code": "FORGOT-01"},
         headers=platform_owner["headers"],
     )
     partner_id = created.json()["partner"]["id"]
