@@ -267,3 +267,30 @@ async def test_an_owner_approving_a_partners_signup_keeps_it_with_them(
         await client.get("/v1/portal/reports/sales", headers=ravi["headers"])
     ).json()
     assert report["totals"]["total"]["count"] == 1
+
+
+async def test_reinstating_a_customer_who_already_bought_is_not_a_new_sale(
+    app, client: AsyncClient, platform_owner
+) -> None:
+    from sqlalchemy import select
+
+    from tally_backend.db.models import PlanSale
+
+    org_id = await sign_up(client, "a@shop.in", "9876543210")
+    await approve(client, platform_owner["headers"], org_id, "standard")
+    suspended = await client.post(
+        f"/v1/portal/accounts/{org_id}/suspend",
+        json={"reason": "unpaid"},
+        headers=platform_owner["headers"],
+    )
+    assert suspended.status_code == 200, suspended.text
+    back = await approve(client, platform_owner["headers"], org_id, "standard")
+    assert back.status_code == 200, back.text
+
+    async with app.state.session_factory() as session:
+        kinds = (
+            await session.execute(
+                select(PlanSale.kind).where(PlanSale.org_id == org_id).order_by(PlanSale.created_at)
+            )
+        ).scalars().all()
+    assert kinds == ["new", "renewal"]

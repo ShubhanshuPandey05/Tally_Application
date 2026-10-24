@@ -334,9 +334,16 @@ async def approve_account(
     if payload.notes is not None:
         org.notes = payload.notes
     # After the partner is settled, so the sale is credited to whoever the
-    # account belongs to as of this decision.
+    # account belongs to as of this decision. A suspended or rejected account
+    # that already bought a plan and is approved back is a returning customer,
+    # not a new one; counting it as "new" would inflate a partner's new sales.
     sale = _record_sale(
-        session, principal, org, payload.plan, kind="new", starts_at=now
+        session,
+        principal,
+        org,
+        payload.plan,
+        kind="renewal" if org.plan is not None else "new",
+        starts_at=now,
     )
     await session.flush()
 
