@@ -41,6 +41,7 @@ void main() {
   const AppConfig config = AppConfig(baseUrl: _liveUrl, environment: 'live');
   late ApiClient api;
   late String email;
+  late String phone;
 
   setUp(() {
     api = ApiClient(
@@ -48,7 +49,10 @@ void main() {
       tokens: TokenStore(storage: FakeSecureStorage()),
       onSignedOut: () async {},
     );
-    email = 'live-${DateTime.now().microsecondsSinceEpoch}@bhatiastores.in';
+    final int now = DateTime.now().microsecondsSinceEpoch;
+    email = 'live-$now@bhatiastores.in';
+    // One account per number, so each run needs its own.
+    phone = '9${(now % 1000000000).toString().padLeft(9, '0')}';
   });
 
   test('registers, stores tokens, and reads the signed-in user back', () async {
@@ -58,6 +62,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
       fullName: 'Shop Owner',
     );
 
@@ -79,6 +84,7 @@ void main() {
         email: email,
         password: 'short',
         orgName: 'Bhatia Supermarket',
+      phone: phone,
       );
       fail('expected the server to refuse a five-character password');
     } on ApiException catch (error) {
@@ -93,6 +99,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
     );
 
     try {
@@ -109,6 +116,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
     );
 
     final List<Company> companies = await CompanyRepository(api).list();
@@ -121,6 +129,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
     );
 
     final ConnectorRepository connectors = ConnectorRepository(api);
@@ -145,6 +154,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
     );
 
     try {
@@ -162,6 +172,7 @@ void main() {
       email: email,
       password: 'a-sufficiently-long-password',
       orgName: 'Bhatia Supermarket',
+      phone: phone,
     );
     await auth.signOut();
 

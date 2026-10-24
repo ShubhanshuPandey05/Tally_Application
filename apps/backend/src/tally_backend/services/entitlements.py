@@ -6,6 +6,12 @@ shop owner can install the app, register, and sign in — and then finds there i
 nothing to add until someone in the management portal approves the account and
 says how many people and how many companies it covers.
 
+Since 2026-10-24 a signup whose admin gives a phone number skips most of that
+wait: ``services.trial`` activates it on a free trial with small fixed limits,
+and the portal's approval turns the trial into a plan. A trial is not a status
+of its own -- it is ``ACTIVE`` with an ``expires_at`` like any other term -- so
+every rule below applies to it unchanged.
+
 Two separate permissions come out of that, and conflating them is the mistake
 this module exists to prevent:
 
