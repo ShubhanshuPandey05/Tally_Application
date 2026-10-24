@@ -9,6 +9,108 @@ import '../../../core/money/money.dart';
 /// accountant checks a figure against, so nothing here rounds, nets or hides a
 /// row on the app's own initiative.
 
+/// One bill a voucher line raised or settled, as that voucher recorded it.
+class VoucherBill {
+  const VoucherBill({
+    required this.name,
+    this.billType,
+    this.billDate,
+    this.amount,
+    this.creditDays,
+  });
+
+  final String name;
+
+  /// Tally's own word: `New Ref`, `Agst Ref`, `Advance`, `On Account`.
+  final String? billType;
+  final DateTime? billDate;
+  final Money? amount;
+  final int? creditDays;
+
+  factory VoucherBill.fromJson(Map<String, Object?> json) => VoucherBill(
+        name: json['name'] as String? ?? '',
+        billType: json['bill_type'] as String?,
+        billDate: _day(json['bill_date']),
+        amount: _moneyOrNull(json['amount']),
+        creditDays: (json['credit_days'] as num?)?.toInt(),
+      );
+}
+
+/// The cheque or transfer behind a bank line. Every field is optional, and a
+/// blank one is left off the print rather than printed as an empty caption.
+class VoucherBankDetails {
+  const VoucherBankDetails({
+    this.transactionType,
+    this.instrumentNumber,
+    this.instrumentDate,
+    this.bankName,
+    this.favouring,
+  });
+
+  /// "Cheque/DD", "e-Fund Transfer", "Cash" -- Tally's words.
+  final String? transactionType;
+  final String? instrumentNumber;
+  final DateTime? instrumentDate;
+
+  /// On a receipt, the bank the customer's cheque was drawn on.
+  final String? bankName;
+  final String? favouring;
+
+  factory VoucherBankDetails.fromJson(Map<String, Object?> json) =>
+      VoucherBankDetails(
+        transactionType: json['transaction_type'] as String?,
+        instrumentNumber: json['instrument_number'] as String?,
+        instrumentDate: _day(json['instrument_date']),
+        bankName: json['bank_name'] as String?,
+        favouring: json['favouring'] as String?,
+      );
+}
+
+/// One row of a receipt's or payment's "Adjustment Details": a bill, and what
+/// this voucher did to it.
+///
+/// Everything but the name and the paid amount is null when the bill could not
+/// be found in the history the backend holds -- an opening bill, or one older
+/// than it searched. Null prints as a blank cell, never as a zero: "nothing
+/// pending" and "we cannot say" are different statements on a receipt.
+class BillAdjustment {
+  const BillAdjustment({
+    required this.name,
+    this.billType,
+    this.billDate,
+    this.creditDays,
+    this.billAmount,
+    this.noteAmount,
+    this.paidAmount,
+    this.pendingAmount,
+  });
+
+  final String name;
+  final String? billType;
+  final DateTime? billDate;
+  final int? creditDays;
+  final Money? billAmount;
+
+  /// Settled by credit note (on a receipt) or debit note (on a payment).
+  final Money? noteAmount;
+  final Money? paidAmount;
+  final Money? pendingAmount;
+
+  factory BillAdjustment.fromJson(Map<String, Object?> json) => BillAdjustment(
+        name: json['name'] as String? ?? '',
+        billType: json['bill_type'] as String?,
+        billDate: _day(json['bill_date']),
+        creditDays: (json['credit_days'] as num?)?.toInt(),
+        billAmount: _moneyOrNull(json['bill_amount']),
+        noteAmount: _moneyOrNull(json['note_amount']),
+        paidAmount: _moneyOrNull(json['paid_amount']),
+        pendingAmount: _moneyOrNull(json['pending_amount']),
+      );
+
+  static List<BillAdjustment> listFromJson(Map<String, Object?> json) =>
+      _list(json['bills'], BillAdjustment.fromJson);
+}
+
 /// One posted line of a voucher.
 class VoucherLedgerLine {
   const VoucherLedgerLine({
@@ -17,6 +119,8 @@ class VoucherLedgerLine {
     this.isParty = false,
     this.costCentre,
     this.billReferences = const <String>[],
+    this.bills = const <VoucherBill>[],
+    this.bank,
     this.taxRate,
   });
 
@@ -33,6 +137,13 @@ class VoucherLedgerLine {
   final String? costCentre;
   final List<String> billReferences;
 
+  /// The same bills with their type, date and amount. Empty from an older
+  /// backend, and on a voucher read before these were fetched.
+  final List<VoucherBill> bills;
+
+  /// Set on a bank line that carried a cheque or transfer. Null otherwise.
+  final VoucherBankDetails? bank;
+
   /// The percentage a tax line was charged at, as the invoice recorded it.
   /// Null on every line that is not a tax.
   final double? taxRate;
@@ -47,6 +158,10 @@ class VoucherLedgerLine {
               const <Object?>[])
             if (ref != null) ref.toString(),
         ],
+        bills: _list(json['bills'], VoucherBill.fromJson),
+        bank: json['bank'] == null
+            ? null
+            : VoucherBankDetails.fromJson(_map(json['bank'])),
         taxRate: (json['tax_rate'] as num?)?.toDouble(),
       );
 }
@@ -418,9 +533,15 @@ class StatementEntry {
     required this.line,
     required this.movement,
     required this.running,
+    this.particulars,
   });
 
   final TransactionLine line;
+
+  /// The account on the other side of the voucher -- "Sales" against an
+  /// invoice, the bank against a receipt -- which is what Tally's Ledger
+  /// Vouchers prints. Null from an older backend.
+  final String? particulars;
 
   /// What this voucher did to the ledger, side intact.
   final Money movement;
@@ -434,6 +555,7 @@ class StatementEntry {
         line: TransactionLine.fromJson(json),
         movement: Money.fromJson(json['movement']),
         running: Money.fromJson(json['running']),
+        particulars: json['particulars'] as String?,
       );
 }
 
@@ -450,6 +572,8 @@ class LedgerStatement {
     this.closingBalance,
     this.openingBalance,
     this.periodClosingBalance,
+    this.partyDetails,
+    this.companyDetails,
   });
 
   final String ledger;
@@ -484,6 +608,14 @@ class LedgerStatement {
   /// the window. Null exactly when the opening balance is.
   final Money? periodClosingBalance;
 
+  /// The account holder's own address, printed under its name on a ledger
+  /// account. Null when the master read is not there.
+  final PartyDetails? partyDetails;
+
+  /// The company's own address, for the top of the print. Null until its
+  /// profile has been read once.
+  final CompanyDetails? companyDetails;
+
   bool get hasBalances => openingBalance != null && periodClosingBalance != null;
 
   factory LedgerStatement.fromJson(Map<String, Object?> json) => LedgerStatement(
@@ -498,6 +630,12 @@ class LedgerStatement {
             json['closing_balance'] == null ? null : Money.fromJson(json['closing_balance']),
         openingBalance: _moneyOrNull(json['opening_balance']),
         periodClosingBalance: _moneyOrNull(json['period_closing_balance']),
+        partyDetails: json['party_details'] == null
+            ? null
+            : PartyDetails.fromJson(_map(json['party_details'])),
+        companyDetails: json['company_details'] == null
+            ? null
+            : CompanyDetails.fromJson(_map(json['company_details'])),
       );
 }
 

@@ -19,6 +19,8 @@ from .masters import (
 from .money import Money, Side
 from .transactions import (
     BalanceSnapshot,
+    BankDetails,
+    BillLine,
     InventoryEntry,
     InvoiceDetails,
     LedgerEntry,
@@ -32,6 +34,8 @@ from .transactions import (
 __all__ = [
     "BalanceSnapshot",
     "BankAccount",
+    "BankDetails",
+    "BillLine",
     "Company",
     "CompanyProfile",
     "GodownStock",

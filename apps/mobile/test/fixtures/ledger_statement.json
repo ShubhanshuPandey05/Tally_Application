@@ -7,6 +7,7 @@
       "side": "debit",
       "signed": "11800.00"
     },
+    "company_details": null,
     "credit_total": {
       "amount": "0.00",
       "currency": "INR",
@@ -41,6 +42,7 @@
           "signed": "11800.00"
         },
         "narration": null,
+        "particulars": "Sales",
         "party": "Reliance Retail",
         "reference": null,
         "running": {
@@ -70,6 +72,15 @@
       "display": "0.00 Dr",
       "side": "debit",
       "signed": "0.00"
+    },
+    "party_details": {
+      "address": [],
+      "email": null,
+      "gstin": null,
+      "mobile": null,
+      "name": "Reliance Retail",
+      "phone": null,
+      "state": null
     },
     "period_closing_balance": {
       "amount": "11800.00",

@@ -1,8 +1,10 @@
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 
+import '../../features/reports/domain/drilldown.dart';
 import '../money/money.dart';
 import '../money/money_format.dart';
+import 'gst_state.dart';
 
 /// The look every shared document shares.
 ///
@@ -154,6 +156,19 @@ class DocumentStyle {
   static String date(DateTime value) =>
       '${value.day.toString().padLeft(2, '0')}-${_months[value.month - 1]}-${value.year}';
 
+  /// `01-04-2026` -- the voucher date on a receipt or payment print, which is
+  /// how the shops this reproduces print it. Day first, always: an Indian
+  /// reader takes `01-04` as the first of April and nothing else.
+  static String numericDate(DateTime value) =>
+      '${value.day.toString().padLeft(2, '0')}-'
+      '${value.month.toString().padLeft(2, '0')}-${value.year}';
+
+  /// `1-Apr-26` -- Tally's own short form, used where a ledger print or a
+  /// cheque line has a narrow column to fit it in.
+  static String shortDate(DateTime value) =>
+      '${value.day}-${_months[value.month - 1]}-'
+      '${(value.year % 100).toString().padLeft(2, '0')}';
+
   static const List<String> _months = <String>[
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
     'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -176,6 +191,68 @@ class DocumentStyle {
         .replaceAll(RegExp(r'-{2,}'), '-')
         .replaceAll(RegExp(r'^-|-$'), '');
     return safe.isEmpty ? 'prime-analyst' : safe;
+  }
+
+  /// A thin black rule, the only ornament on a voucher or ledger print.
+  static const pw.BorderSide ink06 = pw.BorderSide(color: ink, width: 0.6);
+
+  static pw.Widget hairline({double top = 2, double bottom = 2}) =>
+      pw.Container(
+        margin: pw.EdgeInsets.only(top: top, bottom: bottom),
+        height: 0,
+        decoration: const pw.BoxDecoration(border: pw.Border(top: ink06)),
+      );
+
+  /// The company's name and address, centred over the page.
+  ///
+  /// The heading of every print in the receipt, payment and ledger family,
+  /// laid out the way an Indian accounting package prints its letterhead:
+  /// name, address, state with its GST code, contact numbers, e-mail. Each
+  /// line appears only when Tally holds it -- a company that never entered an
+  /// e-mail gets no "E-Mail :" with nothing after it.
+  static pw.Widget letterhead({required String name, CompanyDetails? details}) {
+    final String title =
+        (details?.name ?? '').trim().isNotEmpty ? details!.name : name;
+    final String? state =
+        (details?.state ?? '').trim().isEmpty ? null : details!.state;
+    final String? code = details == null
+        ? null
+        : GstState.code(gstin: details.gstin, state: details.state);
+    final List<String> contact = <String?>[details?.phone, details?.mobile]
+        .whereType<String>()
+        .map((String value) => value.trim())
+        .where((String value) => value.isNotEmpty)
+        .toList();
+    final String? email =
+        (details?.email ?? '').trim().isEmpty ? null : details!.email!.trim();
+
+    pw.Widget line(String text) =>
+        pw.Text(text, style: body, textAlign: pw.TextAlign.center);
+
+    // Full width, or the column shrinks to its longest line and "centred"
+    // means centred on that line rather than on the page.
+    return pw.Container(
+      width: double.infinity,
+      child: pw.Column(
+        crossAxisAlignment: pw.CrossAxisAlignment.center,
+        children: <pw.Widget>[
+          pw.Text(
+            title,
+            style: pw.TextStyle(
+                fontSize: 13, fontWeight: pw.FontWeight.bold, color: ink),
+            textAlign: pw.TextAlign.center,
+          ),
+          for (final String address in details?.address ?? const <String>[])
+            line(address),
+          if (state != null)
+            line(code == null
+                ? 'State Name : $state'
+                : 'State Name : $state, Code : $code'),
+          if (contact.isNotEmpty) line('Contact : ${contact.join(', ')}'),
+          if (email != null) line('E-Mail : $email'),
+        ],
+      ),
+    );
   }
 
   /// The page frame: A4, narrow margins, and a footer on every page.

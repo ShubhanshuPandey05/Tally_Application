@@ -6,6 +6,7 @@ import '../money/money.dart';
 import '../money/money_format.dart';
 import 'amount_in_words.dart';
 import 'document_style.dart';
+import 'receipt_payment_document.dart';
 import 'tax_invoice_document.dart';
 
 /// One voucher, drawn as the document a business actually sends.
@@ -27,9 +28,14 @@ class VoucherDocument {
     required this.detail,
     required this.companyName,
     this.companyGstin,
+    this.adjustments = const <BillAdjustment>[],
   });
 
   final VoucherDetail detail;
+
+  /// The bills a receipt or payment settled, for its "Adjustment Details".
+  /// Ignored on every other kind of voucher.
+  final List<BillAdjustment> adjustments;
 
   /// The seller. Taken from the linked company rather than from the voucher:
   /// a voucher names the other side, never its own books.
@@ -57,6 +63,11 @@ class VoucherDocument {
   /// named it, because "Tax Invoice" and "Retail Sale" are the shop's own words
   /// and replacing them with our own would make two records disagree.
   String get title => detail.voucherType.trim().isEmpty ? 'Voucher' : detail.voucherType;
+
+  /// True for the kinds printed as a receipt or payment voucher, which are
+  /// the ones whose print carries an adjustment table worth fetching.
+  static bool hasOwnPrint(VoucherDetail detail) =>
+      detail.kind == 'receipt' || detail.kind == 'payment';
 
   String get fileName => DocumentStyle.fileName(<String?>[
         title,
@@ -108,6 +119,16 @@ class VoucherDocument {
         detail: detail,
         companyName: companyName,
         companyGstin: companyGstin,
+      ).build();
+    }
+    // Receipts and payments go out as the shop's own voucher print: the
+    // letterhead, the ledgers in Debit and Credit, the cheque, and the bills
+    // settled. Journals and the rest keep the layout below.
+    if (hasOwnPrint(detail)) {
+      return ReceiptPaymentDocument(
+        detail: detail,
+        companyName: companyName,
+        adjustments: adjustments,
       ).build();
     }
 

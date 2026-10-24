@@ -35,6 +35,8 @@ from tally_core.domain.masters import (
 )
 from tally_core.domain.money import Money, Side
 from tally_core.domain.transactions import (
+    BankDetails,
+    BillLine,
     InventoryEntry,
     InvoiceDetails,
     LedgerEntry,
@@ -772,8 +774,30 @@ def _entry_out(entry: LedgerEntry) -> dict[str, Any]:
         "is_party": entry.is_party,
         "cost_centre": entry.cost_centre,
         "bill_references": list(entry.bill_references),
+        "bills": [_bill_out(bill) for bill in entry.bills],
+        "bank": _bank_out(entry.bank) if entry.bank is not None else None,
         # Only on a tax line, where Tally prints it beside the ledger's name.
         "tax_rate": entry.tax_rate,
+    }
+
+
+def _bill_out(bill: BillLine) -> dict[str, Any]:
+    return {
+        "name": bill.name,
+        "bill_type": bill.bill_type,
+        "bill_date": bill.bill_date.isoformat() if bill.bill_date else None,
+        "amount": money_out(bill.amount) if bill.amount is not None else None,
+        "credit_days": bill.credit_days,
+    }
+
+
+def _bank_out(bank: BankDetails) -> dict[str, Any]:
+    return {
+        "transaction_type": bank.transaction_type,
+        "instrument_number": bank.instrument_number,
+        "instrument_date": bank.instrument_date.isoformat() if bank.instrument_date else None,
+        "bank_name": bank.bank_name,
+        "favouring": bank.favouring,
     }
 
 
@@ -841,7 +865,7 @@ def _invoice_out(invoice: InvoiceDetails) -> dict[str, Any]:
     }
 
 
-def _party_out(ledger: Ledger) -> dict[str, Any]:
+def party_out(ledger: Ledger) -> dict[str, Any]:
     """A party's own details, for the document a voucher is shared as.
 
     Contact details only. No balance and no credit limit: this block exists to
@@ -859,7 +883,7 @@ def _party_out(ledger: Ledger) -> dict[str, Any]:
     }
 
 
-def _company_out(profile: CompanyProfile) -> dict[str, Any]:
+def company_out(profile: CompanyProfile) -> dict[str, Any]:
     """The company's own details: the seller block of a shared document."""
     return {
         "name": profile.mailing_name or profile.name,
@@ -928,11 +952,11 @@ def voucher_detail(
         "is_optional": voucher.is_optional,
         "debit_total": money_out(magnitude(debits)),
         "credit_total": money_out(magnitude(credits)),
-        "party_details": _party_out(party) if party is not None else None,
+        "party_details": party_out(party) if party is not None else None,
         # Null until the profile has been read once, and always on a connector
         # from before that read existed. The document then prints the company's
         # name alone -- never an address block with nothing in it.
-        "company_details": _company_out(company) if company is not None else None,
+        "company_details": company_out(company) if company is not None else None,
         # Buyer, consignee and dispatch details as written on the voucher.
         # Null on anything that is not an invoice and on one stored before
         # these were read; the document then falls back to the party master.
@@ -1090,6 +1114,7 @@ def ledger_statement(
         rows.append(
             {
                 **_row_out(voucher),
+                "particulars": _other_side(voucher, wanted, movement),
                 "movement": money_out(movement),
                 "running": money_out(net if opening is None else opening + net),
             }
@@ -1109,6 +1134,23 @@ def ledger_statement(
         ),
         "entries": rows,
     }
+
+
+def _other_side(voucher: Voucher, ledger: str, movement: Money) -> str | None:
+    """The account a statement row names: where the money came from or went.
+
+    Tally's Ledger Vouchers prints the first ledger on the *other* side of the
+    voucher -- "Sales" against a customer's invoice, the bank against their
+    receipt. The voucher's party is no use here: on a party's own statement it
+    is the party, on every row. ``ledger`` is already folded by ``_norm``.
+    """
+    others = [e for e in voucher.ledger_entries if _norm(e.ledger_name) != ledger]
+    for entry in others:
+        if entry.amount.side is not movement.side and not entry.amount.is_zero:
+            return entry.ledger_name
+    if others:
+        return others[0].ledger_name
+    return voucher.party_name
 
 
 _MONTH_NAMES = (
