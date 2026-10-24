@@ -176,6 +176,21 @@ class ReportsRepository {
     );
   }
 
+  /// The bills a receipt or payment settled, for its print. Asked for only
+  /// when the print is built: it reads a stretch of history on the server
+  /// that the detail screen has no need for.
+  Future<List<BillAdjustment>> voucherAdjustments(
+    String companyId, {
+    required String key,
+    required DateTime on,
+  }) async {
+    final Map<String, Object?> body = await _api.getJson(
+      '/v1/companies/$companyId/reports/voucher/adjustments',
+      query: <String, Object?>{'key': key, 'on': _isoDate(on)},
+    );
+    return BillAdjustment.listFromJson(body.envelopeData);
+  }
+
   Future<Fresh<LedgerStatement>> ledgerStatement(
     String companyId, {
     required String ledger,
