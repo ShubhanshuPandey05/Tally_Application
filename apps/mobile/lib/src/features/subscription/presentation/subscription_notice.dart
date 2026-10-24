@@ -84,7 +84,7 @@ class SubscriptionNotice extends ConsumerWidget {
                 const SizedBox(width: 9),
                 Expanded(
                   child: Text(
-                    subscription.status.label,
+                    subscription.stateLabel,
                     style: theme.textTheme.titleSmall?.copyWith(color: accent),
                   ),
                 ),
@@ -140,7 +140,7 @@ class SubscriptionCard extends ConsumerWidget {
                 Text('Subscription', style: theme.textTheme.titleSmall),
                 const Spacer(),
                 Text(
-                  subscription.isExpired ? 'Expired' : subscription.status.label,
+                  subscription.stateLabel,
                   style: theme.textTheme.labelMedium?.copyWith(color: accent),
                 ),
               ],
@@ -157,12 +157,26 @@ class SubscriptionCard extends ConsumerWidget {
               used: subscription.usersUsed,
               cap: subscription.maxUsers,
             ),
-            if (subscription.expiresAt != null) ...<Widget>[
+            if (subscription.isTrialWaitingToStart) ...<Widget>[
               const SizedBox(height: 12),
               Text(
-                subscription.isExpired
-                    ? 'Ended ${_date(subscription.expiresAt!)}'
-                    : 'Renews on ${_date(subscription.expiresAt!)}',
+                // Said up front, because the obvious guess -- that a trial
+                // counts from signup -- would have an owner rushing to the shop
+                // PC for no reason.
+                'Your ${subscription.trialDays ?? 7}-day free trial starts when '
+                'you connect your first company.',
+                style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
+              ),
+            ] else if (subscription.expiresAt != null) ...<Widget>[
+              const SizedBox(height: 12),
+              Text(
+                subscription.isTrial
+                    ? subscription.isExpired
+                        ? 'Trial ended ${_date(subscription.expiresAt!)}'
+                        : 'Trial ends on ${_date(subscription.expiresAt!)}'
+                    : subscription.isExpired
+                        ? 'Ended ${_date(subscription.expiresAt!)}'
+                        : 'Renews on ${_date(subscription.expiresAt!)}',
                 style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
               ),
             ],

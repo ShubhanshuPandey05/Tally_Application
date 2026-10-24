@@ -21,6 +21,7 @@ from ..db.models import (
     as_utc,
 )
 from ..services.entitlements import Entitlement
+from ..services.plans import CATALOGUE, PlanCode
 
 
 def _as_utc(value: Any) -> Any:
@@ -52,6 +53,40 @@ class RegisterRequest(BaseModel):
     full_name: str | None = Field(default=None, max_length=200)
     org_name: str = Field(min_length=1, max_length=200)
     device_name: str | None = Field(default=None, max_length=200)
+    #: Required by the app, optional here. Builds from before the field existed
+    #: still sign up -- into a business that waits for approval, as every
+    #: signup used to -- and their admin is asked for a number at the next
+    #: sign-in on a newer build, which is when the trial starts.
+    phone: str | None = Field(default=None, max_length=30)
+    #: Which partner brought this business in. Optional; an unknown code is
+    #: refused rather than dropped (``services.trial.resolve_partner_code``).
+    partner_code: str | None = Field(default=None, max_length=40)
+
+
+class AddPhoneRequest(BaseModel):
+    """Supplying the phone number an older account was never asked for."""
+
+    phone: str = Field(min_length=1, max_length=30)
+    #: Offered on the same screen, because the account it would attach a
+    #: partner to is exactly one that signed up before codes existed. Only an
+    #: admin's code counts, and only on a business with no partner yet.
+    partner_code: str | None = Field(default=None, max_length=40)
+
+
+class PartnerCodeCheckRequest(BaseModel):
+    code: str = Field(min_length=1, max_length=40)
+
+
+class PartnerCodeCheckResponse(BaseModel):
+    """The answer to the live check under the partner-code box.
+
+    The partner's name rides along so the person typing can see they reached
+    the partner they meant -- "Ravi Computers" under the box is what tells
+    them a mistyped digit did not land on somebody else's code.
+    """
+
+    valid: bool
+    partner_name: str | None = None
 
 
 class LoginRequest(BaseModel):
@@ -105,10 +140,25 @@ class SubscriptionResponse(BaseModel):
     #: would otherwise offer to change something -- a disabled button with no
     #: explanation is how a demo gets mistaken for a broken product.
     is_demo: bool = False
+    #: On the free trial rather than an approved plan. While the clock has not
+    #: started ``expires_at`` is empty and ``trial_days`` says how long it will
+    #: run once the first company is linked; after that ``expires_at`` is when
+    #: it ends.
+    is_trial: bool = False
+    trial_started_at: UtcDatetime | None = None
+    trial_days: int | None = None
+    #: The plan's name ("Standard", "Premium") for the account screen, or
+    #: ``None`` on a trial or an account approved before plans existed.
+    plan_name: str | None = None
 
     @classmethod
     def build(
-        cls, entitlement: Entitlement, *, users_used: int, companies_used: int
+        cls,
+        entitlement: Entitlement,
+        *,
+        users_used: int,
+        companies_used: int,
+        trial_days: int | None = None,
     ) -> SubscriptionResponse:
         return cls(
             status=entitlement.status,
@@ -122,6 +172,12 @@ class SubscriptionResponse(BaseModel):
             expires_at=entitlement.expires_at,
             message=entitlement.blocked_reason,
             is_demo=entitlement.is_demo,
+            is_trial=entitlement.is_trial,
+            trial_started_at=entitlement.trial_started_at,
+            trial_days=trial_days if entitlement.is_trial else None,
+            plan_name=CATALOGUE[PlanCode(entitlement.plan)].name
+            if entitlement.plan in CATALOGUE and not entitlement.is_trial
+            else None,
         )
 
 
@@ -137,6 +193,12 @@ class UserResponse(BaseModel):
     #: The app routes straight to "set a new password" while this is true, so a
     #: temporary password handed over in person cannot stay in use.
     must_change_password: bool = False
+    #: The account's mobile number, normalised, or ``None`` for an account made
+    #: before one was asked for.
+    phone: str | None = None
+    #: The app routes to "add your mobile number" while this is true, the same
+    #: way it routes to a password change -- see ``router.dart``.
+    needs_phone: bool = False
     subscription: SubscriptionResponse
 
 

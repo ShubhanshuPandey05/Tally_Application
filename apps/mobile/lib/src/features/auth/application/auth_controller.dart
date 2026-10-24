@@ -110,15 +110,29 @@ class AuthController extends Notifier<AuthState> {
     required String email,
     required String password,
     required String orgName,
+    required String phone,
     String? fullName,
+    String? partnerCode,
   }) =>
       _attempt(() => _repository.signUp(
             email: email,
             password: password,
             orgName: orgName,
+            phone: phone,
             fullName: fullName,
+            partnerCode: partnerCode,
             deviceName: _deviceName,
           ));
+
+  /// Save the signed-in person's mobile number. Throws [ApiException] so the
+  /// screen can show the server's own sentence under the form; on success the
+  /// account is replaced with the server's answer, which is what lets the
+  /// router move them on.
+  Future<void> addPhone({required String phone, String? partnerCode}) async {
+    final AppUser user =
+        await _repository.addPhone(phone: phone, partnerCode: partnerCode);
+    state = AuthState(status: AuthStatus.signedIn, user: user);
+  }
 
   Future<void> signOut() async {
     await _repository.signOut();
