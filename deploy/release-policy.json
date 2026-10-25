@@ -32,11 +32,11 @@
   "connector": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Every year of your books can now be read, not only the year selected in TallyPrime. After this update, earlier years fill in on their own. Nothing needs to be set up again."
+    "notes": "Reads the extra bill details the app needs to print receipts, payments and ledgers in your own format. Nothing needs to be set up again."
   },
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Summary is now two tabs, Monthly Voucher Summary and Top Prime Reports. Earlier financial years can be opened from the year picker. Terms of Use and Privacy Policy are in Profile, and the splash screen shows just the logo."
+    "notes": "Print receipts, payments and ledgers in your shop's own format. New accounts start with a free trial once a mobile number is added, and a partner code can be entered at signup."
   }
 }

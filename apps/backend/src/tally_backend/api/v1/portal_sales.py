@@ -20,7 +20,6 @@ from __future__ import annotations
 from collections import defaultdict
 from datetime import UTC, date, datetime, time, timedelta
 from typing import Annotated
-from zoneinfo import ZoneInfo
 
 from fastapi import APIRouter, Query
 from sqlalchemy import select
@@ -37,6 +36,7 @@ from ...db.models import (
 )
 from ...services.plans import CATALOGUE
 from ...services.trial import is_on_trial
+from ...services.usage import BUSINESS_TZ
 from ..deps import PlatformPrincipalDep, SessionDep
 from ..portal_schemas import (
     MonthSales,
@@ -50,8 +50,10 @@ router = APIRouter(prefix="/portal", tags=["portal"])
 
 #: A sale on the evening of 31 March in Mumbai is a March sale, though it is
 #: already 1 April nowhere -- and still 31 March in UTC. Days are Indian days,
-#: as on the usage view.
-_IST = ZoneInfo("Asia/Kolkata")
+#: as on the usage view, and with the usage view's fixed +05:30 rather than
+#: ``ZoneInfo("Asia/Kolkata")``: India has no daylight saving, and Windows and
+#: slim images ship no tz database, so the named zone failed to import there.
+_IST = BUSINESS_TZ
 
 EXPIRING_WITHIN_DAYS = 30
 

@@ -15,18 +15,18 @@
 
 export const PUBLISHED = {
   connector: {
-    version: '0.9.0',
-    file: 'PrimeAnalystConnector-Setup-0.9.0.exe',
-    url: '/downloads/PrimeAnalystConnector-Setup-0.9.0.exe',
-    size_bytes: 48661169,
-    sha256: '401aad4f29541ab3d83fad11c3fdef4ccc9960f89702976776413f24549579b6',
+    version: '0.10.0',
+    file: 'PrimeAnalystConnector-Setup-0.10.0.exe',
+    url: '/downloads/PrimeAnalystConnector-Setup-0.10.0.exe',
+    size_bytes: 48622141,
+    sha256: '7059539d7c1ec0fbaf8016a6b11c579e024b23b3b920fad8c843e54f8defad65',
   },
   android: {
-    version: '0.12.0',
-    file: 'PrimeAnalyst-0.12.0.apk',
-    url: '/downloads/PrimeAnalyst-0.12.0.apk',
-    size_bytes: 37224298,
-    sha256: '1df7b7b7fa33dd635f26f414ed2170841b776861a75e57b93961bafa866c24dc',
+    version: '0.13.0',
+    file: 'PrimeAnalyst-0.13.0.apk',
+    url: '/downloads/PrimeAnalyst-0.13.0.apk',
+    size_bytes: 37299018,
+    sha256: 'b85afcf5a4a2282499b688c5c0358333462e95d2e8dedc9be59b5867522cb966',
   },
 };
 
