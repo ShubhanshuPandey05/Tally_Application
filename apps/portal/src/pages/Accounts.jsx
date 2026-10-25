@@ -21,6 +21,7 @@ import './accounts.css';
 const TABS = [
   { value: 'all', label: 'All' },
   { value: 'pending', label: 'Pending' },
+  { value: 'trial', label: 'Free trial' },
   { value: 'active', label: 'Active' },
   { value: 'suspended', label: 'Suspended' },
   { value: 'rejected', label: 'Rejected' },
@@ -39,6 +40,8 @@ export default function Accounts({ me, onCounts }) {
   const requested = params.get('status');
   const status = TABS.some((tab) => tab.value === requested) ? requested : 'all';
   const openId = params.get('open') || '';
+  // Owners only: a partner's list is already just their own.
+  const partnerFilter = me.role === 'owner' ? params.get('partner') || '' : '';
   const [search, setSearch] = useState(params.get('q') || '');
   const settled = useDebounced(search);
 
@@ -48,11 +51,12 @@ export default function Accounts({ me, onCounts }) {
         `/accounts${query({
           status: status === 'all' ? '' : status,
           search: settled,
+          partner: partnerFilter,
           limit: 200,
         })}`,
         { signal },
       ),
-    [status, settled],
+    [status, settled, partnerFilter],
   );
 
   // Partners populate the "owned by" dropdown in the drawer. Loaded once here
@@ -125,6 +129,23 @@ export default function Accounts({ me, onCounts }) {
           // All is the default, so it is the one that leaves the URL clean.
           onChange={(value) => setParam('status', value === 'all' ? '' : value)}
         />
+        {me.role === 'owner' ? (
+          <select
+            className="select"
+            style={{ width: 'auto' }}
+            aria-label="Filter by partner"
+            value={partnerFilter}
+            onChange={(event) => setParam('partner', event.target.value)}
+          >
+            <option value="">Every partner</option>
+            <option value="unassigned">No partner yet</option>
+            {(partners.data || []).map((person) => (
+              <option key={person.id} value={person.id}>
+                {person.full_name || person.email}
+              </option>
+            ))}
+          </select>
+        ) : null}
         <span className="grow" />
         <input
           className="input"
@@ -176,7 +197,9 @@ export default function Accounts({ me, onCounts }) {
                         <strong>{account.name}</strong>
                         <span className="dim" style={{ fontSize: 12 }}>
                           {account.admins[0]
-                            ? account.admins[0].email
+                            ? [account.admins[0].email, account.admins[0].phone]
+                                .filter(Boolean)
+                                .join(' · ')
                             : 'no admin has signed in yet'}
                         </span>
                       </div>
@@ -195,7 +218,15 @@ export default function Accounts({ me, onCounts }) {
                       </span>
                     </td>
                     <td className="muted nowrap">
-                      {account.expires_at ? fmtDate(account.expires_at) : 'Open-ended'}
+                      {account.is_trial
+                        ? account.trial_started_at
+                          ? `Trial to ${fmtDate(account.expires_at)}`
+                          : 'Trial, not started'
+                        : account.expires_at
+                          ? `${account.plan_name ? `${account.plan_name} · ` : ''}to ${fmtDate(
+                              account.expires_at,
+                            )}`
+                          : 'Open-ended'}
                     </td>
                     <td className="muted nowrap">{fmtAgo(account.created_at)}</td>
                   </tr>

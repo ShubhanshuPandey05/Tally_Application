@@ -659,18 +659,58 @@ keys everything off the *company*, not the account — the banner over the
 figures, no new-entry button, no "Remove" — because the same person sees the
 demo today and their own books tomorrow.
 
-### Signing up provisions nothing
+### Signing up starts a trial, not a plan
 
-A customer installs the app and the connector, registers, and signs in — to an
-`Organisation` whose `status` is `pending` and whose `max_users` and
-`max_companies` are **zero**. They can add no Tally PC, no company and no
-colleague until somebody in the management portal approves the account and says
-what it covers. The organisation row *is* the onboarding request; there is no
-second table, because two ids for one business is a reconciliation step that only
-ever goes wrong.
+A customer installs the app and the connector, registers with an email **and a
+mobile number**, and signs in to an `Organisation` that is `active` on a **free
+trial** (decided 2026-10-24; until then every signup sat at `pending` with zero
+ceilings until somebody in the portal approved it). The trial's ceilings are
+small and fixed (`TALLYFLOW_TRIAL_MAX_COMPANIES`, `_MAX_USERS`: one company, two
+people), and turning `TALLYFLOW_TRIAL_ENABLED` off restores the old rule.
 
-Zero is the only safe default. Anything generous would make approval an optional
-formality that nobody notices being skipped.
+**The trial's days count from the first company the business links of its
+own**, not from signup (`trial_days`, 7). A new account sees only the lent demo
+company, and a week spent looking at invented books, or waiting to get to the
+shop PC, is not a week of trying the product. `trial_started_at` is set once in
+`link_company` and never restarts; `trial_granted_at` is set once and never
+cleared, so a business gets one trial however often it signs in. A trial is not
+a status: it is `active` with `trial_granted_at` set and `approved_at` empty,
+and approving a plan in the portal is what ends it. Ending is an ordinary
+`expires_at`, so nothing sweeps the table.
+
+**The phone number is what unlocks the trial.** It is unique per account
+(normalised to `+91…` first, so spacing a number three ways is still one
+number), because a trial per phone is what stops it being a trial per email
+address. The API still accepts a signup without one, so an installed build from
+before the field keeps working: that business waits at `pending`, and its
+admin is sent to "add your mobile number" on the next sign-in with a newer
+build, which is when its trial starts. Rejected and suspended accounts never
+get one.
+
+**A partner code is set once and never changed.** An owner gives every partner
+one when creating them in the portal; it is printed on that partner's cards, so
+changing it would silently stop attributing every signup that still carries the
+old one. The signup form checks the optional box live
+(`POST /v1/auth/partner-code`, its own rate-limit bucket) and the server checks
+again: an unknown code is **refused, never dropped**, because a signup that
+silently lost its partner is an account the partner who brought it in can never
+see. A valid code sets `partner_id`, which is what scopes the account to them.
+
+**Two plans, a year each, and every sale is written down** (decided
+2026-10-24): Standard at ₹3,000 and Premium at ₹5,000, both plus 18% GST
+(`services/plans.py`). Approving an account requires choosing one, and the term
+is set to a year from that day rather than typed; renewing adds a year to the
+current end. Each approval or renewal writes a `plan_sales` row with the price,
+GST and partner **copied in**, in integer paise, so the portal's Sales report
+reads the same for a closed month however prices or partners change later. An
+owner approving a partner's signup leaves it with that partner; moving an
+account is the owner-only `/transfer` route, and sales already made stay with
+whoever made them. A signup with no partner code is seen only by owners
+("No partner yet") until it is transferred.
+
+The organisation row is still the onboarding request; there is no second table,
+because two ids for one business is a reconciliation step that only ever goes
+wrong.
 
 Two permissions come out of the subscription, and conflating them is the mistake
 to avoid:
@@ -678,7 +718,7 @@ to avoid:
 | | `allows_changes` | `allows_data` |
 |---|---|---|
 | pending | ✗ | ✓ — the lent demo company, until their own books arrive |
-| active | ✓ | ✓ |
+| active, trial included | ✓ | ✓ |
 | suspended · rejected · expired | ✗ | ✗ |
 
 Both are enforced at choke points that every route already passes through:

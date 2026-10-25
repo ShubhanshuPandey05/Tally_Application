@@ -550,6 +550,28 @@ async def test_voucher_detail_shape(
     check("voucher", body)
 
 
+async def test_voucher_adjustments_shape(client: AsyncClient, backfilled, dated) -> None:
+    """The bills a receipt settled, which the receipt print lays out under
+    "Adjustment Details". Asked for only when a print is built."""
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/daybook"
+        f"?from_date=2026-03-01&to_date={AS_OF.isoformat()}",
+        headers=backfilled["headers"],
+    )
+    rows = response.json()["data"]["vouchers"]
+    row = next((r for r in rows if r["kind"] == "receipt"), rows[0])
+
+    response = await client.get(
+        f"/v1/companies/{backfilled['company_id']}/reports/voucher/adjustments"
+        f"?key={row['key']}&on={row['date']}",
+        headers=backfilled["headers"],
+    )
+    assert response.status_code == 200, response.text
+    body = response.json()
+    assert isinstance(body["data"]["bills"], list)
+    check("voucher_adjustments", body)
+
+
 async def test_a_voucher_opens_while_the_backfill_is_still_running(
     client: AsyncClient, linked_company, dated, app, settings
 ) -> None:

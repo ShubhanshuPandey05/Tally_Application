@@ -34,7 +34,9 @@ class AuthRepository {
     required String email,
     required String password,
     required String orgName,
+    required String phone,
     String? fullName,
+    String? partnerCode,
     String? deviceName,
   }) async {
     final Map<String, Object?> tokens = await _api.postJson(
@@ -44,11 +46,46 @@ class AuthRepository {
         'password': password,
         'org_name': orgName.trim(),
         'full_name': fullName?.trim(),
+        'phone': phone.trim(),
+        'partner_code': _blankToNull(partnerCode),
         'device_name': deviceName,
       },
     );
     await _persist(tokens);
     return me();
+  }
+
+  /// Whether [code] names a partner, for the live check under the signup
+  /// form's partner-code box. The server decides again at signup; this only
+  /// tells the person before they press the button.
+  Future<PartnerCodeCheck> checkPartnerCode(String code) async {
+    final Map<String, Object?> json = await _api.postJson(
+      '/v1/auth/partner-code',
+      body: <String, Object?>{'code': code.trim()},
+    );
+    return PartnerCodeCheck(
+      valid: json['valid'] as bool? ?? false,
+      partnerName: json['partner_name'] as String?,
+    );
+  }
+
+  /// Give an account made before phone numbers were asked for its number.
+  /// Answers with the account as it now stands -- for an admin of a business
+  /// waiting for approval, that is the account on its free trial.
+  Future<AppUser> addPhone({required String phone, String? partnerCode}) async {
+    final Map<String, Object?> json = await _api.postJson(
+      '/v1/auth/me/phone',
+      body: <String, Object?>{
+        'phone': phone.trim(),
+        'partner_code': _blankToNull(partnerCode),
+      },
+    );
+    return AppUser.fromJson(json);
+  }
+
+  static String? _blankToNull(String? value) {
+    final String trimmed = value?.trim() ?? '';
+    return trimmed.isEmpty ? null : trimmed;
   }
 
   /// Kept on the phone so a launch with no signal still knows who is signed
@@ -99,4 +136,15 @@ class AuthRepository {
       ),
     );
   }
+}
+
+/// The answer to "is this a partner code?".
+class PartnerCodeCheck {
+  const PartnerCodeCheck({required this.valid, this.partnerName});
+
+  final bool valid;
+
+  /// Shown under the box, so a mistyped digit that happens to land on another
+  /// partner's code is visible before the account is attributed to them.
+  final String? partnerName;
 }

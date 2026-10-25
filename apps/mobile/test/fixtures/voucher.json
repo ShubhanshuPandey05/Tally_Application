@@ -54,7 +54,9 @@
           "side": "debit",
           "signed": "212600.00"
         },
+        "bank": null,
         "bill_references": [],
+        "bills": [],
         "cost_centre": null,
         "is_party": false,
         "ledger": "Purchases",
@@ -68,7 +70,9 @@
           "side": "credit",
           "signed": "-212600.00"
         },
+        "bank": null,
         "bill_references": [],
+        "bills": [],
         "cost_centre": null,
         "is_party": false,
         "ledger": "SARA DISITIBUTOR",

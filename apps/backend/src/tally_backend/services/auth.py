@@ -20,7 +20,17 @@ from ..core.security import (
     needs_rehash,
     verify_password,
 )
-from ..db.models import Membership, Organisation, RefreshToken, Role, User, new_id, utc_now
+from ..db.models import (
+    Membership,
+    Organisation,
+    OrgStatus,
+    RefreshToken,
+    Role,
+    User,
+    new_id,
+    utc_now,
+)
+from . import trial
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +51,14 @@ class AuthService:
     # -- registration ----------------------------------------------------
 
     async def register(
-        self, *, email: str, password: str, full_name: str | None, org_name: str
+        self,
+        *,
+        email: str,
+        password: str,
+        full_name: str | None,
+        org_name: str,
+        phone: str | None = None,
+        partner_code: str | None = None,
     ) -> tuple[User, Organisation]:
         email = email.strip().lower()
         existing = await self._session.scalar(select(User).where(User.email == email))
@@ -51,15 +68,50 @@ class AuthService:
                 user_message="An account with that email already exists.",
             )
 
-        user = User(email=email, password_hash=hash_password(password), full_name=full_name)
-        org = Organisation(name=org_name)
+        # Both checked before anything is written, so a bad code or a number
+        # already in use refuses the form rather than leaving half an account.
+        normalised_phone = trial.require_phone(phone) if phone and phone.strip() else None
+        if normalised_phone is not None:
+            await trial.ensure_phone_free(self._session, normalised_phone)
+        partner = await trial.resolve_partner_code(self._session, partner_code)
+
+        user = User(
+            email=email,
+            password_hash=hash_password(password),
+            full_name=full_name,
+            phone=normalised_phone,
+        )
+        org = Organisation(name=org_name, partner_id=partner.id if partner else None)
+        # Explicit rather than left to the column defaults, which SQLAlchemy only
+        # applies at INSERT -- and the trial check below reads them first.
+        org.status = OrgStatus.PENDING
+        org.max_users = 0
+        org.max_companies = 0
+        org.is_demo = False
         # The person who creates the organisation owns it; without this the first
         # user could not pair a connector or invite anyone.
         membership = Membership(user=user, organisation=org, role=Role.ADMIN)
+        trial.grant_trial_if_eligible(org, user, self._settings)
 
         self._session.add_all([user, org, membership])
         await self._session.flush()
         return user, org
+
+    async def grant_trial_on_sign_in(self, user: User, membership: Membership) -> bool:
+        """Give a waiting business its trial when its admin signs in with a phone.
+
+        An admin's sign-in only: a colleague's account is not the one that
+        speaks for the business, and the person a partner rings about the
+        trial must be somebody who can act on it.
+        """
+        if membership.role is not Role.ADMIN:
+            return False
+        granted = trial.grant_trial_if_eligible(
+            membership.organisation, user, self._settings
+        )
+        if granted:
+            await self._session.flush()
+        return granted
 
     # -- login -----------------------------------------------------------
 

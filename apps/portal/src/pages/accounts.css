@@ -95,3 +95,14 @@
 
 /* Row actions on a table: small, and never wrapping under each other. */
 .row-actions { display: flex; justify-content: flex-end; gap: 6px; flex-wrap: nowrap; }
+
+/* ---- Plan picker --------------------------------------------------- */
+.plan-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.plan-card {
+  display: grid; gap: 4px; text-align: left; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--surface, transparent);
+  color: inherit; font: inherit; cursor: pointer;
+}
+.plan-card:hover { border-color: color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.plan-card.is-selected { border-color: var(--accent); background: var(--accent-soft); }
+.plan-price { font-size: 15px; font-variant-numeric: tabular-nums; }

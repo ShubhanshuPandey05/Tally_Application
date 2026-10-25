@@ -6,6 +6,7 @@ import '../core/model/figures.dart';
 import '../core/widgets/period_picker.dart';
 import '../core/widgets/primitives.dart';
 import '../features/auth/application/auth_controller.dart';
+import '../features/auth/presentation/add_phone_screen.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
 import '../features/companies/presentation/company_picker_screen.dart';
@@ -98,6 +99,7 @@ class Routes {
   static const String godownItems = '/reports/stock/godowns/items';
   static const String team = '/team';
   static const String changePassword = '/change-password';
+  static const String addPhone = '/add-phone';
 }
 
 /// Where a voucher row goes when it is tapped, or null when it cannot go
@@ -191,6 +193,16 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
         return location == Routes.changePassword ? null : Routes.changePassword;
       }
 
+      // Then the mobile number an older account was never asked for. After the
+      // password, so a colleague on an admin-issued password secures the
+      // account before anything else; and gated here, not per screen, for the
+      // same reason as both rules above. For a business still waiting for
+      // approval, adding it is what starts the free trial.
+      if (auth.user?.needsPhone ?? false) {
+        return location == Routes.addPhone ? null : Routes.addPhone;
+      }
+      if (location == Routes.addPhone) return Routes.dashboard;
+
       if (onAuthScreen || location == Routes.splash) {
         return Routes.dashboard;
       }
@@ -200,6 +212,10 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.splash,
         builder: (BuildContext context, GoRouterState state) => const _SplashScreen(),
+      ),
+      GoRoute(
+        path: Routes.addPhone,
+        builder: (BuildContext context, GoRouterState state) => const AddPhoneScreen(),
       ),
       GoRoute(
         path: Routes.changePassword,

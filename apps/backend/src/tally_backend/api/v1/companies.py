@@ -16,6 +16,7 @@ from ...db.models import Company, CompanySyncState, Role
 from ...services.audit import record
 from ...services.demo import demo_company_for, is_demo_company
 from ...services.entitlements import check_company_limit, require_data
+from ...services.trial import start_trial_clock
 from ..deps import (
     CompanyDep,
     ConnectorDep,
@@ -109,6 +110,19 @@ async def link_company(
     # still bounded -- that path also ends with one more active company. The
     # subscription check rides inside it; the two must not be separable.
     await check_company_limit(session, principal.org)
+    # The trial's days count from here -- the first company of their own --
+    # and not from signup, which would spend them on the lent demo. Set before
+    # either branch below commits, so a re-link of a removed company counts
+    # exactly as a first link does.
+    if start_trial_clock(principal.org, settings):
+        await record(
+            session,
+            action="subscription.trial_started",
+            org_id=principal.org_id,
+            user_id=principal.user.id,
+            detail={"expires_at": principal.org.expires_at.isoformat()},
+            request=request,
+        )
 
     existing = await session.scalar(
         select(Company).where(

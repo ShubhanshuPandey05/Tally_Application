@@ -48,6 +48,10 @@ class OrgSubscription {
     this.companiesUsed = 0,
     this.expiresAt,
     this.message = '',
+    this.isTrial = false,
+    this.trialStartedAt,
+    this.trialDays,
+    this.planName,
   });
 
   final SubscriptionStatus status;
@@ -69,6 +73,38 @@ class OrgSubscription {
   /// Written by the backend for a shop owner, and always naming the way out.
   /// Empty when the account is live.
   final String message;
+
+  /// On the free trial rather than a plan somebody approved.
+  final bool isTrial;
+
+  /// When the trial's days started counting: the first company the business
+  /// linked of its own. Null on a trial means it has not started yet, and
+  /// [expiresAt] is then null too.
+  final DateTime? trialStartedAt;
+
+  /// How long the trial runs once it starts. Sent only on a trial.
+  final int? trialDays;
+
+  /// The plan bought ("Standard", "Premium"), or null on a trial or on an
+  /// account approved before plans existed.
+  final String? planName;
+
+  /// A trial that has been given but whose clock is not running yet -- the
+  /// business has not linked a company of its own.
+  bool get isTrialWaitingToStart => isTrial && trialStartedAt == null;
+
+  /// The word for the account's state, trial included. [SubscriptionStatus]
+  /// alone says "Active" for a trial, which is true and not what an owner
+  /// needs to read.
+  String get stateLabel {
+    if (isTrial) return isExpired ? 'Trial ended' : 'Free trial';
+    if (isExpired) return 'Expired';
+    final String? plan = planName;
+    if (status == SubscriptionStatus.active && plan != null && plan.isNotEmpty) {
+      return '$plan plan';
+    }
+    return status.label;
+  }
 
   /// True while the account is genuinely waiting on somebody, as opposed to
   /// having been switched off. The two need different words: one is "nearly
@@ -108,5 +144,11 @@ class OrgSubscription {
             ? null
             : DateTime.tryParse(json['expires_at'] as String)?.toLocal(),
         message: json['message'] as String? ?? '',
+        isTrial: json['is_trial'] as bool? ?? false,
+        trialStartedAt: json['trial_started_at'] == null
+            ? null
+            : DateTime.tryParse(json['trial_started_at'] as String)?.toLocal(),
+        trialDays: (json['trial_days'] as num?)?.toInt(),
+        planName: json['plan_name'] as String?,
       );
 }

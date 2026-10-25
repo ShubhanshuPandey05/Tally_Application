@@ -25,6 +25,7 @@ from tally_core.domain.transactions import OutstandingKind, Voucher
 from ...core.errors import AppError, NotFound
 from ...db.models import Company, CompanySyncState
 from ...services import analytics as an
+from ...services import bill_adjustments
 from ...services import top_reports as top
 from ...services.audit import record
 from ...services.dashboard import voucher_kinds
@@ -627,6 +628,68 @@ async def voucher_detail(
     )
 
 
+@router.get("/reports/voucher/adjustments", response_model=DataEnvelope)
+async def voucher_adjustments(
+    company: CompanyDep,
+    principal: PrincipalDep,
+    session: SessionDep,
+    reads: ReadServiceDep,
+    request: Request,
+    key: str,
+    on: date,
+) -> DataEnvelope:
+    """The bills one receipt or payment settled, each beside its own figures.
+
+    The "Adjustment Details" table of a printed receipt. Apart from the voucher
+    detail because it reads up to two years of stored history to find each
+    bill, which the detail screen -- opened far more often than it is shared --
+    has no reason to pay for. The app asks only when it builds the print.
+    """
+    result = await reads.fetch_voucher(company, key=key, on=on)
+    if result is None:
+        result = await reads.fetch_vouchers(
+            company, from_date=on, to_date=on, mode=FetchMode.CACHED
+        )
+    kinds = await voucher_kinds(reads, company, FetchMode.CACHED)
+    found = an.find_voucher(an.classify(an.parse_vouchers(result.payload), kinds), key)
+    if found is None:
+        raise NotFound(
+            f"voucher {key} not present on {on.isoformat()}",
+            user_message=(
+                "This voucher is no longer in your books for that date. It may "
+                "have been changed or deleted in Tally since this list was read."
+            ),
+        )
+
+    # Two financial years back, then one: a bill is nearly always raised within
+    # a year of being paid, and a store that has not yet backfilled that far
+    # still answers for this year rather than for nothing. Through the newest
+    # voucher held, because a receipt fetched live may be newer than the last
+    # sync, and stored_vouchers refuses a window that ends past it.
+    history: list[Voucher] | None = None
+    year_start = financial_year_start(found.date)
+    for start in (year_start.replace(year=year_start.year - 1), year_start):
+        payload = await reads.stored_vouchers(company, from_date=start)
+        if payload is not None:
+            history = an.classify(an.effective(an.parse_vouchers(payload)), kinds)
+            break
+
+    await record(
+        session,
+        action="report.voucher_adjustments",
+        org_id=principal.org_id,
+        user_id=principal.user.id,
+        company_id=company.id,
+        detail={"on": on.isoformat()},
+        request=request,
+    )
+
+    return DataEnvelope(
+        data={"bills": bill_adjustments.adjustments(found, history)},
+        meta=result.meta(),
+    )
+
+
 # The three lookups below exist for one reason: a voucher a customer shares has
 # to carry the seller's address and GSTIN, which no voucher export holds, and a
 # buyer and an HSN code for any voucher stored before its own copies of those
@@ -832,6 +895,13 @@ async def ledger_statement(
         an.money_out(match.closing_balance) if match is not None else None
     )
     statement["group"] = match.parent_group if match is not None else None
+    # The two address blocks a printed ledger account carries: the company's
+    # at the top, the account holder's under its name. Contact details only,
+    # the same as on a shared voucher -- and null rather than empty when the
+    # read is not there, so the print leaves the block off.
+    statement["party_details"] = an.party_out(match) if match is not None else None
+    profile = await _company_profile(reads, company)
+    statement["company_details"] = an.company_out(profile) if profile is not None else None
 
     await record(
         session,

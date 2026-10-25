@@ -81,6 +81,11 @@ export function fmtCount(value) {
  * account, so the portal treats it as its own state everywhere it is shown.
  */
 export function shownStatus(account) {
+  // A trial is a live account nobody has chosen a plan for, and one that ran
+  // out is not the same conversation as a paid term that lapsed.
+  if (account?.status === 'active' && account.is_trial) {
+    return account.is_expired ? 'trial_ended' : 'trial';
+  }
   return account?.is_expired && account.status === 'active' ? 'expired' : account?.status;
 }
 
@@ -90,6 +95,8 @@ export const STATUS_LABEL = {
   suspended: 'Suspended',
   rejected: 'Rejected',
   expired: 'Expired',
+  trial: 'Free trial',
+  trial_ended: 'Trial ended',
 };
 
 export const STATUS_TONE = {
@@ -98,6 +105,8 @@ export const STATUS_TONE = {
   suspended: 'stop',
   rejected: 'off',
   expired: 'stop',
+  trial: 'accent',
+  trial_ended: 'stop',
 };
 
 /** Level -> pill tone. Anything below WARNING is deliberately colourless. */
@@ -130,4 +139,20 @@ export function fromDateInput(value) {
 /** The platform header the app sends, as a person would say it. */
 export function platformName(platform) {
   return { android: 'Android', ios: 'iPhone', web: 'Web', windows: 'Windows' }[platform] || platform;
+}
+
+/**
+ * Paise -> `₹3,540` (or `₹3,540.50` when there are paise).
+ *
+ * The API sends money as whole paise so nothing on the way here is a float;
+ * the division happens once, at the last moment, for display only.
+ */
+export function fmtRupees(paise) {
+  const value = Number(paise ?? 0) / 100;
+  return new Intl.NumberFormat('en-IN', {
+    style: 'currency',
+    currency: 'INR',
+    minimumFractionDigits: Number.isInteger(value) ? 0 : 2,
+    maximumFractionDigits: 2,
+  }).format(value);
 }

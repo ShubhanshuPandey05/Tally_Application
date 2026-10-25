@@ -46,6 +46,8 @@ class AppUser {
     required this.role,
     this.fullName,
     this.mustChangePassword = false,
+    this.phone,
+    this.needsPhone = false,
     this.subscription = OrgSubscription.unknown,
   });
 
@@ -59,6 +61,15 @@ class AppUser {
   /// The account is still on a password an admin handed over. Until it is
   /// changed the app shows nothing but the "choose a password" screen.
   final bool mustChangePassword;
+
+  /// The account's mobile number as the server stored it (`+919876543210`),
+  /// or null for an account made before one was asked for.
+  final String? phone;
+
+  /// The account has no mobile number yet. The router holds the person on the
+  /// "add your number" screen until it has one -- for an admin of a business
+  /// still waiting for approval, adding it is what starts the free trial.
+  final bool needsPhone;
 
   /// What the business is entitled to. Arrives with the user because the app
   /// needs both at the same moment — on cold start, before it decides which
@@ -114,6 +125,11 @@ class AppUser {
         role: UserRole.parse(json['role'] as String?),
         fullName: json['full_name'] as String?,
         mustChangePassword: json['must_change_password'] as bool? ?? false,
+        phone: json['phone'] as String?,
+        // Absent from an older backend, which never asks for a number; false
+        // there, so a new build does not lock someone on a screen whose
+        // endpoint does not exist.
+        needsPhone: json['needs_phone'] as bool? ?? false,
         subscription: json['subscription'] is Map
             ? OrgSubscription.fromJson(
                 Map<String, Object?>.from(json['subscription'] as Map))
