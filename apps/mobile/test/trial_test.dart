@@ -14,6 +14,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tallyflow/src/app/router.dart';
 import 'package:tallyflow/src/core/network/api_exception.dart';
 import 'package:tallyflow/src/features/auth/application/auth_controller.dart';
 import 'package:tallyflow/src/features/auth/data/auth_repository.dart';
@@ -236,6 +237,42 @@ void main() {
       expect(fake.asked, isEmpty);
       expect(seen.last, PartnerCodeState.invalid);
     });
+  });
+
+  // Saving the number leaves the person signed in, so a router that listened
+  // only to the sign-in status never re-ran its gate: Continue reached the
+  // server and the screen stayed put.
+  test('saving the phone number moves the router on', () {
+    const AppUser before = AppUser(
+      id: 'u1',
+      email: 'owner@shop.in',
+      orgId: 'o1',
+      orgName: 'Gupta Electricals',
+      role: UserRole.admin,
+      needsPhone: true,
+    );
+    const AppUser after = AppUser(
+      id: 'u1',
+      email: 'owner@shop.in',
+      orgId: 'o1',
+      orgName: 'Gupta Electricals',
+      role: UserRole.admin,
+      phone: '+919876543210',
+    );
+    expect(
+      routerShouldRefresh(
+        const AuthState(status: AuthStatus.signedIn, user: before),
+        const AuthState(status: AuthStatus.signedIn, user: after),
+      ),
+      isTrue,
+    );
+    expect(
+      routerShouldRefresh(
+        const AuthState(status: AuthStatus.signedIn, user: after),
+        const AuthState(status: AuthStatus.signedIn, user: after),
+      ),
+      isFalse,
+    );
   });
 
   // Keeps the import honest: the controller is what the router reads.
