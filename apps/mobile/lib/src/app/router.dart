@@ -466,7 +466,6 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
   );
 });
 
-/// Bridges Riverpod's auth state to go_router's imperative refresh.
 /// Whether an auth change can move `redirect` to a different answer.
 ///
 /// The gates there read the user as well as the status. Saving a phone number
@@ -479,6 +478,7 @@ bool routerShouldRefresh(AuthState? previous, AuthState next) =>
     previous?.user?.needsPhone != next.user?.needsPhone ||
     previous?.user?.mustChangePassword != next.user?.mustChangePassword;
 
+/// Bridges Riverpod's auth state to go_router's imperative refresh.
 class _AuthRefresh extends ChangeNotifier {
   _AuthRefresh(Ref ref) {
     _subscription = ref.listen<AuthState>(
