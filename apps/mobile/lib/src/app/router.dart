@@ -467,12 +467,24 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
 });
 
 /// Bridges Riverpod's auth state to go_router's imperative refresh.
+/// Whether an auth change can move `redirect` to a different answer.
+///
+/// The gates there read the user as well as the status. Saving a phone number
+/// or a new password leaves the person signed in -- status unchanged -- so
+/// listening to status alone held them on the gate's screen, Continue doing
+/// nothing visible, after the server had already accepted the change.
+@visibleForTesting
+bool routerShouldRefresh(AuthState? previous, AuthState next) =>
+    previous?.status != next.status ||
+    previous?.user?.needsPhone != next.user?.needsPhone ||
+    previous?.user?.mustChangePassword != next.user?.mustChangePassword;
+
 class _AuthRefresh extends ChangeNotifier {
   _AuthRefresh(Ref ref) {
     _subscription = ref.listen<AuthState>(
       authControllerProvider,
       (AuthState? previous, AuthState next) {
-        if (previous?.status != next.status) notifyListeners();
+        if (routerShouldRefresh(previous, next)) notifyListeners();
       },
     );
   }
