@@ -55,7 +55,9 @@ from ..services.entitlements import (
     require_data,
     require_mutable,
 )
+from ..services.mailer import Mailer
 from ..services.masters import MasterService
+from ..services.phone_verification import PhoneVerifier
 from ..services.public_stats import PublicStatsService
 from ..services.reads import ReadService
 from ..services.sync import SyncCoordinator
@@ -91,7 +93,17 @@ def get_sync(request: Request) -> SyncCoordinator:
     return request.app.state.sync
 
 
+def get_phone_verifier(request: Request) -> PhoneVerifier:
+    return request.app.state.phone_verifier
+
+
+def get_mailer(request: Request) -> Mailer:
+    return request.app.state.mailer
+
+
 SessionDep = Annotated[AsyncSession, Depends(get_session)]
+PhoneVerifierDep = Annotated[PhoneVerifier, Depends(get_phone_verifier)]
+MailerDep = Annotated[Mailer, Depends(get_mailer)]
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 HubDep = Annotated[ConnectorHub, Depends(get_hub)]
 SyncDep = Annotated[SyncCoordinator, Depends(get_sync)]

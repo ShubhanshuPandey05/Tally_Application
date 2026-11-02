@@ -31,8 +31,13 @@ from ..db.models import (
     utc_now,
 )
 from . import trial
+from .phone_verification import FirebasePhoneVerifier, PhoneVerifier
 
 logger = logging.getLogger(__name__)
+
+#: For callers that never pass a proof -- tests, scripts. Constructed with no
+#: project, so a proof that does arrive is refused as not configured.
+_NO_VERIFIER = FirebasePhoneVerifier(None)
 
 
 @dataclass(frozen=True)
@@ -58,6 +63,8 @@ class AuthService:
         full_name: str | None,
         org_name: str,
         phone: str | None = None,
+        phone_proof: str | None = None,
+        verifier: PhoneVerifier | None = None,
         partner_code: str | None = None,
     ) -> tuple[User, Organisation]:
         email = email.strip().lower()
@@ -70,9 +77,16 @@ class AuthService:
 
         # Both checked before anything is written, so a bad code or a number
         # already in use refuses the form rather than leaving half an account.
-        normalised_phone = trial.require_phone(phone) if phone and phone.strip() else None
-        if normalised_phone is not None:
-            await trial.ensure_phone_free(self._session, normalised_phone)
+        normalised_phone: str | None = None
+        phone_verified_at = None
+        if phone and phone.strip():
+            normalised_phone, phone_verified_at = await trial.accept_phone(
+                self._session,
+                raw=phone,
+                proof=phone_proof,
+                verifier=verifier or _NO_VERIFIER,
+                settings=self._settings,
+            )
         partner = await trial.resolve_partner_code(self._session, partner_code)
 
         user = User(
@@ -80,6 +94,7 @@ class AuthService:
             password_hash=hash_password(password),
             full_name=full_name,
             phone=normalised_phone,
+            phone_verified_at=phone_verified_at,
         )
         org = Organisation(name=org_name, partner_id=partner.id if partner else None)
         # Explicit rather than left to the column defaults, which SQLAlchemy only

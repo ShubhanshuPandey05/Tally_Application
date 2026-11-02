@@ -5,8 +5,10 @@ import '../../../app/theme.dart';
 import '../../../core/network/api_exception.dart';
 import '../application/auth_controller.dart';
 import '../domain/app_user.dart';
+import '../data/phone_proof.dart';
 import '../domain/phone.dart';
 import 'partner_code_field.dart';
+import 'phone_code_sheet.dart';
 
 /// "Add your mobile number", for an account made before signup asked for one.
 ///
@@ -48,11 +50,18 @@ class _AddPhoneScreenState extends ConsumerState<AddPhoneScreen> {
       _error = null;
     });
     try {
+      final String? phoneToken = await provePhoneIfNeeded(context, ref, _phone.text);
+      if (!mounted) return;
       await ref.read(authControllerProvider.notifier).addPhone(
             phone: _phone.text,
+            phoneToken: phoneToken,
             partnerCode: _partnerCode.text,
           );
       // The router moves on by itself once `needsPhone` clears.
+    } on PhoneProofCancelled {
+      // Closed the sheet: back to the form, nothing sent.
+    } on PhoneProofException catch (error) {
+      if (mounted) setState(() => _error = error.message);
     } on ApiException catch (error) {
       if (mounted) setState(() => _error = error.message);
     } finally {

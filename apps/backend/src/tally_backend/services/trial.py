@@ -30,7 +30,8 @@ is an account the partner who brought it in can never see.
 from __future__ import annotations
 
 import re
-from datetime import timedelta
+from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -38,6 +39,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from ..config import Settings
 from ..core.errors import ConflictError, InvalidInput
 from ..db.models import Organisation, OrgStatus, PlatformUser, User, utc_now
+
+if TYPE_CHECKING:
+    from .phone_verification import PhoneVerifier
 
 # --------------------------------------------------------------------------
 # Phone numbers
@@ -113,6 +117,55 @@ async def ensure_phone_free(
             ),
             detail={"field": "phone"},
         )
+
+
+async def accept_phone(
+    session: AsyncSession,
+    *,
+    raw: str,
+    proof: str | None,
+    verifier: PhoneVerifier,
+    settings: Settings,
+    user_id: str | None = None,
+) -> tuple[str, datetime | None]:
+    """The number to store and when it was proven, or refuse the form.
+
+    ``proof`` is the Firebase ID token the app received after the person typed
+    the SMS code. With one, the number it proves must be the number typed --
+    otherwise the code went to one phone and the account got another. Without
+    one, the number is kept but unproven, unless this deployment requires
+    proof, in which case it is refused with a sentence that says what to do:
+    a build too old to send codes cannot be fixed by typing more carefully.
+    """
+    phone = require_phone(raw)
+    await ensure_phone_free(session, phone, user_id=user_id)
+
+    # A proof sent to a deployment with no Firebase project is set aside, not
+    # refused: the app proves numbers whenever it can, and a server that is
+    # not checking must not turn that into a failed signup.
+    if proof and verifier.enabled:
+        proven = normalise_phone(await verifier.verified_phone(proof))
+        if proven != phone:
+            raise InvalidInput(
+                "proven phone does not match the typed one",
+                user_message=(
+                    "The code was sent to a different number from the one "
+                    "entered. Check the number and ask for a new code."
+                ),
+                detail={"field": "phone"},
+            )
+        return phone, utc_now()
+
+    if settings.require_verified_phone:
+        raise InvalidInput(
+            "phone proof required",
+            user_message=(
+                "Please update Prime Analyst to confirm your mobile number "
+                "with a code."
+            ),
+            detail={"field": "phone", "reason": "phone_proof_required"},
+        )
+    return phone, None
 
 
 # --------------------------------------------------------------------------
@@ -213,6 +266,10 @@ def grant_trial_if_eligible(org: Organisation, user: User, settings: Settings) -
     if org.trial_granted_at is not None or org.approved_at is not None:
         return False
     if not user.phone:
+        return False
+    if settings.require_verified_phone and user.phone_verified_at is None:
+        # A number nobody proved is a number anybody could have typed, and a
+        # trial per typed number is a trial per keystroke.
         return False
 
     org.status = OrgStatus.ACTIVE

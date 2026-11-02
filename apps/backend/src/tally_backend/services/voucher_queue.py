@@ -50,6 +50,7 @@ from ..db.models import (
 )
 from ..hub.hub import ConnectorHub
 from .data_keys import company_cipher
+from .push import PushService
 
 logger = logging.getLogger(__name__)
 
@@ -87,10 +88,13 @@ class VoucherQueue:
         session_factory: SessionFactory,
         hub: ConnectorHub,
         settings: Settings,
+        *,
+        push: PushService | None = None,
     ) -> None:
         self._session_factory = session_factory
         self._hub = hub
         self._settings = settings
+        self._push = push
         self._task: asyncio.Task[None] | None = None
         self._stopping = asyncio.Event()
         #: One drain per connector at a time. Two overlapping drains would both
@@ -165,6 +169,8 @@ class VoucherQueue:
             row_id, company_id, payload = claimed
             posted, error = await self._deliver(company_id, payload)
             outcome = await self._settle(row_id, posted, error)
+            if outcome is not _Outcome.STILL_UNREACHABLE:
+                await self._tell_author(row_id, outcome)
 
             if outcome is _Outcome.SENT:
                 sent += 1
@@ -230,6 +236,7 @@ class VoucherQueue:
 
             if expired:
                 await self._expire(row_id)
+                await self._tell_author(row_id, _Outcome.FAILED)
                 # Expiring one does not end the drain -- the next may be live.
                 continue
 
@@ -275,6 +282,40 @@ class VoucherQueue:
             )
             await session.commit()
         logger.info("expired queued entry %s", row_id)
+
+    async def _tell_author(self, row_id: str, outcome: _Outcome) -> None:
+        """Let the person who made a queued entry know how it ended.
+
+        The reason this matters: an entry is queued because the shop's PC was
+        off, so it settles hours later, when the person who made it has long
+        since put the phone away. Without a notification the only way to learn
+        that a receipt failed is to go and look -- which is how one goes
+        missing. The words say what happened and nothing about the entry
+        itself (see ``services.push``).
+        """
+        if self._push is None or not self._push.enabled:
+            return
+        async with self._session_factory() as session:
+            row = await session.get(PendingVoucher, row_id)
+            if row is None:
+                return
+            author, kind, company_id = row.created_by, row.kind, row.company_id
+        noun = _KIND_NOUNS.get(kind, "entry")
+        if outcome is _Outcome.SENT:
+            title = f"Your {noun} reached TallyPrime"
+            body = f"The {noun} you made while the Tally PC was off has now been saved."
+        else:
+            title = f"Your {noun} was not saved"
+            body = (
+                f"A {noun} you made while the Tally PC was off could not be "
+                "saved. Tap to see why."
+            )
+        await self._push.notify_user(
+            author,
+            title=title,
+            body=body,
+            data={"kind": "queued_entry", "company_id": company_id, "entry_id": row_id},
+        )
 
     async def _deliver(
         self, company_id: str, payload: dict[str, Any]
@@ -392,6 +433,18 @@ class VoucherQueue:
         # own sweep will find it -- writes are deliberately not routed across
         # instances.
         return [link.connector_id for link in self._hub.local_links()]
+
+
+#: What a notification calls each kind. Plain words, because the person
+#: reading it is looking at a lock screen, not at ``WRITEABLE_KINDS``.
+_KIND_NOUNS = {
+    "receipt": "receipt",
+    "payment": "payment",
+    "sales": "sale",
+    "purchase": "purchase",
+    "sales_order": "sales order",
+    "purchase_order": "purchase order",
+}
 
 
 def _message(error: Any) -> str | None:

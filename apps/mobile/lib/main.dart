@@ -4,8 +4,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'src/app/app.dart';
+import 'src/core/firebase/firebase_setup.dart';
 import 'src/core/providers.dart';
 import 'src/core/storage/read_cache.dart';
+import 'src/features/auth/application/auth_features.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -27,11 +29,16 @@ Future<void> main() async {
   // Never throws: a store that cannot open falls back to memory.
   final ReadCache cache = await HiveReadCache.open();
 
+  // Never throws, and answers false on a build with no Firebase settings --
+  // which costs the SMS step and notifications, never the app.
+  final bool firebaseReady = await FirebaseSetup.initialise();
+
   runApp(
     ProviderScope(
       overrides: <Override>[
         sharedPreferencesProvider.overrideWithValue(preferences),
         readCacheProvider.overrideWithValue(cache),
+        firebaseReadyProvider.overrideWithValue(firebaseReady),
       ],
       child: _VersionedApp(package: package),
     ),

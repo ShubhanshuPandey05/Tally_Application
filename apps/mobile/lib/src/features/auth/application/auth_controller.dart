@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/providers.dart';
 import '../../../core/storage/token_store.dart';
+import '../../notifications/push_registration.dart';
 import '../data/auth_repository.dart';
 import '../domain/app_user.dart';
 
@@ -111,6 +112,7 @@ class AuthController extends Notifier<AuthState> {
     required String password,
     required String orgName,
     required String phone,
+    String? phoneToken,
     String? fullName,
     String? partnerCode,
   }) =>
@@ -119,6 +121,7 @@ class AuthController extends Notifier<AuthState> {
             password: password,
             orgName: orgName,
             phone: phone,
+            phoneToken: phoneToken,
             fullName: fullName,
             partnerCode: partnerCode,
             deviceName: _deviceName,
@@ -128,13 +131,22 @@ class AuthController extends Notifier<AuthState> {
   /// screen can show the server's own sentence under the form; on success the
   /// account is replaced with the server's answer, which is what lets the
   /// router move them on.
-  Future<void> addPhone({required String phone, String? partnerCode}) async {
-    final AppUser user =
-        await _repository.addPhone(phone: phone, partnerCode: partnerCode);
+  Future<void> addPhone({
+    required String phone,
+    String? phoneToken,
+    String? partnerCode,
+  }) async {
+    final AppUser user = await _repository.addPhone(
+      phone: phone,
+      phoneToken: phoneToken,
+      partnerCode: partnerCode,
+    );
     state = AuthState(status: AuthStatus.signedIn, user: user);
   }
 
   Future<void> signOut() async {
+    // While the session still exists: removing the token needs it.
+    await ref.read(pushRegistrarProvider).unregister();
     await _repository.signOut();
     await _forgetReads();
     state = AuthState.signedOut;
@@ -142,6 +154,7 @@ class AuthController extends Notifier<AuthState> {
   }
 
   Future<void> signOutEverywhere() async {
+    await ref.read(pushRegistrarProvider).unregister();
     await _repository.signOutEverywhere();
     await _forgetReads();
     state = AuthState.signedOut;

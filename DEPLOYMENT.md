@@ -176,6 +176,46 @@ Notes on the ones people get wrong:
 In a container platform these are environment variables in the service config.
 Do not ship a `.env` file inside the image.
 
+## A3b. Firebase, email and push (optional)
+
+Each of these is off until set, and the product works without them.
+
+**SMS codes at signup.** In the Firebase console, create a project and turn on
+*Authentication → Sign-in method → Phone*. Add the Android app
+(`in.tallyflow.tallyflow`) with the SHA-1 and SHA-256 of the **release** signing
+key, and enable the Play Integrity API for the project. Under *Authentication →
+Settings → SMS region policy*, allow India only. Turn on App Check. Then:
+
+```bash
+TALLYFLOW_FIREBASE_PROJECT_ID=<project id>
+TALLYFLOW_REQUIRE_VERIFIED_PHONE=false   # true once the code-sending build is the floor
+```
+
+Copy `apps/mobile/firebase.example.json` to `apps/mobile/firebase.json` with the
+app ids and API keys from the console; `run.py release` passes it to the build.
+Pricing as of 2026-10: the first 10 SMS a day are free, then about $0.07 each to
+India.
+
+**Password-reset email.** Any SMTP provider. Verify the sending domain (SPF and
+DKIM) first, or codes land in spam.
+
+```bash
+TALLYFLOW_SMTP_HOST=email-smtp.ap-south-1.amazonaws.com
+TALLYFLOW_SMTP_USERNAME=<smtp user>
+TALLYFLOW_SMTP_PASSWORD=<smtp password>
+TALLYFLOW_SMTP_FROM=Prime Analyst <no-reply@your-domain>
+```
+
+**Push notifications.** *Project settings → Service accounts → Generate new
+private key*, and pass the JSON (or a path to it):
+
+```bash
+TALLYFLOW_FCM_SERVICE_ACCOUNT=/run/secrets/fcm.json
+```
+
+For iPhones, also upload an APNs key under *Project settings → Cloud Messaging*
+and enable Push Notifications in the Xcode project.
+
 ## A4. Preflight
 
 `run.py preflight` reads the **real environment**, not a file, because that is
