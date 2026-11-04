@@ -3,13 +3,15 @@ import '../../../core/layout/adaptive.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
-import '../../../app/router.dart';
 import '../../../app/shell.dart';
 import '../../../app/theme.dart';
 import '../../../core/widgets/primitives.dart';
 import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../settings/presentation/profile_button.dart';
+import '../../team/application/team_providers.dart';
+import '../../team/domain/access_policy.dart';
+import '../domain/report_catalog.dart';
 
 /// The report index.
 ///
@@ -36,110 +38,63 @@ class ReportsScreen extends ConsumerWidget {
                 title: 'No company connected',
                 message: 'Connect your Tally PC to see reports.',
               )
-            : ListView(
-                padding: EdgeInsets.fromLTRB(16, 8, 16, HomeShell.contentInset(context)),
-                children: const <Widget>[
-                  _ReportGroup(
-                    tint: AppTheme.tileBlue,
-                    heading: 'Outstanding',
-                    entries: <_ReportEntry>[
-                      _ReportEntry(
-                        icon: Icons.call_received,
-                        title: 'Receivables',
-                        subtitle: 'Who owes me money, and for how long',
-                        route: '${Routes.outstanding}?kind=receivable',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.call_made,
-                        title: 'Payables',
-                        subtitle: 'What I owe my suppliers',
-                        route: '${Routes.outstanding}?kind=payable',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.groups_outlined,
-                        title: 'Sundry Debtors',
-                        subtitle: 'Every party in the group, net of advances',
-                        route: '${Routes.groupOutstanding}?kind=receivable',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.local_shipping_outlined,
-                        title: 'Sundry Creditors',
-                        subtitle: 'Every party in the group, net of advances',
-                        route: '${Routes.groupOutstanding}?kind=payable',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.account_balance_outlined,
-                        title: 'Ledgers',
-                        subtitle: 'Closing balances across all accounts',
-                        route: Routes.ledgers,
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 14),
-                  _ReportGroup(
-                    tint: AppTheme.tileViolet,
-                    heading: 'Transactions',
-                    entries: <_ReportEntry>[
-                      _ReportEntry(
-                        icon: Icons.receipt_long_outlined,
-                        title: 'Day book',
-                        subtitle: 'Every voucher, day by day',
-                        route: Routes.daybook,
-                      ),
-                      _ReportEntry(
-                        icon: Icons.trending_up,
-                        title: 'Sales register',
-                        subtitle: 'Every sale, by month, customer and item',
-                        route: '${Routes.register}?kind=sales',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.trending_down,
-                        title: 'Purchase register',
-                        subtitle: 'Every purchase, by month, supplier and item',
-                        route: '${Routes.register}?kind=purchase',
-                      ),
-                    ],
-                  ),
-                  SizedBox(height: 14),
-                  _ReportGroup(
-                    tint: AppTheme.tileAmber,
-                    heading: 'Stock',
-                    entries: <_ReportEntry>[
-                      _ReportEntry(
-                        icon: Icons.inventory_2_outlined,
-                        title: 'Stock summary',
-                        subtitle: 'What I hold and what it is worth',
-                        route: Routes.stock,
-                      ),
-                      _ReportEntry(
-                        icon: Icons.warehouse_outlined,
-                        title: 'Godown summary',
-                        subtitle: 'Where my stock is kept, godown by godown',
-                        route: Routes.godowns,
-                      ),
-                      _ReportEntry(
-                        icon: Icons.warning_amber_outlined,
-                        title: 'Running low',
-                        subtitle: 'Items at or below reorder level',
-                        route: '${Routes.stock}?only=low',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.error_outline,
-                        title: 'Negative stock',
-                        subtitle: 'Sold more than the books say you received',
-                        route: '${Routes.stock}?only=negative',
-                      ),
-                      _ReportEntry(
-                        icon: Icons.hourglass_bottom,
-                        title: 'Slow movers',
-                        subtitle: 'Stock on hand that is not selling',
-                        route: Routes.slowMoving,
-                      ),
-                    ],
-                  ),
-                ],
-              ),
+            : _ReportIndex(companyId: companyId),
       ),
+    );
+  }
+}
+
+/// The report groups, less any report an admin has switched off for this
+/// person. A section with nothing left in it is left out whole, and so is the
+/// screen's content when every report is off -- with a line saying why, since
+/// an empty Reports tab otherwise reads as a bug.
+class _ReportIndex extends ConsumerWidget {
+  const _ReportIndex({required this.companyId});
+
+  final String companyId;
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final AccessPolicy policy =
+        ref.watch(myAccessProvider(companyId)).valueOrNull ?? AccessPolicy.all;
+
+    final List<ReportSection> sections = <ReportSection>[
+      for (final ReportSection section in reportCatalog)
+        ReportSection(
+          section.heading,
+          section.tint,
+          section.entries.where((ReportEntry e) => policy.allowsReport(e.key)).toList(),
+        ),
+    ].where((ReportSection s) => s.entries.isNotEmpty).toList();
+
+    if (sections.isEmpty) {
+      return const EmptyState(
+        icon: Icons.lock_outline,
+        title: 'No reports here',
+        message: 'Your admin has not given you any reports for this company.',
+      );
+    }
+
+    return ListView(
+      padding: EdgeInsets.fromLTRB(16, 8, 16, HomeShell.contentInset(context)),
+      children: <Widget>[
+        for (int i = 0; i < sections.length; i++) ...<Widget>[
+          if (i > 0) const SizedBox(height: 14),
+          _ReportGroup(
+            tint: sections[i].tint,
+            heading: sections[i].heading,
+            entries: <_ReportEntry>[
+              for (final ReportEntry e in sections[i].entries)
+                _ReportEntry(
+                  icon: e.icon,
+                  title: e.title,
+                  subtitle: e.subtitle,
+                  route: e.route,
+                ),
+            ],
+          ),
+        ],
+      ],
     );
   }
 }

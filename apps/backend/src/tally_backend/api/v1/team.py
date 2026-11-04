@@ -66,8 +66,21 @@ async def _company_ids_for(session, principal_org_id: str, user: User, role: Rol
     return list(rows.scalars().all())
 
 
+async def _restricted_company_ids(session, user: User, role: Role) -> list[str]:
+    """Granted companies where an admin has switched something off."""
+    if role.allows(Role.ADMIN):
+        return []
+    rows = await session.execute(
+        select(CompanyAccess.company_id).where(
+            CompanyAccess.user_id == user.id, CompanyAccess.restrictions.is_not(None)
+        )
+    )
+    return sorted(rows.scalars().all())
+
+
 async def _member_response(session, org_id: str, user: User, role: Role) -> MemberResponse:
     return MemberResponse(
+        restricted_company_ids=await _restricted_company_ids(session, user, role),
         id=user.id,
         email=user.email,
         full_name=user.full_name,
@@ -104,9 +117,18 @@ async def _set_company_access(
         wanted = valid
 
     # Replaced wholesale rather than merged: the screen sends the full set of
-    # ticked boxes, so anything absent is an un-tick, not an omission.
-    await session.execute(delete(CompanyAccess).where(CompanyAccess.user_id == member.id))
-    for company_id in sorted(wanted):
+    # ticked boxes, so anything absent is an un-tick, not an omission. But a
+    # company that stays ticked keeps its row -- and with it the reports and
+    # ledgers its admin switched off. Deleting and re-adding every row would
+    # silently lift those restrictions each time somebody renamed a colleague.
+    rows = await session.execute(
+        select(CompanyAccess).where(CompanyAccess.user_id == member.id)
+    )
+    held = {row.company_id: row for row in rows.scalars().all()}
+    for company_id, row in held.items():
+        if company_id not in wanted:
+            await session.delete(row)
+    for company_id in sorted(wanted - held.keys()):
         session.add(
             CompanyAccess(user_id=member.id, company_id=company_id, granted_by=granted_by)
         )

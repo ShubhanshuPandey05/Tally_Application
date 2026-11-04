@@ -664,6 +664,14 @@ class CompanyAccess(Base, TimestampMixin):
     granted_by: Mapped[str | None] = mapped_column(
         ForeignKey("users.id", ondelete="SET NULL"), nullable=True
     )
+    #: What this person may see *inside* the company -- reports, ledger groups,
+    #: stock groups -- as the exceptions an admin set (see
+    #: ``services.access_policy``). ``NULL`` means none: once a company is
+    #: granted, everything in it is visible until an admin switches part off.
+    #:
+    #: Sealed with the company's data key, because the list of what is hidden
+    #: names ledgers and stock items, and those names are part of the books.
+    restrictions: Mapped[Any] = mapped_column(SealedJSON, nullable=True)
 
 
 # --------------------------------------------------------------------------

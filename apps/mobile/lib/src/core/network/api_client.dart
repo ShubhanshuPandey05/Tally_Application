@@ -173,6 +173,18 @@ class ApiClient {
     return _asMap(result);
   }
 
+  /// A whole-resource replace. Not retried, for the same reason as [patchJson]:
+  /// replaying an older replace over a newer one undoes the newer one.
+  Future<Map<String, Object?>> putJson(
+    String path, {
+    Map<String, Object?>? body,
+  }) async {
+    final Object? result = await _send<Object?>(
+      () => _dio.put<Object?>(path, data: body),
+    );
+    return _asMap(result);
+  }
+
   Future<void> delete(String path) async {
     await _send<Object?>(() => _dio.delete<Object?>(path));
   }

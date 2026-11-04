@@ -179,7 +179,8 @@ class _Explainer extends StatelessWidget {
             const SizedBox(width: 10),
             Expanded(
               child: Text(
-                'Staff see only the companies you tick. Admins can add Tally PCs, '
+                'Staff see only the companies you switch on, and inside each one '
+                'you can switch off reports, ledger groups and stock. Admins can add Tally PCs, '
                 'connect companies and manage people.',
                 style: theme.textTheme.bodySmall?.copyWith(color: context.mutedColor),
               ),
@@ -268,8 +269,9 @@ class _MemberCard extends StatelessWidget {
                       },
                       tone: member.companyIds.isEmpty ? _Tone.caution : _Tone.neutral,
                     ),
-                  if (!member.isActive)
-                    const _Chip(label: 'Switched off', tone: _Tone.negative),
+                  if (!admin && member.restrictedCompanyIds.isNotEmpty)
+                    const _Chip(label: 'Limited access'),
+                  if (!member.isActive) const _Chip(label: 'Switched off', tone: _Tone.negative),
                   if (member.mustChangePassword)
                     const _Chip(label: 'Not signed in yet', tone: _Tone.caution),
                 ],

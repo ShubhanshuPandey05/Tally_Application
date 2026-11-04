@@ -46,6 +46,7 @@ from ..db.models import (
     User,
 )
 from ..hub import ConnectorHub
+from ..services.access_policy import AccessScope, load_scope
 from ..services.auth import AuthService
 from ..services.dashboard import DashboardService
 from ..services.demo import demo_company_for
@@ -58,6 +59,7 @@ from ..services.entitlements import (
 from ..services.masters import MasterService
 from ..services.public_stats import PublicStatsService
 from ..services.reads import ReadService
+from ..services.scoped_reads import ScopedReadService
 from ..services.sync import SyncCoordinator
 from ..services.voucher_queue import VoucherQueue
 from ..services.voucher_writes import VoucherWriteService
@@ -389,8 +391,54 @@ def get_voucher_write_service(
 VoucherWriteServiceDep = Annotated[VoucherWriteService, Depends(get_voucher_write_service)]
 
 
-def get_read_service(session: SessionDep, hub: HubDep, settings: SettingsDep) -> ReadService:
-    return ReadService(session, hub, settings)
+async def get_access_scope(
+    company: CompanyDep,
+    principal: PrincipalDep,
+    session: SessionDep,
+    hub: HubDep,
+    settings: SettingsDep,
+) -> AccessScope | None:
+    """What this caller may see inside ``company``, or ``None`` for all of it.
+
+    Admins are never scoped -- their access follows from the role, the same rule
+    as ``company_access`` -- and neither is the lent demo company, which is
+    nobody's to restrict. For staff it is the policy on their grant row.
+    """
+    if principal.role.allows(Role.ADMIN) or company.org_id != principal.org_id:
+        return None
+    access = await session.scalar(
+        select(CompanyAccess).where(
+            CompanyAccess.user_id == principal.user.id,
+            CompanyAccess.company_id == company.id,
+        )
+    )
+    return await load_scope(session, ReadService(session, hub, settings), company, access)
+
+
+AccessScopeDep = Annotated[AccessScope | None, Depends(get_access_scope)]
+
+
+def require_report(scope: AccessScope | None, key: str) -> None:
+    """Refuse a report the caller's admin has switched off."""
+    if scope is not None:
+        scope.require_report(key)
+
+
+async def get_read_service(
+    session: SessionDep,
+    hub: HubDep,
+    settings: SettingsDep,
+    company: CompanyDep,
+    scope: AccessScopeDep,
+) -> ReadService:
+    """The read service for this request's company, filtered to the caller.
+
+    Every route that reads a company's books takes its reads from here, so a
+    ledger an admin hid is missing from all of them by construction.
+    """
+    if scope is None:
+        return ReadService(session, hub, settings)
+    return ScopedReadService(session, hub, settings, scope=scope, company_id=company.id)
 
 
 def get_dashboard_service(

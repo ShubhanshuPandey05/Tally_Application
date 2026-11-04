@@ -575,6 +575,41 @@ stores only the chosen word and reports it in `HostInfo` on every handshake —
 what each level *means* lives in `services.sync.pace_for`, so a better preset
 ships with a backend deploy instead of a new connector on every customer's PC.
 
+### Access inside a company is a tree of switches
+
+`company_access` says *whether* a staff member may open a company. Inside one,
+an admin can switch off parts of it for that person (decided 2026-11-04), in
+three trees that each switch on as a whole and refine underneath: **Reports**
+(the Reports screen and the Top Prime Reports), **Ledger Groups** (Tally's own
+group tree, any depth, down to single ledgers) and **Stock Groups** (each
+item's own group, then items -- the connector reads no stock-group nesting).
+The admin's screen is Team → person → a company's switch → tap to drill in.
+
+**Everything is allowed until switched off** -- the opposite default to
+`company_access`, on purpose: once a company is granted, the person sees it the
+way the admin does, and the policy stores only the exceptions, on the grant
+row (`company_access.restrictions`, sealed like any other piece of the books,
+since it names ledgers). `NULL` is "no exceptions". Admins are never limited.
+Re-saving a person's company list keeps each surviving grant row, so it
+never lifts a policy as a side effect.
+
+**Enforced at the read, not per handler.** For a limited person,
+`deps.get_read_service` hands out a `ScopedReadService`, which filters every
+dataset on its way out -- so a hidden ledger is missing from the ledger
+report, receivables, the day book, the dashboard and the entry pickers alike,
+including reports not written yet. Reports are refused by key with a 403
+(`require_report`); the app also hides them, which is courtesy, not control.
+A voucher that touches *anything* hidden -- party, any ledger line, any item --
+is hidden whole, and totals count only what is left, so no figure includes a
+row the person could not have opened. A ledger statement for such a person
+has no opening balance: the hidden vouchers still moved it.
+
+**Fail closed.** With a group switched off, a ledger or item the stored
+masters cannot place is hidden, because it might sit inside that group. Names
+are matched, not GUIDs, because that is what voucher lines carry; a ledger
+renamed in Tally after being hidden shows again under its new name. See
+`services/access_policy.py`.
+
 ### Re-pairing cuts the PC off first
 
 "Re-pair this computer" in the app replaces the credential *immediately*, closes

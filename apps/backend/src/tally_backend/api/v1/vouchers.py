@@ -35,7 +35,7 @@ from tally_core.domain.writes import (
     VoucherDraft,
 )
 
-from ...core.errors import AppError, NotFound
+from ...core.errors import AppError, NotFound, PermissionDenied
 from ...db.models import Company, Connector, PendingVoucher, PendingVoucherState, utc_now
 from ...services import analytics as an
 from ...services.audit import record
@@ -43,6 +43,7 @@ from ...services.data_keys import company_cipher
 from ...services.reads import FetchMode, NoDataYet
 from ...services.voucher_queue import PARTY
 from ..deps import (
+    AccessScopeDep,
     CompanyDep,
     MasterServiceDep,
     PrincipalDep,
@@ -418,6 +419,7 @@ async def create_voucher(
     principal: PrincipalDep,
     writes: VoucherWriteServiceDep,
     request: Request,
+    scope: AccessScopeDep,
 ) -> VoucherCreatedResponse:
     """Create one voucher in this company's books.
 
@@ -429,6 +431,19 @@ async def create_voucher(
     permission that would stop them using it at all.
     """
     draft = _to_draft(body)
+    if scope is not None:
+        # Before anything reaches Tally. A ledger hidden from this person is one
+        # they could not have picked; posting to it by typing the name would
+        # make every restriction a matter of not knowing what to type.
+        refused = scope.entry_refusal(draft.model_dump(mode="json"))
+        if refused is not None:
+            raise PermissionDenied(
+                f"entry names hidden {refused}",
+                user_message=(
+                    "This entry uses an account or item your admin has not given you "
+                    "access to."
+                ),
+            )
     posted = await writes.create(
         company=company,
         draft=draft,

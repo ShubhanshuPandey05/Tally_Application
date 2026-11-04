@@ -11,6 +11,9 @@ import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../dashboard/presentation/widgets/company_switcher.dart';
 import '../../settings/presentation/profile_button.dart';
+import '../../team/application/team_providers.dart';
+import '../../team/domain/access_policy.dart';
+import '../../top_reports/domain/top_report.dart';
 
 /// The Summary tab: a door to each summary rather than one summary.
 ///
@@ -40,8 +43,8 @@ class SummaryScreen extends ConsumerWidget {
               )
             : ListView(
                 padding: EdgeInsets.fromLTRB(16, 8, 16, HomeShell.contentInset(context)),
-                children: const <Widget>[
-                  _SummaryCard(
+                children: <Widget>[
+                  const _SummaryCard(
                     icon: Icons.calendar_view_month_outlined,
                     tint: AppTheme.tileBlue,
                     title: 'Monthly Voucher Summary',
@@ -49,20 +52,32 @@ class SummaryScreen extends ConsumerWidget {
                         'month by month through the year',
                     route: Routes.monthlySummary,
                   ),
-                  SizedBox(height: 12),
-                  _SummaryCard(
-                    icon: Icons.leaderboard_outlined,
-                    tint: AppTheme.tileViolet,
-                    title: 'Top Prime Reports',
-                    subtitle: 'Top customers, products, expenses, outstanding '
-                        'and profit, ranked',
-                    route: Routes.topReports,
-                  ),
+                  // Left out when an admin has switched every one of them off
+                  // for this person: a door into an empty room.
+                  if (_anyPrime(ref, companyId)) ...<Widget>[
+                    const SizedBox(height: 12),
+                    const _SummaryCard(
+                      icon: Icons.leaderboard_outlined,
+                      tint: AppTheme.tileViolet,
+                      title: 'Top Prime Reports',
+                      subtitle: 'Top customers, products, expenses, outstanding '
+                          'and profit, ranked',
+                      route: Routes.topReports,
+                    ),
+                  ],
                 ],
               ),
       ),
     );
   }
+}
+
+bool _anyPrime(WidgetRef ref, String companyId) {
+  final AccessPolicy policy =
+      ref.watch(myAccessProvider(companyId)).valueOrNull ?? AccessPolicy.all;
+  return topReportCatalog
+      .expand((TopReportGroup g) => g.entries)
+      .any((TopReportEntry e) => policy.allowsPrimeReport(e.key));
 }
 
 class _SummaryCard extends StatelessWidget {

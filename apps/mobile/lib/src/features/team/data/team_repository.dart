@@ -1,5 +1,6 @@
 import '../../../core/network/api_client.dart';
 import '../../auth/domain/app_user.dart';
+import '../domain/access_policy.dart';
 import '../domain/team_member.dart';
 
 /// Everything the team screen asks the backend for.
@@ -54,6 +55,43 @@ class TeamRepository {
     };
     return TeamMember.fromJson(await _api.patchJson('/v1/team/$memberId', body: body));
   }
+
+  /// One staff member's policy for one company. The company has to be granted
+  /// (and saved) first: the policy lives on that grant.
+  Future<AccessPolicy> memberAccess(String memberId, String companyId) async {
+    final Map<String, Object?> body = await _api.getJson('/v1/team/$memberId/access/$companyId');
+    return AccessPolicy.fromJson(_map(body['policy']));
+  }
+
+  /// Replaces the policy. Sending [AccessPolicy.all] clears it.
+  Future<AccessPolicy> setMemberAccess(
+    String memberId,
+    String companyId,
+    AccessPolicy policy,
+  ) async {
+    final Map<String, Object?> body = await _api.putJson(
+      '/v1/team/$memberId/access/$companyId',
+      body: policy.toJson(),
+    );
+    return AccessPolicy.fromJson(_map(body['policy']));
+  }
+
+  /// The groups, ledgers, stock groups and items an admin can switch off.
+  Future<AccessCatalog> accessCatalog(String companyId) async {
+    return AccessCatalog.fromJson(
+      await _api.getJson('/v1/companies/$companyId/access/catalog'),
+    );
+  }
+
+  /// What the signed-in person may see in [companyId].
+  Future<AccessPolicy> myAccess(String companyId) async {
+    final Map<String, Object?> body = await _api.getJson('/v1/companies/$companyId/access');
+    return AccessPolicy.fromJson(_map(body['policy']));
+  }
+
+  static Map<String, Object?> _map(Object? raw) =>
+      (raw as Map<Object?, Object?>? ?? <Object?, Object?>{})
+          .map((Object? k, Object? v) => MapEntry<String, Object?>('$k', v));
 
   Future<String> resetPassword(String memberId) async {
     final Map<String, Object?> body =
