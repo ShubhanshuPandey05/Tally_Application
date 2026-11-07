@@ -14,6 +14,7 @@ import '../../../core/widgets/states.dart';
 import '../../companies/application/company_providers.dart';
 import '../../reports/domain/reports.dart' show FetchMode;
 import '../../reports/presentation/widgets/report_scaffold.dart';
+import '../../reports/presentation/widgets/report_tables.dart';
 import '../application/top_report_providers.dart';
 import '../domain/top_report.dart';
 
@@ -156,6 +157,7 @@ class _TopReportScreenState extends ConsumerState<TopReportScreen>
           label: const Text('Change period'),
         ),
       ),
+      share: (TopReport report) => topReportTable(report, subtitle: periodLabel),
       builder: (BuildContext context, TopReport report) {
         final List<Widget> notes = <Widget>[
           if (report.notes.isNotEmpty)

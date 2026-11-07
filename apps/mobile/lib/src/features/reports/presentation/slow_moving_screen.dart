@@ -12,6 +12,7 @@ import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// "Which products aren't selling?"
 ///
@@ -128,6 +129,7 @@ class _SlowMovingScreenState extends ConsumerState<SlowMovingScreen> {
         title: 'Everything is moving',
         message: 'Every item you hold has sold at least once in the last $_days days.',
       ),
+      share: slowMovingTable,
       builder: (BuildContext context, SlowMovingReport report) {
         if (report.items.isEmpty) return const <Widget>[];
         final ThemeData theme = Theme.of(context);

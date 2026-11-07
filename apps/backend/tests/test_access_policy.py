@@ -428,3 +428,17 @@ async def test_an_entry_restriction_alone_hides_no_report(
     assert catalog.json()["entry_kinds"] == [
         "receipt", "payment", "sales", "purchase", "sales_order", "purchase_order"
     ]
+
+
+async def test_sharing_off_is_stored_and_reported_and_hides_nothing(
+    client: AsyncClient, linked_company, cashier, loaded
+) -> None:
+    saved = await set_policy(client, linked_company, cashier, share=False)
+    assert saved.status_code == 200, saved.text
+    mine = await client.get(path(linked_company, "/access"), headers=cashier["headers"])
+    assert mine.json()["restricted"] is True
+    assert mine.json()["policy"]["share"] is False
+    # Only the button goes: the reports themselves still open.
+    ledgers = await client.get(path(linked_company, "/reports/ledgers"), headers=cashier["headers"])
+    assert ledgers.status_code == 200, ledgers.text
+    assert AccessPolicy.from_stored({"reports": True}).share is True

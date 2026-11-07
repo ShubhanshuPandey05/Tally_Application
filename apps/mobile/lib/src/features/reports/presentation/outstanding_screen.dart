@@ -15,6 +15,7 @@ import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/bill_row.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// "Who owes me money?" -- grouped by party, worst first.
 ///
@@ -104,6 +105,10 @@ class _OutstandingScreenState extends ConsumerState<OutstandingScreen> {
         message: widget.kind == OutstandingKind.receivable
             ? 'Every bill has been settled.'
             : 'All supplier bills are settled.',
+      ),
+      share: (OutstandingReport report) => outstandingTable(
+        report,
+        subtitle: 'As of ${_formatDate(_asOf ?? report.asOf)}',
       ),
       builder: (BuildContext context, OutstandingReport report) {
         if (report.bills.isEmpty) return const <Widget>[];

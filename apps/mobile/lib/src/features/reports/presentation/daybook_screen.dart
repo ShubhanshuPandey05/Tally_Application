@@ -17,6 +17,7 @@ import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import '../../../core/widgets/period_picker.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// How far back a day book request may reach. Mirrors the backend's own
 /// `MAX_REPORT_DAYS` clamp so a custom range is narrowed on the phone, with
@@ -132,6 +133,7 @@ class _DaybookScreenState extends ConsumerState<DaybookScreen>
         title: 'No vouchers',
         message: 'Nothing was recorded in TallyPrime for this period.',
       ),
+      share: (DaybookReport report) => daybookTable(report, period: periodLabel),
       builder: (BuildContext context, DaybookReport report) {
         if (report.vouchers.isEmpty) return const <Widget>[];
 

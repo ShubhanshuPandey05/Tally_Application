@@ -17,6 +17,7 @@ import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/bill_row.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// Outstanding for one ledger group -- Tally's Group Outstanding.
 ///
@@ -124,6 +125,10 @@ class _GroupOutstandingScreenState extends ConsumerState<GroupOutstandingScreen>
         message:
             'No party under ${state.valueOrNull?.data.group ?? widget.kind.defaultGroup} '
             'has an unsettled bill.',
+      ),
+      share: (GroupOutstandingReport report) => groupOutstandingTable(
+        report,
+        subtitle: 'As of ${_formatDate(_asOf ?? report.asOf)}',
       ),
       builder: (BuildContext context, GroupOutstandingReport report) {
         if (report.parties.isEmpty) return const <Widget>[];

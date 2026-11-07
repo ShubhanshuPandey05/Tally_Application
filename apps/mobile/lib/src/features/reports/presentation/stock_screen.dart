@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
+import '../../../core/documents/report_table_document.dart';
 import '../../../core/model/freshness.dart';
 import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
@@ -150,11 +151,9 @@ class _StockScreenState extends ConsumerState<StockScreen> {
           _ => 'TallyPrime has no stock items for this company.',
         },
       ),
+      share: _table,
       builder: (BuildContext context, StockReport report) {
-        List<StockLine> items = report.items;
-        if (_group != null) {
-          items = items.where((StockLine item) => (item.group ?? 'Other') == _group).toList();
-        }
+        List<StockLine> items = _inGroup(report);
         // The summary's totals are the whole company's; a card sitting under
         // "Running low" or a group chip has to describe the rows it heads, or it
         // reads as the value of the selection. Totalled before the search box,
@@ -162,19 +161,7 @@ class _StockScreenState extends ConsumerState<StockScreen> {
         final Money filteredValue =
             items.fold(Money.zero, (Money total, StockLine item) => total + item.value);
         final int filteredCount = items.length;
-        final String needle = _search.trim().toLowerCase();
-        if (needle.isNotEmpty) {
-          items = items
-              .where((StockLine item) => item.name.toLowerCase().contains(needle))
-              .toList(growable: false);
-        }
-        items = <StockLine>[...items]
-          ..sort((StockLine a, StockLine b) => switch (_sort) {
-                _StockSort.valueDesc => b.value.amount.abs().compareTo(a.value.amount.abs()),
-                _StockSort.nameAsc =>
-                  a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-                _StockSort.quantityDesc => b.quantity.abs().compareTo(a.quantity.abs()),
-              });
+        items = _searchedAndSorted(items);
 
         if (report.items.isEmpty) return const <Widget>[];
 
@@ -217,6 +204,65 @@ class _StockScreenState extends ConsumerState<StockScreen> {
             ),
         ];
       },
+    );
+  }
+
+  List<StockLine> _inGroup(StockReport report) => _group == null
+      ? report.items
+      : report.items.where((StockLine item) => (item.group ?? 'Other') == _group).toList();
+
+  List<StockLine> _searchedAndSorted(List<StockLine> items) {
+    final String needle = _search.trim().toLowerCase();
+    if (needle.isNotEmpty) {
+      items = items
+          .where((StockLine item) => item.name.toLowerCase().contains(needle))
+          .toList(growable: false);
+    }
+    return <StockLine>[...items]
+      ..sort((StockLine a, StockLine b) => switch (_sort) {
+            _StockSort.valueDesc => b.value.amount.abs().compareTo(a.value.amount.abs()),
+            _StockSort.nameAsc => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            _StockSort.quantityDesc => b.quantity.abs().compareTo(a.quantity.abs()),
+          });
+  }
+
+  ReportTable _table(StockReport report) {
+    final List<StockLine> group = _inGroup(report);
+    final List<StockLine> items = _searchedAndSorted(group);
+    final String title = switch (_only) {
+      'low' => 'Running low',
+      'negative' => 'Negative stock',
+      _ => 'Stock summary',
+    };
+    return ReportTable(
+      title: _group == null ? title : '$title: $_group',
+      subtitle: 'Stock as it stands today',
+      columns: const <ReportColumn>[
+        ReportColumn('Item', flex: 4),
+        ReportColumn('Group', flex: 2.4),
+        ReportColumn('Quantity', numeric: true, flex: 2),
+        ReportColumn('Rate', numeric: true, flex: 1.8),
+        ReportColumn('Value', numeric: true, flex: 2.2),
+      ],
+      rows: <List<String>>[
+        for (final StockLine item in items)
+          <String>[
+            item.name,
+            item.group ?? '',
+            MoneyFormat.quantity(item.quantity, item.unit),
+            item.rate == null ? '' : ReportTableDocument.amount(item.rate!),
+            ReportTableDocument.amount(item.value),
+          ],
+      ],
+      total: <String>[
+        'Total',
+        '',
+        '',
+        '',
+        ReportTableDocument.amount(
+          items.fold(Money.zero, (Money total, StockLine item) => total + item.value),
+        ),
+      ],
     );
   }
 

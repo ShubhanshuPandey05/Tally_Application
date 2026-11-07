@@ -16,6 +16,12 @@ A fourth switch, **Entries**, says which kinds of voucher the person may
 need not be able to raise a purchase. It is checked where an entry is posted,
 not at the read: it limits what someone may write, not what they may see.
 
+A fifth, **Sharing**, says whether the app shows the Share button on reports.
+The server only stores it: every shared document is drawn on the phone from
+rows the person is already allowed to see, so there is nothing for the server
+to refuse, and a screenshot was always possible. It keeps the button off the
+screen of someone whose admin does not want reports sent out from the shop.
+
 **Everything is allowed until an admin says otherwise**, which is the opposite of
 ``company_access`` and on purpose: once somebody has been given a company, the
 reasonable default is that they see it the way the admin does, and the policy
@@ -142,6 +148,9 @@ class AccessPolicy(BaseModel):
     #: "Entries": off means this person may create no entry at all.
     entries: bool = True
     denied_entries: list[str] = Field(default_factory=list)
+
+    #: "Sharing": off hides the Share button on every report in the app.
+    share: bool = True
 
     @field_validator("denied_reports")
     @classmethod

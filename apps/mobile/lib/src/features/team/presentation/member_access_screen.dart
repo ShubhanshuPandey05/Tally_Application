@@ -19,7 +19,8 @@ import '../domain/team_member.dart';
 /// Three trees, each switched on as a whole and refinable underneath:
 /// Reports (the Reports screen and the Top Prime Reports), Ledger Groups (down
 /// to single ledgers) and Stock Groups (down to single items). A fourth
-/// switch, Entries, says which kinds of entry they may create from the app. A switch that is
+/// switch, Entries, says which kinds of entry they may create from the app,
+/// and a fifth, Sharing, whether reports show a Share button. A switch that is
 /// on can be tapped to open the level below it; one that is off hides
 /// everything under it, so there is nothing below to choose.
 ///
@@ -269,6 +270,17 @@ class _MemberAccessScreenState extends ConsumerState<MemberAccessScreen> {
                 value: policy.entries,
                 onChanged: (bool on) => _draft.value = policy.copyWith(entries: on),
                 onOpen: () => _push(context, EntryKindsScreen(draft: _draft)),
+              ),
+              const Divider(indent: 62, height: 1),
+              ToggleRow(
+                icon: Icons.ios_share,
+                tint: AppTheme.tileRose,
+                title: 'Sharing',
+                subtitle: policy.share
+                    ? 'Share button on every report'
+                    : 'No Share button on reports',
+                value: policy.share,
+                onChanged: (bool on) => _draft.value = policy.copyWith(share: on),
               ),
             ],
           ),

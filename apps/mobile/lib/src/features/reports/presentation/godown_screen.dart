@@ -14,6 +14,7 @@ import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// Stock by the godown it sits in -- Tally's Godown Summary.
 ///
@@ -82,6 +83,7 @@ class _GodownScreenState extends ConsumerState<GodownScreen> {
         message: 'TallyPrime has no closing stock recorded against a godown '
             'for this company.',
       ),
+      share: godownTable,
       builder: (BuildContext context, GodownReport report) {
         if (report.godowns.isEmpty) return const <Widget>[];
 
@@ -439,6 +441,7 @@ class _GodownItemsScreenState extends ConsumerState<GodownItemsScreen> {
         title: 'Nothing in this godown',
         message: 'TallyPrime has no closing stock recorded against it.',
       ),
+      share: (GodownReport report) => godownTable(report, only: widget.godown),
       builder: (BuildContext context, GodownReport report) {
         final GodownHolding? godown = report.godowns
             .where((GodownHolding g) => g.name == widget.godown)

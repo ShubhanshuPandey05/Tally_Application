@@ -23,6 +23,7 @@ class AccessPolicy {
     this.deniedStockItems = const <String>{},
     this.entries = true,
     this.deniedEntries = const <String>{},
+    this.share = true,
   });
 
   static const AccessPolicy all = AccessPolicy();
@@ -52,6 +53,9 @@ class AccessPolicy {
   /// (`EntryKind.wire`).
   final Set<String> deniedEntries;
 
+  /// "Sharing": off hides the Share button on every report.
+  final bool share;
+
   static const String primePrefix = 'top:';
 
   bool allowsEntry(String kind) => entries && !deniedEntries.contains(kind);
@@ -76,7 +80,8 @@ class AccessPolicy {
       deniedStockGroups.isEmpty &&
       deniedStockItems.isEmpty &&
       entries &&
-      deniedEntries.isEmpty;
+      deniedEntries.isEmpty &&
+      share;
 
   AccessPolicy copyWith({
     bool? reports,
@@ -91,6 +96,7 @@ class AccessPolicy {
     Set<String>? deniedStockItems,
     bool? entries,
     Set<String>? deniedEntries,
+    bool? share,
   }) =>
       AccessPolicy(
         reports: reports ?? this.reports,
@@ -105,6 +111,7 @@ class AccessPolicy {
         deniedStockItems: deniedStockItems ?? this.deniedStockItems,
         entries: entries ?? this.entries,
         deniedEntries: deniedEntries ?? this.deniedEntries,
+        share: share ?? this.share,
       );
 
   static Set<String> _names(Object? raw) =>
@@ -123,6 +130,7 @@ class AccessPolicy {
         deniedStockItems: _names(json['denied_stock_items']),
         entries: json['entries'] as bool? ?? true,
         deniedEntries: _names(json['denied_entries']),
+        share: json['share'] as bool? ?? true,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -138,6 +146,7 @@ class AccessPolicy {
         'denied_stock_items': deniedStockItems.toList()..sort(),
         'entries': entries,
         'denied_entries': deniedEntries.toList()..sort(),
+        'share': share,
       };
 }
 

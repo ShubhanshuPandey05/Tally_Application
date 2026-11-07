@@ -271,6 +271,22 @@ void main() {
       expect(repository.saved.single.entries, isTrue);
     });
 
+    testWidgets('switches sharing off for this person', (WidgetTester tester) async {
+      final _FakeTeamRepository repository = _FakeTeamRepository();
+      await _pump(
+        tester,
+        MemberAccessScreen(member: _ravi, company: _company),
+        <Override>[teamRepositoryProvider.overrideWithValue(repository)],
+      );
+      await tester.tap(_switchOf('Sharing'));
+      await tester.pumpAndSettle();
+      expect(find.text('No Share button on reports'), findsOneWidget);
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(repository.saved.single.share, isFalse);
+      expect(repository.saved.single.isUnrestricted, isFalse);
+    });
+
     testWidgets('nothing to save until something moves', (WidgetTester tester) async {
       await _pump(
         tester,

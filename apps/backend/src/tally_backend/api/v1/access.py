@@ -201,6 +201,7 @@ async def set_member_access(
             "denied_stock_items": len(policy.denied_stock_items),
             "entries": policy.entries,
             "denied_entries": len(policy.denied_entries),
+            "share": policy.share,
         },
         request=request,
     )
