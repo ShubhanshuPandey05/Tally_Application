@@ -30,3 +30,30 @@ String? validatePhone(String? raw) {
   }
   return ok ? null : 'Enter a valid mobile number, like 98765 43210';
 }
+
+/// [raw] as `+<country><number>`, the form Firebase texts, or null when it
+/// does not read as a mobile number.
+///
+/// The same rules as [validatePhone] and the server's `normalise_phone`. The
+/// code has to go to the number the server will store, or the proof that
+/// comes back names a different number and the signup is refused.
+String? normalisePhone(String? raw) {
+  String compact = (raw ?? '').replaceAll(RegExp(r'[\s\-().]'), '');
+  if (compact.startsWith('00')) compact = '+${compact.substring(2)}';
+  if (compact.startsWith('+91')) {
+    return _indianMobile.hasMatch(compact.substring(3)) ? compact : null;
+  }
+  if (compact.startsWith('+')) {
+    return _international.hasMatch(compact) ? compact : null;
+  }
+  if (_indianMobile.hasMatch(compact)) return '+91$compact';
+  if (compact.startsWith('0') && _indianMobile.hasMatch(compact.substring(1))) {
+    return '+91${compact.substring(1)}';
+  }
+  if (compact.length == 12 &&
+      compact.startsWith('91') &&
+      _indianMobile.hasMatch(compact.substring(2))) {
+    return '+$compact';
+  }
+  return null;
+}

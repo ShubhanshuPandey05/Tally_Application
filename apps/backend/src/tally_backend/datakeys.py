@@ -29,11 +29,18 @@ import asyncio
 import sys
 from collections import Counter
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, select, update
 
 from .config import get_settings
 from .core.master_keys import build_master_keys, decode_wrapped, encode_wrapped
-from .db.models import Company, CompanyKey, PendingVoucher, Snapshot, VoucherRecord
+from .db.models import (
+    Company,
+    CompanyAccess,
+    CompanyKey,
+    PendingVoucher,
+    Snapshot,
+    VoucherRecord,
+)
 from .db.session import create_engine, create_session_factory
 from .services.data_keys import DataKeyring
 from .services.resealing import count_plaintext, reseal_all
@@ -94,6 +101,13 @@ async def _run(args: argparse.Namespace) -> int:
                     await session.execute(
                         delete(model).where(model.company_id == args.company_id)
                     )
+                # Sealed under the key just deleted, so unreadable from now on.
+                # Their names went with the books; there is nothing left to hide.
+                await session.execute(
+                    update(CompanyAccess)
+                    .where(CompanyAccess.company_id == args.company_id)
+                    .values(restrictions=None)
+                )
                 await session.commit()
             print(
                 f"shredded {company.tally_name!r} ({args.company_id}); its backups "

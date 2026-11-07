@@ -78,7 +78,10 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
     #: Endpoints that trade a guessable secret for a session. These are the ones
     #: worth brute-forcing, and no legitimate client signs in ten times a minute.
-    _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register")
+    #: Reset is here because each request can send an email, and because a
+    #: code is six digits: the per-code guess limit is the real defence, and
+    #: this bucket is what stops it being spread across many requests a minute.
+    _CREDENTIAL_PATHS = ("/v1/auth/login", "/v1/auth/register", "/v1/auth/password-reset")
     #: The signup form's live partner-code check. Worth guessing too -- a valid
     #: code names a partner -- but it fires as somebody types, so it gets a
     #: bucket of its own rather than spending the sign-in allowance of the

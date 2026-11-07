@@ -8,6 +8,7 @@ rather than replace it.
 from fastapi import APIRouter
 
 from . import (
+    access,
     auth,
     companies,
     connector_ws,
@@ -20,6 +21,7 @@ from . import (
     portal_sales,
     portal_usage,
     public,
+    push,
     sync,
     team,
     vouchers,
@@ -37,6 +39,7 @@ api_router.include_router(auth.router)
 #: it sits beside `public` rather than among the token-guarded routers.
 api_router.include_router(pairing.router)
 api_router.include_router(team.router)
+api_router.include_router(push.router)
 #: The management portal. Same version prefix, entirely separate authority --
 #: a customer's token is refused by `typ` before any handler in it runs.
 api_router.include_router(portal.router)
@@ -53,6 +56,8 @@ api_router.include_router(companies.router)
 api_router.include_router(sync.router)
 api_router.include_router(data.router)
 api_router.include_router(vouchers.router)
+#: Who may see which reports, ledgers and stock inside a company.
+api_router.include_router(access.router)
 #: The connector's outbound WebSocket. Not part of the phone-facing surface.
 api_router.include_router(connector_ws.router)
 

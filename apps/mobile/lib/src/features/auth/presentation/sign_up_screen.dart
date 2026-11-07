@@ -6,8 +6,10 @@ import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../legal/presentation/legal_screen.dart';
 import '../application/auth_controller.dart';
+import '../data/phone_proof.dart';
 import '../domain/phone.dart';
 import 'partner_code_field.dart';
+import 'phone_code_sheet.dart';
 
 class SignUpScreen extends ConsumerStatefulWidget {
   const SignUpScreen({super.key});
@@ -28,6 +30,10 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   bool _busy = false;
   bool _obscure = true;
 
+  /// A problem with the SMS step, which happens before the server is asked
+  /// and so never reaches the auth controller's error.
+  String? _proofError;
+
   @override
   void dispose() {
     _business.dispose();
@@ -44,12 +50,34 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
     // A code the server has said is wrong would only be refused again; the
     // box already says why, and clearing it is one of the two fixes.
     if (!_codeState.allowsSubmit) return;
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _proofError = null;
+    });
+    // Proven before the account exists, so the trial the number unlocks is
+    // never granted to a number nobody holds.
+    final String? phoneToken;
+    try {
+      phoneToken = await provePhoneIfNeeded(context, ref, _phone.text);
+    } on PhoneProofCancelled {
+      if (mounted) setState(() => _busy = false);
+      return;
+    } on PhoneProofException catch (error) {
+      if (mounted) {
+        setState(() {
+          _busy = false;
+          _proofError = error.message;
+        });
+      }
+      return;
+    }
+    if (!mounted) return;
     await ref.read(authControllerProvider.notifier).signUp(
           email: _email.text,
           password: _password.text,
           orgName: _business.text,
           phone: _phone.text,
+          phoneToken: phoneToken,
           fullName: _name.text,
           partnerCode: _partnerCode.text,
         );
@@ -59,7 +87,7 @@ class _SignUpScreenState extends ConsumerState<SignUpScreen> {
   @override
   Widget build(BuildContext context) {
     final ThemeData theme = Theme.of(context);
-    final String? error = ref.watch(authControllerProvider).error;
+    final String? error = _proofError ?? ref.watch(authControllerProvider).error;
 
     return Scaffold(
       appBar: AppBar(

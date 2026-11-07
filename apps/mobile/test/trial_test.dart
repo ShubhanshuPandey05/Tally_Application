@@ -14,6 +14,7 @@ library;
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:tallyflow/src/app/router.dart';
 import 'package:tallyflow/src/core/network/api_exception.dart';
 import 'package:tallyflow/src/features/auth/application/auth_controller.dart';
 import 'package:tallyflow/src/features/auth/data/auth_repository.dart';
@@ -177,6 +178,26 @@ void main() {
         expect(validatePhone(typed), isNotNull, reason: typed);
       }
     });
+
+    // The SMS goes to this form of the number, and the server compares the
+    // number Firebase proved against its own reading of what was typed. If
+    // the two disagree the signup is refused after the code was already paid
+    // for, so they are held to the same answers here.
+    test('the number texted is the number the server will store', () {
+      const Map<String, String> expected = <String, String>{
+        '9876543210': '+919876543210',
+        '98765 43210': '+919876543210',
+        '098765-43210': '+919876543210',
+        '+91 98765 43210': '+919876543210',
+        '919876543210': '+919876543210',
+        '0091 9876543210': '+919876543210',
+        '+44 7700 900123': '+447700900123',
+      };
+      expected.forEach((String typed, String stored) {
+        expect(normalisePhone(typed), stored, reason: typed);
+      });
+      expect(normalisePhone('12345'), isNull);
+    });
   });
 
   group('the partner-code box', () {
@@ -236,6 +257,42 @@ void main() {
       expect(fake.asked, isEmpty);
       expect(seen.last, PartnerCodeState.invalid);
     });
+  });
+
+  // Saving the number leaves the person signed in, so a router that listened
+  // only to the sign-in status never re-ran its gate: Continue reached the
+  // server and the screen stayed put.
+  test('saving the phone number moves the router on', () {
+    const AppUser before = AppUser(
+      id: 'u1',
+      email: 'owner@shop.in',
+      orgId: 'o1',
+      orgName: 'Gupta Electricals',
+      role: UserRole.admin,
+      needsPhone: true,
+    );
+    const AppUser after = AppUser(
+      id: 'u1',
+      email: 'owner@shop.in',
+      orgId: 'o1',
+      orgName: 'Gupta Electricals',
+      role: UserRole.admin,
+      phone: '+919876543210',
+    );
+    expect(
+      routerShouldRefresh(
+        const AuthState(status: AuthStatus.signedIn, user: before),
+        const AuthState(status: AuthStatus.signedIn, user: after),
+      ),
+      isTrue,
+    );
+    expect(
+      routerShouldRefresh(
+        const AuthState(status: AuthStatus.signedIn, user: after),
+        const AuthState(status: AuthStatus.signedIn, user: after),
+      ),
+      isFalse,
+    );
   });
 
   // Keeps the import honest: the controller is what the router reads.

@@ -30,8 +30,11 @@ from .services.connector_logs import ConnectorLogIngest
 from .services.data_keys import DataKeyring
 from .services.demo import ensure_demo_company
 from .services.logs import LogWriter, ServerLogStore, install_capture
+from .services.mailer import Mailer
+from .services.phone_verification import FirebasePhoneVerifier
 from .services.portal import bootstrap_owner
 from .services.public_stats import PublicStatsService
+from .services.push import PushService
 from .services.refresher import SnapshotRefresher
 from .services.releases import build_catalogue
 from .services.resealing import reseal_in_background
@@ -125,7 +128,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         # every reconnect; the worker here is the backstop for one queued
         # while the PC was already connected -- TallyPrime closed and
         # reopened without the socket ever dropping.
-        queue = VoucherQueue(app.state.session_factory, hub, settings)
+        # Before the queue, which tells the person who made an entry when it
+        # finally reaches Tally.
+        push = PushService(app.state.session_factory, settings)
+        app.state.push = push
+        queue = VoucherQueue(app.state.session_factory, hub, settings, push=push)
         app.state.voucher_queue = queue
         hub.on_attach = queue.drain
         await queue.start()
@@ -225,6 +232,11 @@ def create_app(settings: Settings | None = None) -> FastAPI:
         ttl_seconds=settings.public_stats_ttl_seconds,
         online_window_seconds=settings.public_stats_online_window_seconds,
     )
+
+    # Outside the lifespan, so a test can swap either for a fake without a
+    # database. Neither holds a connection: both reach out only when used.
+    app.state.phone_verifier = FirebasePhoneVerifier(settings.firebase_project_id)
+    app.state.mailer = Mailer(settings)
 
     app.add_exception_handler(AppError, app_error_handler)
     app.add_exception_handler(HTTPException, http_error_handler)

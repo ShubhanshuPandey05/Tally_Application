@@ -1,17 +1,61 @@
+import 'dart:async';
+
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:go_router/go_router.dart';
 
+import '../features/auth/application/auth_controller.dart';
+import '../features/auth/application/auth_features.dart';
+import '../features/notifications/push_registration.dart';
 import '../features/settings/application/theme_controller.dart';
 import '../features/updates/presentation/update_gate.dart';
 import 'router.dart';
 import 'theme.dart';
 
-class PrimeAnalystApp extends ConsumerWidget {
+class PrimeAnalystApp extends ConsumerStatefulWidget {
   const PrimeAnalystApp({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<PrimeAnalystApp> createState() => _PrimeAnalystAppState();
+}
+
+class _PrimeAnalystAppState extends ConsumerState<PrimeAnalystApp> {
+  StreamSubscription<RemoteMessage>? _opened;
+
+  @override
+  void initState() {
+    super.initState();
+    if (ref.read(firebaseReadyProvider)) {
+      // A notification tapped while the app was closed, then any tapped while
+      // it is running in the background.
+      FirebaseMessaging.instance.getInitialMessage().then(_open).ignore();
+      _opened = FirebaseMessaging.onMessageOpenedApp.listen(_open);
+    }
+  }
+
+  @override
+  void dispose() {
+    _opened?.cancel();
+    super.dispose();
+  }
+
+  void _open(RemoteMessage? message) {
+    if (message == null) return;
+    final String? route = routeForNotification(message.data, Routes.pendingEntries);
+    // Through the router, so its redirect still decides: a tap on a signed-out
+    // phone lands on sign-in, not on somebody's entries.
+    if (route != null) ref.read(routerProvider).go(route);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    // Every sign-in, restored or fresh, registers this phone for alerts.
+    ref.listen<AuthState>(authControllerProvider, (AuthState? before, AuthState now) {
+      if (now.isSignedIn && !(before?.isSignedIn ?? false)) {
+        ref.read(pushRegistrarProvider).register();
+      }
+    });
     final GoRouter router = ref.watch(routerProvider);
     final AppThemeMode mode = ref.watch(themeModeProvider);
 
