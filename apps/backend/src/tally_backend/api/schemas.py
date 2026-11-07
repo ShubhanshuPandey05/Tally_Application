@@ -261,6 +261,9 @@ class MemberResponse(BaseModel):
     #: can actually see -- returning an empty list and letting the app infer
     #: "admin means all" would put the same rule in two places.
     company_ids: list[str]
+    #: Granted companies where something inside -- a report, a ledger group, a
+    #: stock group -- is switched off for this person. Always empty for admins.
+    restricted_company_ids: list[str] = Field(default_factory=list)
 
 
 class MemberCreatedResponse(BaseModel):

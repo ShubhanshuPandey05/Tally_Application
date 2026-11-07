@@ -8,6 +8,7 @@ rather than replace it.
 from fastapi import APIRouter
 
 from . import (
+    access,
     auth,
     companies,
     connector_ws,
@@ -55,6 +56,8 @@ api_router.include_router(companies.router)
 api_router.include_router(sync.router)
 api_router.include_router(data.router)
 api_router.include_router(vouchers.router)
+#: Who may see which reports, ledgers and stock inside a company.
+api_router.include_router(access.router)
 #: The connector's outbound WebSocket. Not part of the phone-facing surface.
 api_router.include_router(connector_ws.router)
 

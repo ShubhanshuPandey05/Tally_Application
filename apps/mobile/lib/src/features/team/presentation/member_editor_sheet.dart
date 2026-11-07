@@ -3,7 +3,9 @@ import 'package:flutter/material.dart';
 import '../../../app/theme.dart';
 import '../../auth/domain/app_user.dart';
 import '../../companies/domain/company.dart';
+import '../domain/access_policy.dart';
 import '../domain/team_member.dart';
+import 'member_access_screen.dart';
 
 /// What the editor was asked to do when it closed.
 enum MemberAction { save, resetPassword, remove }
@@ -72,6 +74,7 @@ class _MemberEditorState extends State<_MemberEditor> {
 
   late UserRole _role = widget.existing?.role ?? UserRole.staff;
   late Set<String> _granted = <String>{...?widget.existing?.companyIds};
+  late final Set<String> _restricted = <String>{...?widget.existing?.restrictedCompanyIds};
 
   String? _emailError;
 
@@ -111,6 +114,27 @@ class _MemberEditorState extends State<_MemberEditor> {
         companyIds: _granted.toList(growable: false),
       ),
     );
+  }
+
+  /// Only a saved staff member has grant rows for a policy to live on.
+  bool get _customisable => widget.existing != null && !widget.existing!.role.isAdmin;
+
+  /// Which reports, ledger groups and stock this person sees in [company].
+  ///
+  /// Only for a company that is already granted on the server: the policy is
+  /// stored on that grant. A company switched on in this sheet but not saved
+  /// says so instead of opening.
+  Future<void> _customise(Company company) async {
+    final Object? saved = await Navigator.of(context).push<Object?>(
+      MaterialPageRoute<Object?>(
+        builder: (_) => MemberAccessScreen(member: widget.existing!, company: company),
+      ),
+    );
+    if (saved is AccessPolicy && mounted) {
+      setState(() {
+        saved.isUnrestricted ? _restricted.remove(company.id) : _restricted.add(company.id);
+      });
+    }
   }
 
   @override
@@ -184,7 +208,10 @@ class _MemberEditorState extends State<_MemberEditor> {
               _CompanyPicker(
                 companies: widget.companies,
                 granted: _granted,
+                restricted: _restricted,
+                saved: <String>{...?widget.existing?.companyIds},
                 onChanged: (Set<String> next) => setState(() => _granted = next),
+                onCustomise: _customisable ? _customise : null,
               ),
             ],
 
@@ -222,12 +249,26 @@ class _CompanyPicker extends StatelessWidget {
   const _CompanyPicker({
     required this.companies,
     required this.granted,
+    required this.restricted,
+    required this.saved,
     required this.onChanged,
+    this.onCustomise,
   });
+
+  /// Companies granted on the server. A policy lives on that grant, so only
+  /// these can be opened.
+  final Set<String> saved;
 
   final List<Company> companies;
   final Set<String> granted;
+
+  /// Granted companies where something inside is switched off.
+  final Set<String> restricted;
   final ValueChanged<Set<String>> onChanged;
+
+  /// Opens what they see inside a company. Null while the person is not saved
+  /// yet, or is an admin, who always sees everything.
+  final ValueChanged<Company>? onCustomise;
 
   @override
   Widget build(BuildContext context) {
@@ -246,6 +287,16 @@ class _CompanyPicker extends StatelessWidget {
     }
 
     final bool all = granted.length == companies.length;
+
+    String subtitle(Company company) {
+      if (!granted.contains(company.id)) return 'Hidden';
+      if (onCustomise == null || !saved.contains(company.id)) {
+        return 'Everything · save to choose inside';
+      }
+      return restricted.contains(company.id)
+          ? 'Limited · tap to change'
+          : 'Everything · tap to limit';
+    }
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -271,9 +322,8 @@ class _CompanyPicker extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.only(bottom: 6),
             child: Text(
-              'They will not see any company until you tick one.',
-              style: theme.textTheme.bodySmall
-                  ?.copyWith(color: context.cautionColor),
+              'They will not see any company until you switch one on.',
+              style: theme.textTheme.bodySmall?.copyWith(color: context.cautionColor),
             ),
           ),
         Card(
@@ -283,22 +333,22 @@ class _CompanyPicker extends StatelessWidget {
           child: Column(
             children: <Widget>[
               for (final Company company in companies)
-                CheckboxListTile(
+                ToggleRow(
+                  title: company.name,
+                  subtitle: subtitle(company),
                   value: granted.contains(company.id),
-                  onChanged: (bool? on) {
+                  onChanged: (bool on) {
                     final Set<String> next = <String>{...granted};
-                    if (on ?? false) {
+                    if (on) {
                       next.add(company.id);
                     } else {
                       next.remove(company.id);
                     }
                     onChanged(next);
                   },
-                  dense: true,
-                  title: Text(
-                    company.name,
-                    overflow: TextOverflow.ellipsis,
-                  ),
+                  onOpen: onCustomise == null || !saved.contains(company.id)
+                      ? null
+                      : () => onCustomise!(company),
                 ),
             ],
           ),

@@ -9,6 +9,7 @@ class TeamMember {
     required this.isActive,
     required this.mustChangePassword,
     required this.companyIds,
+    this.restrictedCompanyIds = const <String>{},
     this.fullName,
     this.lastLoginAt,
   });
@@ -27,6 +28,10 @@ class TeamMember {
   /// their real reach rather than an empty list, so the app never has to encode
   /// "admin means all" a second time and get it subtly different.
   final List<String> companyIds;
+
+  /// Granted companies where an admin has switched something off inside --
+  /// a report, a ledger group, a stock group.
+  final Set<String> restrictedCompanyIds;
 
   final String? fullName;
   final DateTime? lastLoginAt;
@@ -54,6 +59,9 @@ class TeamMember {
         companyIds: (json['company_ids'] as List<Object?>? ?? <Object?>[])
             .whereType<String>()
             .toList(growable: false),
+        restrictedCompanyIds: (json['restricted_company_ids'] as List<Object?>? ?? <Object?>[])
+            .whereType<String>()
+            .toSet(),
         fullName: json['full_name'] as String?,
         lastLoginAt: switch (json['last_login_at']) {
           final String raw when raw.isNotEmpty => DateTime.tryParse(raw)?.toLocal(),

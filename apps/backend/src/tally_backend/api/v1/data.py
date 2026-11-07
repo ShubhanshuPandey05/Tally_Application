@@ -33,6 +33,7 @@ from ...services.demo_books import financial_year_start
 from ...services.reads import DataResult, FetchMode, NoDataYet, ReadService
 from ...services.sync import HISTORY_VERSION, SyncCoordinator
 from ..deps import (
+    AccessScopeDep,
     CompanyDep,
     DashboardServiceDep,
     PrincipalDep,
@@ -40,6 +41,7 @@ from ..deps import (
     SessionDep,
     SettingsDep,
     SyncDep,
+    require_report,
 )
 from ..schemas import DataEnvelope, FetchModeParam
 
@@ -170,9 +172,11 @@ async def daybook(
     request: Request,
     from_date: date,
     to_date: date,
+    scope: AccessScopeDep,
     mode: FetchModeParam = "auto",
     kind: Annotated[VoucherTypeKind | None, Query()] = None,
 ) -> DataEnvelope:
+    require_report(scope, "daybook")
     resolved = await _resolved(sync, company, mode)
     from_date, to_date = _clamp_window(from_date, to_date)
     # Store-backed when the history sync has covered this window, which is what
@@ -223,11 +227,13 @@ async def outstanding(
     session: SessionDep,
     reads: ReadServiceDep,
     request: Request,
+    scope: AccessScopeDep,
     kind: OutstandingKind = OutstandingKind.RECEIVABLE,
     mode: FetchModeParam = "auto",
     as_of: date | None = None,
 ) -> DataEnvelope:
     """Who owes me money -- with ageing, which is the part that matters."""
+    require_report(scope, "receivables" if kind is OutstandingKind.RECEIVABLE else "payables")
     resolved = await _resolved(sync, company, mode)
     today = as_of or date.today()
     result = await reads.fetch(
@@ -272,6 +278,7 @@ async def outstanding_by_group(
     session: SessionDep,
     reads: ReadServiceDep,
     request: Request,
+    scope: AccessScopeDep,
     kind: OutstandingKind = OutstandingKind.RECEIVABLE,
     group: str | None = None,
     mode: FetchModeParam = "auto",
@@ -289,6 +296,11 @@ async def outstanding_by_group(
     renamed its groups passes its own name; nothing here assumes the default
     exists.
     """
+    require_report(
+        scope, "sundry_debtors" if kind is OutstandingKind.RECEIVABLE else "sundry_creditors"
+    )
+    if scope is not None and group is not None and not scope.group_visible(group):
+        raise NotFound(f"group {group} is hidden", user_message="That group was not found.")
     resolved = await _resolved(sync, company, mode)
     today = as_of or date.today()
     # Named apart from `resolved`, which is the fetch mode. Assigning the group
@@ -354,9 +366,13 @@ async def stock(
     session: SessionDep,
     reads: ReadServiceDep,
     request: Request,
+    scope: AccessScopeDep,
     mode: FetchModeParam = "auto",
     only: Annotated[str | None, Query(pattern="^(low|negative)$")] = None,
 ) -> DataEnvelope:
+    require_report(
+        scope, {"low": "running_low", "negative": "negative_stock"}.get(only or "", "stock_summary")
+    )
     resolved = await _resolved(sync, company, mode)
     result = await reads.fetch(
         company, dataset="stock_items.list", mode=resolved, heavy=True
@@ -408,9 +424,11 @@ async def godown_summary(
     session: SessionDep,
     reads: ReadServiceDep,
     request: Request,
+    scope: AccessScopeDep,
     mode: FetchModeParam = "auto",
 ) -> DataEnvelope:
     """Stock by the godown it sits in -- Tally's Godown Summary."""
+    require_report(scope, "godown_summary")
     resolved = await _resolved(sync, company, mode)
     result = await reads.fetch(
         company, dataset="godown_stock.list", mode=resolved, heavy=True
@@ -448,9 +466,11 @@ async def ledgers(
     session: SessionDep,
     reads: ReadServiceDep,
     request: Request,
+    scope: AccessScopeDep,
     mode: FetchModeParam = "auto",
     group: str | None = None,
 ) -> DataEnvelope:
+    require_report(scope, "ledgers")
     resolved = await _resolved(sync, company, mode)
     result = await reads.fetch(
         company,
@@ -494,6 +514,7 @@ async def slow_moving(
     company: CompanyDep,
     sync: SyncDep,
     reads: ReadServiceDep,
+    scope: AccessScopeDep,
     days: int = 90,
     mode: FetchModeParam = "auto",
 ) -> DataEnvelope:
@@ -501,6 +522,7 @@ async def slow_moving(
 
     Answers CLAUDE.md's "which products aren't selling?".
     """
+    require_report(scope, "slow_movers")
     resolved = await _resolved(sync, company, mode)
     today = date.today()
     days = max(7, min(days, MAX_REPORT_DAYS))
@@ -839,6 +861,7 @@ async def ledger_statement(
     reads: ReadServiceDep,
     request: Request,
     ledger: str,
+    scope: AccessScopeDep,
     from_date: date | None = None,
     to_date: date | None = None,
 ) -> DataEnvelope:
@@ -849,6 +872,8 @@ async def ledger_statement(
     separately: a window that ended last month closes on last month's figure,
     and the two are different statements the app labels differently.
     """
+    if scope is not None and not scope.ledger_visible(ledger):
+        raise NotFound(f"ledger {ledger} is hidden", user_message="That ledger was not found.")
     start, end = _detail_window(from_date, to_date)
 
     voucher_result = await reads.fetch_vouchers(
@@ -878,11 +903,16 @@ async def ledger_statement(
     except AppError:
         pass
 
+    # Not worked out for somebody with hidden ledgers or items. The vouchers
+    # they cannot see still moved this ledger, so working back from today's
+    # balance over only the ones they can would give a wrong opening that looks
+    # exactly like a right one -- and None is what this screen already shows as
+    # "we cannot say".
     opening = (
         await _opening_balance(
             reads, session, company, match, start=start, end=end, window=vouchers, kinds=kinds
         )
-        if match is not None
+        if match is not None and scope is None
         else None
     )
     statement = an.ledger_statement(
@@ -930,9 +960,13 @@ async def register(
     request: Request,
     from_date: date,
     to_date: date,
+    scope: AccessScopeDep,
     kind: VoucherTypeKind = VoucherTypeKind.SALES,
 ) -> DataEnvelope:
     """A sales or purchase register: the vouchers, by month and by party."""
+    require_report(
+        scope, "purchase_register" if kind is VoucherTypeKind.PURCHASE else "sales_register"
+    )
     start, end = _clamp_window(from_date, to_date)
 
     result = await reads.fetch_vouchers(
@@ -974,10 +1008,13 @@ async def stock_movement(
     reads: ReadServiceDep,
     request: Request,
     item: str,
+    scope: AccessScopeDep,
     from_date: date | None = None,
     to_date: date | None = None,
 ) -> DataEnvelope:
     """What came in and what went out for one stock item."""
+    if scope is not None and not scope.item_visible(item):
+        raise NotFound(f"item {item} is hidden", user_message="That item was not found.")
     start, end = _detail_window(from_date, to_date)
 
     result = await reads.fetch_vouchers(
@@ -1029,6 +1066,7 @@ async def top_report(
     key: str,
     from_date: date,
     to_date: date,
+    scope: AccessScopeDep,
     sort: str | None = None,
     limit: Annotated[int, Query(ge=0, le=1000)] = 10,
     mode: FetchModeParam = "auto",
@@ -1041,6 +1079,7 @@ async def top_report(
     needs = top.NEEDS.get(key)
     if needs is None:
         raise NotFound(f"no top report {key!r}", user_message="That report does not exist.")
+    require_report(scope, f"top:{key}")
 
     resolved = await _resolved(sync, company, mode)
     start, end = _clamp_window(from_date, to_date)

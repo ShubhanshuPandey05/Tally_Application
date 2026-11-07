@@ -16,6 +16,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:tallyflow/src/features/auth/domain/app_user.dart';
 import 'package:tallyflow/src/features/companies/domain/company.dart';
 import 'package:tallyflow/src/features/team/domain/team_member.dart';
+import 'package:tallyflow/src/features/team/presentation/member_access_screen.dart';
 import 'package:tallyflow/src/features/team/presentation/member_editor_sheet.dart';
 
 TeamMember member({
@@ -157,14 +158,14 @@ void main() {
           reason: 'least privilege is the default for a new colleague');
     });
 
-    testWidgets('warns plainly when a staff member has no companies ticked',
+    testWidgets('warns plainly when a staff member has no companies switched on',
         (WidgetTester tester) async {
       // An empty selection is legitimate, so it must not look like a broken
       // form -- but it must also not look like the person can see everything.
       await open(tester);
 
       expect(
-        find.text('They will not see any company until you tick one.'),
+        find.text('They will not see any company until you switch one on.'),
         findsOneWidget,
       );
     });
@@ -180,27 +181,72 @@ void main() {
       expect(find.text('Bhatia Supermarket'), findsNothing);
     });
 
-    testWidgets('shows every company as a tick box for staff',
+    testWidgets('shows every company as a switch for staff',
         (WidgetTester tester) async {
       await open(tester);
 
       expect(find.text('Companies they can see'), findsOneWidget);
-      expect(find.byType(CheckboxListTile), findsNWidgets(2));
+      expect(find.byType(Switch), findsNWidgets(2));
       expect(find.text('Private Family Trust'), findsOneWidget);
     });
 
-    testWidgets('an existing grant comes back ticked', (WidgetTester tester) async {
+    Switch switchFor(WidgetTester tester, String company) => tester.widget(
+          find.descendant(
+            of: find.widgetWithText(ToggleRow, company),
+            matching: find.byType(Switch),
+          ),
+        );
+
+    testWidgets('an existing grant comes back switched on', (WidgetTester tester) async {
       await open(tester, existing: member(companies: <String>['c1']));
 
-      final CheckboxListTile first = tester.widget(
-        find.widgetWithText(CheckboxListTile, 'Bhatia Supermarket'),
-      );
-      final CheckboxListTile second = tester.widget(
-        find.widgetWithText(CheckboxListTile, 'Private Family Trust'),
+      expect(switchFor(tester, 'Bhatia Supermarket').value, isTrue);
+      expect(switchFor(tester, 'Private Family Trust').value, isFalse);
+    });
+
+    testWidgets('a saved grant can be opened to choose inside it; an unsaved one cannot',
+        (WidgetTester tester) async {
+      // The policy lives on the grant row, so a company switched on in this
+      // sheet but not saved has nowhere to keep one yet.
+      await open(tester, existing: member(companies: <String>['c1']));
+
+      expect(find.text('Everything · tap to limit'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.widgetWithText(ToggleRow, 'Bhatia Supermarket'),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+        findsOneWidget,
       );
 
-      expect(first.value, isTrue);
-      expect(second.value, isFalse);
+      final Finder second = find.descendant(
+        of: find.widgetWithText(ToggleRow, 'Private Family Trust'),
+        matching: find.byType(Switch),
+      );
+      await tester.ensureVisible(second);
+      await tester.tap(second);
+      await tester.pumpAndSettle();
+      expect(find.text('Everything · save to choose inside'), findsOneWidget);
+      expect(
+        find.descendant(
+          of: find.widgetWithText(ToggleRow, 'Private Family Trust'),
+          matching: find.byIcon(Icons.chevron_right),
+        ),
+        findsNothing,
+      );
+    });
+
+    testWidgets('a company with something switched off reads as limited',
+        (WidgetTester tester) async {
+      final TeamMember limited = TeamMember.fromJson(<String, Object?>{
+        'id': 'u1',
+        'email': 'ravi@bhatiastores.in',
+        'role': 'staff',
+        'company_ids': <String>['c1'],
+        'restricted_company_ids': <String>['c1'],
+      });
+      await open(tester, existing: limited);
+      expect(find.text('Limited · tap to change'), findsOneWidget);
     });
 
     testWidgets('the email cannot be edited once the account exists',
