@@ -6,7 +6,7 @@ that company's data key. ``NULL`` -- every existing row -- means nothing is
 switched off, so this changes no one's access on upgrade.
 
 Revision ID: a9c41e7d2b38
-Revises: f3b8d52e7a10
+Revises: a4c7e19b2d58
 Create Date: 2026-11-04 21:00:00.000000
 """
 from __future__ import annotations
@@ -15,7 +15,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = 'a9c41e7d2b38'
-down_revision = 'f3b8d52e7a10'
+down_revision = 'a4c7e19b2d58'
 branch_labels = None
 depends_on = None
 
