@@ -5,6 +5,7 @@ import 'package:go_router/go_router.dart';
 import '../../../app/router.dart';
 import '../../../app/theme.dart';
 import '../../../core/model/figures.dart';
+import '../../../core/documents/report_table_document.dart';
 import '../../../core/model/freshness.dart';
 import '../../../core/money/money.dart';
 import '../../../core/money/money_format.dart';
@@ -123,19 +124,10 @@ class _LedgersScreenState extends ConsumerState<LedgersScreen> {
         title: 'No ledgers',
         message: 'TallyPrime returned no ledger accounts for this company.',
       ),
+      share: _table,
       builder: (BuildContext context, LedgerReport report) {
         final String needle = _search.trim().toLowerCase();
-        List<LedgerLine> rows = report.ledgers;
-        if (_group != null) {
-          rows = rows.where((LedgerLine line) => (line.group ?? 'Other') == _group).toList();
-        }
-        if (needle.isNotEmpty) {
-          rows = rows
-              .where((LedgerLine line) =>
-                  line.name.toLowerCase().contains(needle) ||
-                  (line.group ?? '').toLowerCase().contains(needle))
-              .toList(growable: false);
-        }
+        List<LedgerLine> rows = _filtered(report);
 
         if (report.ledgers.isEmpty) return const <Widget>[];
 
@@ -199,6 +191,46 @@ class _LedgersScreenState extends ConsumerState<LedgersScreen> {
             ),
         ];
       },
+    );
+  }
+
+  /// The ledgers the group filter and the search box leave on screen.
+  List<LedgerLine> _filtered(LedgerReport report) {
+    final String needle = _search.trim().toLowerCase();
+    List<LedgerLine> rows = report.ledgers;
+    if (_group != null) {
+      rows = rows.where((LedgerLine line) => (line.group ?? 'Other') == _group).toList();
+    }
+    if (needle.isNotEmpty) {
+      rows = rows
+          .where((LedgerLine line) =>
+              line.name.toLowerCase().contains(needle) ||
+              (line.group ?? '').toLowerCase().contains(needle))
+          .toList(growable: false);
+    }
+    return rows;
+  }
+
+  /// What is on screen, in the order it is shown.
+  ReportTable _table(LedgerReport report) {
+    final List<LedgerLine> rows = <LedgerLine>[..._filtered(report)]
+      ..sort((LedgerLine a, LedgerLine b) => switch (_sort) {
+            _LedgerSort.nameAsc => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+            _LedgerSort.balanceDesc => b.closing.amount.abs().compareTo(a.closing.amount.abs()),
+            _LedgerSort.groupThenBalance => (a.group ?? 'Other').compareTo(b.group ?? 'Other'),
+          });
+    return ReportTable(
+      title: _group == null ? 'Ledgers' : 'Ledgers: $_group',
+      subtitle: 'Closing balances as they stand today',
+      columns: const <ReportColumn>[
+        ReportColumn('Ledger', flex: 4),
+        ReportColumn('Group', flex: 3),
+        ReportColumn('Closing balance', numeric: true, flex: 2.4),
+      ],
+      rows: <List<String>>[
+        for (final LedgerLine line in rows)
+          <String>[line.name, line.group ?? '', ReportTableDocument.balance(line.closing)],
+      ],
     );
   }
 

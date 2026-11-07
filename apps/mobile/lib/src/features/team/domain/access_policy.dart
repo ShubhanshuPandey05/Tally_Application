@@ -7,7 +7,8 @@
 /// the children back exactly as they were left.
 ///
 /// The server enforces all of it. The app reads it only to leave switched-off
-/// reports out of the menus, so nobody taps into a screen that will refuse them.
+/// reports and entry kinds out of the menus, so nobody taps into a screen that
+/// will refuse them.
 class AccessPolicy {
   const AccessPolicy({
     this.reports = true,
@@ -20,6 +21,9 @@ class AccessPolicy {
     this.stock = true,
     this.deniedStockGroups = const <String>{},
     this.deniedStockItems = const <String>{},
+    this.entries = true,
+    this.deniedEntries = const <String>{},
+    this.share = true,
   });
 
   static const AccessPolicy all = AccessPolicy();
@@ -42,7 +46,19 @@ class AccessPolicy {
   final Set<String> deniedStockGroups;
   final Set<String> deniedStockItems;
 
+  /// "Entries": off means no new entry of any kind.
+  final bool entries;
+
+  /// Entry kinds switched off, by the wire name `POST /vouchers` takes
+  /// (`EntryKind.wire`).
+  final Set<String> deniedEntries;
+
+  /// "Sharing": off hides the Share button on every report.
+  final bool share;
+
   static const String primePrefix = 'top:';
+
+  bool allowsEntry(String kind) => entries && !deniedEntries.contains(kind);
 
   bool allowsReport(String key) {
     if (!reports) return false;
@@ -62,7 +78,10 @@ class AccessPolicy {
       deniedLedgers.isEmpty &&
       stock &&
       deniedStockGroups.isEmpty &&
-      deniedStockItems.isEmpty;
+      deniedStockItems.isEmpty &&
+      entries &&
+      deniedEntries.isEmpty &&
+      share;
 
   AccessPolicy copyWith({
     bool? reports,
@@ -75,6 +94,9 @@ class AccessPolicy {
     bool? stock,
     Set<String>? deniedStockGroups,
     Set<String>? deniedStockItems,
+    bool? entries,
+    Set<String>? deniedEntries,
+    bool? share,
   }) =>
       AccessPolicy(
         reports: reports ?? this.reports,
@@ -87,6 +109,9 @@ class AccessPolicy {
         stock: stock ?? this.stock,
         deniedStockGroups: deniedStockGroups ?? this.deniedStockGroups,
         deniedStockItems: deniedStockItems ?? this.deniedStockItems,
+        entries: entries ?? this.entries,
+        deniedEntries: deniedEntries ?? this.deniedEntries,
+        share: share ?? this.share,
       );
 
   static Set<String> _names(Object? raw) =>
@@ -103,6 +128,9 @@ class AccessPolicy {
         stock: json['stock'] as bool? ?? true,
         deniedStockGroups: _names(json['denied_stock_groups']),
         deniedStockItems: _names(json['denied_stock_items']),
+        entries: json['entries'] as bool? ?? true,
+        deniedEntries: _names(json['denied_entries']),
+        share: json['share'] as bool? ?? true,
       );
 
   Map<String, Object?> toJson() => <String, Object?>{
@@ -116,6 +144,9 @@ class AccessPolicy {
         'stock': stock,
         'denied_stock_groups': deniedStockGroups.toList()..sort(),
         'denied_stock_items': deniedStockItems.toList()..sort(),
+        'entries': entries,
+        'denied_entries': deniedEntries.toList()..sort(),
+        'share': share,
       };
 }
 

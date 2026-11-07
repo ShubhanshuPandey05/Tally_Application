@@ -20,6 +20,7 @@ import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// One stock item's movement: what came in, what went out, on which vouchers.
 ///
@@ -100,6 +101,7 @@ class _StockItemScreenState extends ConsumerState<StockItemScreen>
           label: const Text('Change period'),
         ),
       ),
+      share: (ItemMovementReport report) => itemMovementTable(report, period: periodLabel),
       builder: (BuildContext context, ItemMovementReport report) {
         if (report.movements.isEmpty) return const <Widget>[];
         final bool hasUnclassified = report.movements

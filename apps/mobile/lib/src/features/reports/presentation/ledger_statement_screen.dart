@@ -23,6 +23,7 @@ import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_share.dart';
 
 /// Everything that went through one account.
 ///
@@ -96,7 +97,9 @@ class _LedgerStatementScreenState extends ConsumerState<LedgerStatementScreen>
       actions: <Widget>[
         // A statement of nothing is not worth sending, and neither is one
         // built over a skeleton, so the button waits for rows.
-        if ((state.valueOrNull?.data.entries.isNotEmpty ?? false) && company != null)
+        if ((state.valueOrNull?.data.entries.isNotEmpty ?? false) &&
+            company != null &&
+            shareAllowed(ref))
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: 'Preview and share',

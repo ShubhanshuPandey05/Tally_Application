@@ -16,6 +16,7 @@ import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/bill_row.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_share.dart';
 
 /// The open bills of one party, and nothing else.
 ///
@@ -71,6 +72,7 @@ class PartyOutstandingScreen extends ConsumerWidget {
         context,
         state: state,
         company: company,
+        canShare: shareAllowed(ref),
         heading: state.valueOrNull?.data.group ?? group ?? kind.defaultGroup,
         pick: (GroupOutstandingReport report) {
           final GroupParty? p =
@@ -97,6 +99,7 @@ class PartyOutstandingScreen extends ConsumerWidget {
       context,
       state: state,
       company: company,
+      canShare: shareAllowed(ref),
       heading: kind.title,
       pick: (OutstandingReport report) {
         final PartyBills? p =
@@ -120,6 +123,7 @@ class PartyOutstandingScreen extends ConsumerWidget {
     BuildContext context, {
     required AsyncValue<Fresh<T>> state,
     required Company? company,
+    required bool canShare,
     required String heading,
     required _PartyView? Function(T report) pick,
     required Future<void> Function() onRefresh,
@@ -135,7 +139,7 @@ class PartyOutstandingScreen extends ConsumerWidget {
       state: state,
       actions: <Widget>[
         // Waits for bills: a document of nothing is not worth sending.
-        if (view != null && view.bills.isNotEmpty && company != null)
+        if (view != null && view.bills.isNotEmpty && company != null && canShare)
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: 'Preview and share',

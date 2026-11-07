@@ -20,6 +20,7 @@ import '../application/report_providers.dart';
 import '../data/reports_repository.dart';
 import '../domain/drilldown.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_tables.dart';
 
 /// The sales and purchase registers.
 ///
@@ -129,6 +130,11 @@ class _RegisterScreenState extends ConsumerState<RegisterScreen>
           icon: const Icon(Icons.date_range),
           label: const Text('Change period'),
         ),
+      ),
+      share: (RegisterReport report) => registerTable(
+        report,
+        title: _isSales ? 'Sales register' : 'Purchase register',
+        period: periodLabel,
       ),
       builder: (BuildContext context, RegisterReport report) {
         if (report.voucherCount == 0) return const <Widget>[];

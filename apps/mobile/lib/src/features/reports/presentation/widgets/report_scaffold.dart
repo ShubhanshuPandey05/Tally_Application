@@ -4,7 +4,9 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../../core/model/freshness.dart';
 import '../../../../core/widgets/freshness_banner.dart';
+import '../../../../core/documents/report_table_document.dart';
 import '../../../../core/widgets/states.dart';
+import 'report_share.dart';
 
 /// The frame every report screen shares.
 ///
@@ -23,6 +25,7 @@ class ReportScaffold<T> extends StatelessWidget {
     this.actions,
     this.bottom,
     this.emptyBuilder,
+    this.share,
   });
 
   final String title;
@@ -36,6 +39,10 @@ class ReportScaffold<T> extends StatelessWidget {
   /// Rendered instead of [builder] when the report came back with nothing --
   /// distinct from a failure, and worded differently.
   final Widget Function(BuildContext context)? emptyBuilder;
+
+  /// The report as a printable table. Given, it puts a Share button at the
+  /// top right once there is data, for anyone their admin lets share.
+  final ReportTable Function(T data)? share;
 
   @override
   Widget build(BuildContext context) {
@@ -54,7 +61,11 @@ class ReportScaffold<T> extends StatelessWidget {
                   ),
                 ],
               ),
-        actions: actions,
+        actions: <Widget>[
+          ...?actions,
+          if (share != null && state.valueOrNull != null)
+            ReportShareButton(table: () => share!(state.valueOrNull!.data)),
+        ],
         bottom: bottom,
       ),
       // Capped and centred rather than stretched. A report is a column of

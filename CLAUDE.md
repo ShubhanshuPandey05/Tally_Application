@@ -604,6 +604,21 @@ is hidden whole, and totals count only what is left, so no figure includes a
 row the person could not have opened. A ledger statement for such a person
 has no opening balance: the hidden vouchers still moved it.
 
+**Entries** is a fourth switch (decided 2026-11-07): which kinds of voucher
+the person may *create* -- one row per `WRITEABLE_KINDS` entry, held in
+`ENTRY_KINDS` and tied to it by a test. It limits writing, not seeing, so it is
+checked in `POST /vouchers` before the draft is built (`require_entry`), not
+in the read service; with every kind off, adding a missing party or item is
+refused too. The app leaves switched-off kinds out of the new-entry menu, and
+drops the button when none is left.
+
+**Sharing** is a fifth (decided 2026-11-07): whether the Share button shows,
+top right on every report, Prime Reports included. Every shared report is a
+PDF drawn on the phone from the rows on screen (`ReportScaffold.share`, one
+`ReportTable` per report in `report_tables.dart`), so the server stores the
+switch and has nothing to refuse -- it hides a button, and says so; it is not
+a control against a screenshot.
+
 **Fail closed.** With a group switched off, a ledger or item the stored
 masters cannot place is hidden, because it might sit inside that group. Names
 are matched, not GUIDs, because that is what voucher lines carry; a ledger

@@ -329,3 +329,116 @@ async def test_an_entry_against_a_hidden_ledger_is_refused_before_tally(
     )
     assert response.status_code == 403, response.text
     assert loaded.writes == []
+
+
+# --------------------------------------------------------------------------
+# Entries: which kinds of voucher a person may create
+# --------------------------------------------------------------------------
+
+
+def receipt(party: str = "Reliance Retail") -> dict[str, Any]:
+    return {
+        "kind": "receipt",
+        "date": "2026-11-04",
+        "party": party,
+        "amount": "100.00",
+        "account": "Cash",
+    }
+
+
+def test_every_writeable_kind_has_an_entry_switch() -> None:
+    # A kind added to WRITEABLE_KINDS without a switch here would be one no
+    # admin could take away from anybody.
+    from tally_backend.api.v1.vouchers import _KINDS
+    from tally_backend.services.access_policy import ENTRY_KINDS
+
+    assert set(ENTRY_KINDS) == set(_KINDS)
+
+
+def test_an_entry_kind_nobody_knows_is_refused_not_stored() -> None:
+    with pytest.raises(ValueError):
+        AccessPolicy(denied_entries=["journal"])
+
+
+def test_the_entries_switch_off_allows_no_kind() -> None:
+    policy = AccessPolicy(entries=False, denied_entries=["payment"])
+    assert not policy.allows_entry("receipt")
+    assert not policy.allows_any_entry
+    # Back on, the kinds come back exactly as they were left.
+    back = policy.model_copy(update={"entries": True})
+    assert back.allows_entry("receipt") and not back.allows_entry("payment")
+
+
+async def test_a_switched_off_entry_kind_is_refused_before_tally(
+    client: AsyncClient, linked_company, cashier, loaded
+) -> None:
+    saved = await set_policy(client, linked_company, cashier, denied_entries=["receipt"])
+    assert saved.status_code == 200, saved.text
+    response = await client.post(
+        path(linked_company, "/vouchers"), json=receipt(), headers=cashier["headers"]
+    )
+    assert response.status_code == 403, response.text
+    assert "make this kind of entry" in response.text
+    assert loaded.writes == []
+
+    # Another kind still goes through, and the admin is never limited.
+    payment = {**receipt(), "kind": "payment"}
+    allowed = await client.post(
+        path(linked_company, "/vouchers"), json=payment, headers=cashier["headers"]
+    )
+    assert allowed.status_code == 200, allowed.text
+    admin = await client.post(
+        path(linked_company, "/vouchers"), json=receipt(), headers=linked_company["headers"]
+    )
+    assert admin.status_code == 200, admin.text
+
+
+async def test_with_entries_off_no_party_can_be_added_either(
+    client: AsyncClient, linked_company, cashier, loaded
+) -> None:
+    await set_policy(client, linked_company, cashier, entries=False)
+    party = await client.post(
+        path(linked_company, "/ledgers"),
+        json={"name": "Ram Traders", "role": "customer"},
+        headers=cashier["headers"],
+    )
+    assert party.status_code == 403, party.text
+    item = await client.post(
+        path(linked_company, "/stock-items"),
+        json={"name": "Basmati Rice"},
+        headers=cashier["headers"],
+    )
+    assert item.status_code == 403, item.text
+    assert loaded.writes == []
+
+
+async def test_an_entry_restriction_alone_hides_no_report(
+    app, client: AsyncClient, linked_company, cashier, loaded, samples
+) -> None:
+    await seed_masters(app, linked_company["company_id"], samples)
+    await set_policy(client, linked_company, cashier, entries=False)
+    mine = await client.get(path(linked_company, "/access"), headers=cashier["headers"])
+    assert mine.json()["restricted"] is True
+    assert mine.json()["policy"]["entries"] is False
+    ledgers = await client.get(path(linked_company, "/reports/ledgers"), headers=cashier["headers"])
+    assert ledgers.status_code == 200, ledgers.text
+    catalog = await client.get(
+        path(linked_company, "/access/catalog"), headers=linked_company["headers"]
+    )
+    assert catalog.json()["entry_kinds"] == [
+        "receipt", "payment", "sales", "purchase", "sales_order", "purchase_order"
+    ]
+
+
+async def test_sharing_off_is_stored_and_reported_and_hides_nothing(
+    client: AsyncClient, linked_company, cashier, loaded
+) -> None:
+    saved = await set_policy(client, linked_company, cashier, share=False)
+    assert saved.status_code == 200, saved.text
+    mine = await client.get(path(linked_company, "/access"), headers=cashier["headers"])
+    assert mine.json()["restricted"] is True
+    assert mine.json()["policy"]["share"] is False
+    # Only the button goes: the reports themselves still open.
+    ledgers = await client.get(path(linked_company, "/reports/ledgers"), headers=cashier["headers"])
+    assert ledgers.status_code == 200, ledgers.text
+    assert AccessPolicy.from_stored({"reports": True}).share is True

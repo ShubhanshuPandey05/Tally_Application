@@ -11,6 +11,17 @@ trees, each switched on as a whole and refinable underneath:
   ledgers.
 * **Stock groups** -- each item's stock group, down to single items.
 
+A fourth switch, **Entries**, says which kinds of voucher the person may
+*create* from the app (``ENTRY_KINDS``) -- the cashier who records receipts
+need not be able to raise a purchase. It is checked where an entry is posted,
+not at the read: it limits what someone may write, not what they may see.
+
+A fifth, **Sharing**, says whether the app shows the Share button on reports.
+The server only stores it: every shared document is drawn on the phone from
+rows the person is already allowed to see, so there is nothing for the server
+to refuse, and a screenshot was always possible. It keeps the button off the
+screen of someone whose admin does not want reports sent out from the shop.
+
 **Everything is allowed until an admin says otherwise**, which is the opposite of
 ``company_access`` and on purpose: once somebody has been given a company, the
 reasonable default is that they see it the way the admin does, and the policy
@@ -64,6 +75,18 @@ STANDARD_REPORTS: tuple[str, ...] = (
     "running_low",
     "negative_stock",
     "slow_movers",
+)
+
+#: Every kind of entry the app can create, by the wire name ``POST /vouchers``
+#: takes. The same list as ``WRITEABLE_KINDS``; a test holds the two together,
+#: so a seventh writeable kind cannot ship without a switch to refuse it.
+ENTRY_KINDS: tuple[str, ...] = (
+    "receipt",
+    "payment",
+    "sales",
+    "purchase",
+    "sales_order",
+    "purchase_order",
 )
 
 #: Prime reports are keyed ``top:<key>``, the backend's own Top report keys.
@@ -122,12 +145,27 @@ class AccessPolicy(BaseModel):
     denied_stock_groups: list[str] = Field(default_factory=list)
     denied_stock_items: list[str] = Field(default_factory=list)
 
+    #: "Entries": off means this person may create no entry at all.
+    entries: bool = True
+    denied_entries: list[str] = Field(default_factory=list)
+
+    #: "Sharing": off hides the Share button on every report in the app.
+    share: bool = True
+
     @field_validator("denied_reports")
     @classmethod
     def _known_reports(cls, value: list[str]) -> list[str]:
         unknown = sorted(set(value) - known_report_keys())
         if unknown:
             raise ValueError(f"unknown report keys: {unknown}")
+        return sorted(set(value))
+
+    @field_validator("denied_entries")
+    @classmethod
+    def _known_entries(cls, value: list[str]) -> list[str]:
+        unknown = sorted(set(value) - set(ENTRY_KINDS))
+        if unknown:
+            raise ValueError(f"unknown entry kinds: {unknown}")
         return sorted(set(value))
 
     @field_validator(
@@ -168,6 +206,13 @@ class AccessPolicy(BaseModel):
         section = self.prime_reports if key.startswith(PRIME_PREFIX) else self.standard_reports
         return section and key not in self.denied_reports
 
+    def allows_entry(self, kind: str) -> bool:
+        return self.entries and kind not in self.denied_entries
+
+    @property
+    def allows_any_entry(self) -> bool:
+        return any(self.allows_entry(kind) for kind in ENTRY_KINDS)
+
     @classmethod
     def from_stored(cls, stored: Any) -> AccessPolicy:
         """Read a stored policy, keeping only what still validates.
@@ -181,6 +226,9 @@ class AccessPolicy(BaseModel):
         data = dict(stored)
         known = known_report_keys()
         data["denied_reports"] = [k for k in data.get("denied_reports", []) if k in known]
+        data["denied_entries"] = [
+            k for k in data.get("denied_entries", []) if k in ENTRY_KINDS
+        ]
         return cls.model_validate(data)
 
 
@@ -229,6 +277,23 @@ class AccessScope:
             raise PermissionDenied(
                 f"report {key} is switched off for this user",
                 user_message="Your admin has not given you access to this report.",
+            )
+
+    # -- entries ----------------------------------------------------------
+
+    def require_entry(self, kind: str) -> None:
+        if not self.policy.allows_entry(kind):
+            raise PermissionDenied(
+                f"entry kind {kind} is switched off for this user",
+                user_message="Your admin has not let you make this kind of entry.",
+            )
+
+    def require_any_entry(self) -> None:
+        """For adding a missing party or item, which only an entry needs."""
+        if not self.policy.allows_any_entry:
+            raise PermissionDenied(
+                "every entry kind is switched off for this user",
+                user_message="Your admin has not let you make entries in this company.",
             )
 
     # -- ledgers ----------------------------------------------------------

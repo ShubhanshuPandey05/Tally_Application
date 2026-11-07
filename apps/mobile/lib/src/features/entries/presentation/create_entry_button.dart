@@ -6,6 +6,8 @@ import 'package:go_router/go_router.dart';
 
 import '../../../app/router.dart';
 import '../../companies/application/company_providers.dart';
+import '../../team/application/team_providers.dart';
+import '../../team/domain/access_policy.dart';
 import '../application/entry_providers.dart';
 import '../domain/entry_draft.dart';
 
@@ -51,9 +53,10 @@ class _CreateEntryButtonState extends ConsumerState<CreateEntryButton> {
     return box.localToGlobal(Offset.zero) & box.size;
   }
 
-  Future<void> _pick(BuildContext context, WidgetRef ref) async {
+  Future<void> _pick(
+      BuildContext context, WidgetRef ref, List<EntryKind> kinds) async {
     final EntryKind? kind = await Navigator.of(context).push<EntryKind>(
-      entryMenuRoute(anchor: _anchorRect),
+      entryMenuRoute(anchor: _anchorRect, kinds: kinds),
     );
     if (kind == null || !context.mounted) {
       return;
@@ -104,13 +107,23 @@ class _CreateEntryButtonState extends ConsumerState<CreateEntryButton> {
     // Nothing to write to until a company is chosen, and a button that only
     // ever says "choose a company first" is one that trains people to ignore
     // it.
-    if (ref.watch(activeCompanyIdResolvedProvider) == null) {
+    final String? companyId = ref.watch(activeCompanyIdResolvedProvider);
+    if (companyId == null) {
       return const SizedBox.shrink();
     }
     // Nor to the demo: every new account is looking at the same books, and the
     // server refuses any entry into them. A button that can only be refused
     // is worse than no button.
     if (ref.watch(activeCompanyIsDemoProvider)) {
+      return const SizedBox.shrink();
+    }
+    // Only the kinds this person's admin left on. The server refuses the rest
+    // anyway; offering them would be offering a refusal. With none left there
+    // is no button at all, for the same reason as the demo.
+    final AccessPolicy policy =
+        ref.watch(myAccessProvider(companyId)).valueOrNull ?? AccessPolicy.all;
+    final List<EntryKind> kinds = allowedEntryKinds(policy);
+    if (kinds.isEmpty) {
       return const SizedBox.shrink();
     }
 
@@ -121,7 +134,7 @@ class _CreateEntryButtonState extends ConsumerState<CreateEntryButton> {
     return FloatingActionButton(
       key: _anchor,
       heroTag: 'new-entry',
-      onPressed: () => _pick(context, ref),
+      onPressed: () => _pick(context, ref, kinds),
       tooltip: 'New entry',
       // Fixed black and white rather than scheme colours. This button sits
       // over a dashboard whose tiles are already carrying the palette, and
@@ -137,16 +150,35 @@ class _CreateEntryButtonState extends ConsumerState<CreateEntryButton> {
 ///
 /// Its layout is the part that went wrong before and the part `flutter
 /// analyze` cannot check, so it has to be reachable from a widget test.
-Route<EntryKind> entryMenuRoute({Rect? anchor}) =>
-    _FanRoute(anchor ?? _fallbackAnchor);
+Route<EntryKind> entryMenuRoute({Rect? anchor, List<EntryKind>? kinds}) =>
+    _FanRoute(anchor ?? _fallbackAnchor, kinds ?? EntryKind.values);
+
+/// The kinds [policy] lets this person create, in the menu's order.
+List<EntryKind> allowedEntryKinds(AccessPolicy policy) => EntryKind.values
+    .where((EntryKind kind) => policy.allowsEntry(kind.wire))
+    .toList(growable: false);
+
+/// Each kind's icon, shared by the menu and the admin's access screen so a
+/// kind looks the same in both.
+const Map<EntryKind, IconData> entryKindIcons = <EntryKind, IconData>{
+  EntryKind.receipt: Icons.south_west_rounded,
+  EntryKind.payment: Icons.north_east_rounded,
+  EntryKind.sales: Icons.receipt_long_rounded,
+  EntryKind.purchase: Icons.inventory_2_rounded,
+  EntryKind.salesOrder: Icons.assignment_turned_in_rounded,
+  EntryKind.purchaseOrder: Icons.shopping_cart_rounded,
+};
 
 /// The menu, as a transparent route over whatever screen was showing.
 class _FanRoute extends PopupRoute<EntryKind> {
-  _FanRoute(this.anchor);
+  _FanRoute(this.anchor, this.kinds);
 
   /// The button's rectangle in screen coordinates. The close button is drawn
   /// exactly here, so nothing appears to jump when the menu opens.
   final Rect anchor;
+
+  /// The kinds on the disc, in order.
+  final List<EntryKind> kinds;
 
   @override
   Color? get barrierColor => Colors.black.withOpacity(0.45);
@@ -169,7 +201,7 @@ class _FanRoute extends PopupRoute<EntryKind> {
     Animation<double> animation,
     Animation<double> secondaryAnimation,
   ) {
-    return _Fan(animation: animation, anchor: anchor);
+    return _Fan(animation: animation, anchor: anchor, kinds: kinds);
   }
 }
 
@@ -198,10 +230,12 @@ const double _labelHeight = 18;
 const double _spin = math.pi / 2;
 
 class _Fan extends StatelessWidget {
-  const _Fan({required this.animation, required this.anchor});
+  const _Fan(
+      {required this.animation, required this.anchor, required this.kinds});
 
   final Animation<double> animation;
   final Rect anchor;
+  final List<EntryKind> kinds;
 
   @override
   Widget build(BuildContext context) {
@@ -231,7 +265,7 @@ class _Fan extends StatelessWidget {
 
         return Stack(
           children: <Widget>[
-            for (final (int i, EntryKind kind) in EntryKind.values.indexed)
+            for (final (int i, EntryKind kind) in kinds.indexed)
               ..._placed(context, kind, i, centre, scale, turn, opacity),
             Positioned(
               left: anchor.left,
@@ -317,15 +351,6 @@ class _OptionButton extends StatelessWidget {
   final EntryKind kind;
   final VoidCallback onTap;
 
-  static const Map<EntryKind, IconData> _icons = <EntryKind, IconData>{
-    EntryKind.receipt: Icons.south_west_rounded,
-    EntryKind.payment: Icons.north_east_rounded,
-    EntryKind.sales: Icons.receipt_long_rounded,
-    EntryKind.purchase: Icons.inventory_2_rounded,
-    EntryKind.salesOrder: Icons.assignment_turned_in_rounded,
-    EntryKind.purchaseOrder: Icons.shopping_cart_rounded,
-  };
-
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -338,7 +363,7 @@ class _OptionButton extends StatelessWidget {
         backgroundColor: Colors.black,
         foregroundColor: Colors.white,
         elevation: 2,
-        child: Icon(_icons[kind], size: 19),
+        child: Icon(entryKindIcons[kind], size: 19),
       ),
     );
   }

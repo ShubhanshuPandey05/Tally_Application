@@ -6,6 +6,8 @@ import '../../../core/layout/adaptive.dart';
 import '../../../core/network/api_exception.dart';
 import '../../../core/widgets/primitives.dart';
 import '../../companies/domain/company.dart';
+import '../../entries/domain/entry_draft.dart';
+import '../../entries/presentation/create_entry_button.dart';
 import '../../reports/domain/report_catalog.dart';
 import '../../top_reports/domain/top_report.dart';
 import '../application/team_providers.dart';
@@ -16,7 +18,9 @@ import '../domain/team_member.dart';
 ///
 /// Three trees, each switched on as a whole and refinable underneath:
 /// Reports (the Reports screen and the Top Prime Reports), Ledger Groups (down
-/// to single ledgers) and Stock Groups (down to single items). A switch that is
+/// to single ledgers) and Stock Groups (down to single items). A fourth
+/// switch, Entries, says which kinds of entry they may create from the app,
+/// and a fifth, Sharing, whether reports show a Share button. A switch that is
 /// on can be tapped to open the level below it; one that is off hides
 /// everything under it, so there is nothing below to choose.
 ///
@@ -255,6 +259,29 @@ class _MemberAccessScreenState extends ConsumerState<MemberAccessScreen> {
                           StockTreeScreen(draft: _draft, catalog: catalog, group: null),
                         ),
               ),
+              const Divider(indent: 62, height: 1),
+              ToggleRow(
+                icon: Icons.edit_note_outlined,
+                tint: AppTheme.tileGreen,
+                title: 'Entries',
+                subtitle: policy.entries
+                    ? _countLabel(_entriesOff(policy), 'kind of entry', plural: 'kinds of entry')
+                    : 'Cannot make any entry',
+                value: policy.entries,
+                onChanged: (bool on) => _draft.value = policy.copyWith(entries: on),
+                onOpen: () => _push(context, EntryKindsScreen(draft: _draft)),
+              ),
+              const Divider(indent: 62, height: 1),
+              ToggleRow(
+                icon: Icons.ios_share,
+                tint: AppTheme.tileRose,
+                title: 'Sharing',
+                subtitle: policy.share
+                    ? 'Share button on every report'
+                    : 'No Share button on reports',
+                value: policy.share,
+                onChanged: (bool on) => _draft.value = policy.copyWith(share: on),
+              ),
             ],
           ),
         ),
@@ -290,6 +317,9 @@ class _MemberAccessScreenState extends ConsumerState<MemberAccessScreen> {
       ],
     );
   }
+
+  static int _entriesOff(AccessPolicy policy) =>
+      EntryKind.values.where((EntryKind k) => !policy.allowsEntry(k.wire)).length;
 
   static int _reportsOff(AccessPolicy policy) {
     int off = policy.deniedReports.length;
@@ -557,6 +587,50 @@ class _ReportListScreen extends StatelessWidget {
           children: children,
         );
       },
+    );
+  }
+}
+
+// --------------------------------------------------------------------------
+// Entries
+// --------------------------------------------------------------------------
+
+/// One switch per kind of entry the app can create.
+///
+/// Only creation: what they can already see of a receipt in the day book is
+/// decided by the ledger and stock switches, not here.
+class EntryKindsScreen extends StatelessWidget {
+  const EntryKindsScreen({super.key, required this.draft});
+
+  final ValueNotifier<AccessPolicy> draft;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<AccessPolicy>(
+      valueListenable: draft,
+      builder: (BuildContext context, AccessPolicy policy, _) => _LevelScaffold(
+        title: 'Entries',
+        note: 'Switched-off kinds are left out of the new-entry menu and refused if '
+            'sent. With every kind off, they cannot add a new party or item either.',
+        children: <Widget>[
+          _card(<Widget>[
+            for (final EntryKind kind in EntryKind.values)
+              ToggleRow(
+                key: ValueKey<String>('entry-access-${kind.wire}'),
+                icon: entryKindIcons[kind],
+                tint: AppTheme.tileGreen,
+                title: kind.label,
+                subtitle: kind.blurb,
+                value: !policy.deniedEntries.contains(kind.wire),
+                onChanged: (bool on) {
+                  final Set<String> next = <String>{...policy.deniedEntries};
+                  on ? next.remove(kind.wire) : next.add(kind.wire);
+                  draft.value = policy.copyWith(deniedEntries: next);
+                },
+              ),
+          ]),
+        ],
+      ),
     );
   }
 }

@@ -16,6 +16,7 @@ import '../data/reports_repository.dart';
 import '../domain/reports.dart';
 import 'widgets/ledger_row.dart';
 import 'widgets/report_scaffold.dart';
+import 'widgets/report_share.dart';
 
 /// One Tally group on a page of its own -- the same rows the Ledgers screen
 /// folds open, with a way to send them.
@@ -50,7 +51,7 @@ class LedgerGroupScreen extends ConsumerWidget {
       subtitle: state.valueOrNull == null ? null : countOf(lines.length, 'ledger'),
       state: state,
       actions: <Widget>[
-        if (lines.isNotEmpty && company != null)
+        if (lines.isNotEmpty && company != null && shareAllowed(ref))
           IconButton(
             icon: const Icon(Icons.ios_share),
             tooltip: 'Preview and share',

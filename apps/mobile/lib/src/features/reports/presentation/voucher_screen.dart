@@ -20,6 +20,7 @@ import '../../companies/application/company_providers.dart';
 import '../../companies/domain/company.dart';
 import '../application/report_providers.dart';
 import '../domain/drilldown.dart';
+import 'widgets/report_share.dart';
 
 /// One voucher, in full.
 ///
@@ -66,7 +67,7 @@ class VoucherScreen extends ConsumerWidget {
         actions: <Widget>[
           // Only once the voucher is actually loaded. A share button over a
           // skeleton is a button that produces an empty bill.
-          if (state.valueOrNull != null && company != null)
+          if (state.valueOrNull != null && company != null && shareAllowed(ref))
             IconButton(
               icon: const Icon(Icons.ios_share),
               tooltip: 'Preview and share',
