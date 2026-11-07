@@ -7,6 +7,7 @@ import '../core/widgets/period_picker.dart';
 import '../core/widgets/primitives.dart';
 import '../features/auth/application/auth_controller.dart';
 import '../features/auth/presentation/add_phone_screen.dart';
+import '../features/auth/presentation/forgot_password_screen.dart';
 import '../features/auth/presentation/sign_in_screen.dart';
 import '../features/auth/presentation/sign_up_screen.dart';
 import '../features/companies/presentation/company_picker_screen.dart';
@@ -50,6 +51,7 @@ class Routes {
   static const String splash = '/splash';
   static const String signIn = '/sign-in';
   static const String signUp = '/sign-up';
+  static const String forgotPassword = '/forgot-password';
 
   /// Readable signed in or out: sign-up links to both, and somebody must be
   /// able to read what they agree to before they have an account.
@@ -173,8 +175,9 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
     redirect: (BuildContext context, GoRouterState state) {
       final AuthState auth = ref.read(authControllerProvider);
       final String location = state.matchedLocation;
-      final bool onAuthScreen =
-          location == Routes.signIn || location == Routes.signUp;
+      final bool onAuthScreen = location == Routes.signIn ||
+          location == Routes.signUp ||
+          location == Routes.forgotPassword;
 
       if (auth.status == AuthStatus.unknown) {
         return location == Routes.splash ? null : Routes.splash;
@@ -234,6 +237,11 @@ final Provider<GoRouter> routerProvider = Provider<GoRouter>((Ref ref) {
       GoRoute(
         path: Routes.signUp,
         builder: (BuildContext context, GoRouterState state) => const SignUpScreen(),
+      ),
+      GoRoute(
+        path: Routes.forgotPassword,
+        builder: (BuildContext context, GoRouterState state) =>
+            ForgotPasswordScreen(email: state.extra as String?),
       ),
       GoRoute(
         path: Routes.terms,

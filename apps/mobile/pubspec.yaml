@@ -87,6 +87,19 @@ dependencies:
 
   cupertino_icons: ^1.0.8
 
+  # Firebase, for two things only: the SMS code that proves a mobile number
+  # at signup, and push notifications. Never for signing in -- the token from
+  # a typed code is handed to our server as evidence and Firebase is signed
+  # out of at once (see features/auth/data/phone_proof.dart).
+  #
+  # Configured from --dart-define rather than google-services.json, so a build
+  # without settings still builds, with both features off. These plugins also
+  # register on Windows, so the connector's window build downloads the
+  # Firebase C++ SDK; the window never starts Firebase.
+  firebase_core: ^3.6.0
+  firebase_auth: ^5.3.1
+  firebase_messaging: ^15.1.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

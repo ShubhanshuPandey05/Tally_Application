@@ -178,6 +178,26 @@ void main() {
         expect(validatePhone(typed), isNotNull, reason: typed);
       }
     });
+
+    // The SMS goes to this form of the number, and the server compares the
+    // number Firebase proved against its own reading of what was typed. If
+    // the two disagree the signup is refused after the code was already paid
+    // for, so they are held to the same answers here.
+    test('the number texted is the number the server will store', () {
+      const Map<String, String> expected = <String, String>{
+        '9876543210': '+919876543210',
+        '98765 43210': '+919876543210',
+        '098765-43210': '+919876543210',
+        '+91 98765 43210': '+919876543210',
+        '919876543210': '+919876543210',
+        '0091 9876543210': '+919876543210',
+        '+44 7700 900123': '+447700900123',
+      };
+      expected.forEach((String typed, String stored) {
+        expect(normalisePhone(typed), stored, reason: typed);
+      });
+      expect(normalisePhone('12345'), isNull);
+    });
   });
 
   group('the partner-code box', () {

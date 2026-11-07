@@ -7,6 +7,7 @@
   "org_id": "<org_id>",
   "org_name": "Bhatia Supermarket",
   "phone": null,
+  "phone_verified": false,
   "role": "admin",
   "subscription": {
     "allows_changes": true,

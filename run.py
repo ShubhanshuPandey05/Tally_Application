@@ -127,6 +127,18 @@ def run(
     return subprocess.call(args, cwd=str(cwd), env=merged)
 
 
+def firebase_defines() -> list[str]:
+    """The app's Firebase settings, when ``apps/mobile/firebase.json`` exists.
+
+    A file of ``--dart-define`` values rather than ``google-services.json``, so
+    a checkout without one still builds -- with no SMS step and no
+    notifications -- instead of failing in Gradle. See
+    ``apps/mobile/lib/src/core/firebase/firebase_setup.dart``.
+    """
+    config = MOBILE / "firebase.json"
+    return [f"--dart-define-from-file={config}"] if config.is_file() else []
+
+
 def need_flutter() -> str:
     flutter = flutter_bin()
     if flutter is None:
@@ -224,7 +236,12 @@ def cmd_app(argv: list[str]) -> int:
     device = argv[0] if argv else None
     host = "127.0.0.1" if device in {"chrome", "web-server", "windows"} else "10.21.25.128"
 
-    args = [need_flutter(), "run", f"--dart-define=TALLYFLOW_API_URL=http://{host}:8000"]
+    args = [
+        need_flutter(),
+        "run",
+        f"--dart-define=TALLYFLOW_API_URL=http://{host}:8000",
+        *firebase_defines(),
+    ]
     if device:
         args += ["-d", device]
     return run(args, cwd=MOBILE)
@@ -736,7 +753,13 @@ def cmd_release(argv: list[str]) -> int:
     defines = [
         f"--dart-define=TALLYFLOW_API_URL={api_url}",
         "--dart-define=TALLYFLOW_ENV=prod",
+        *firebase_defines(),
     ]
+    if not firebase_defines():
+        print(
+            "! apps/mobile/firebase.json is missing: this build cannot send SMS codes\n"
+            "  or receive notifications. See apps/mobile/firebase.example.json.\n"
+        )
     # apk as well as appbundle: an .aab cannot be installed on a phone. It is
     # a Play Store upload format, so a pilot that downloads the app from our own
     # site -- which is how UAT works before any store listing exists -- needs the

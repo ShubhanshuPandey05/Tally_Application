@@ -87,6 +87,21 @@ class InvalidInput(AppError):
     user_message = "Please check what you entered."
 
 
+class NotConfigured(AppError):
+    """A feature this deployment has not been set up for -- no email provider,
+    no Firebase project.
+
+    503 rather than 400: nothing the person typed was wrong, and the app hides
+    the button that leads here whenever ``/v1/public/config`` says the feature
+    is off, so reaching this at all is an installed build talking to a server
+    that changed its mind.
+    """
+
+    status_code = status.HTTP_503_SERVICE_UNAVAILABLE
+    code = "not_configured"
+    user_message = "This is not available right now. Please contact support."
+
+
 class SubscriptionInactive(AppError):
     """The account exists and the caller is who they say, but it is not live.
 

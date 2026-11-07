@@ -283,6 +283,53 @@ class Settings(BaseSettings):
     trial_max_companies: int = 1
     trial_max_users: int = 2
 
+    # --- Phone verification (Firebase) ------------------------------------
+    #: The Firebase project whose phone sign-in proves a number at signup. The
+    #: app sends Firebase's SMS code, and hands us the ID token Firebase gives
+    #: back; this is the audience that token must carry. Empty switches
+    #: verification off and nothing about signup changes.
+    firebase_project_id: str | None = None
+    #: Whether a phone number must be proven before it unlocks the trial.
+    #:
+    #: Off by default even with a project set, so the backend can ship before
+    #: the app build that sends codes. Turned on once that build is the floor:
+    #: until then an older build's signup would be refused for a step it cannot
+    #: show. On, a typed but unproven number is refused rather than stored,
+    #: because "one trial per phone" only means anything if the phone is real.
+    require_verified_phone: bool = False
+
+    # --- Email (password reset) ---------------------------------------------
+    #: Plain SMTP so any provider works -- Amazon SES, Resend, Brevo and the
+    #: rest all offer it -- and changing provider is a config edit, not a
+    #: code change. Empty host switches email off, and the app hides "Forgot
+    #: password?" rather than offering a code that will never arrive.
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    #: The From line, e.g. ``Prime Analyst <no-reply@example.com>``. Must be an
+    #: address the provider has verified, or every message bounces.
+    smtp_from: str | None = None
+    #: ``starttls`` on 587, ``ssl`` on 465, ``none`` only for a local catcher.
+    smtp_security: Literal["starttls", "ssl", "none"] = "starttls"
+    smtp_timeout_seconds: float = 20.0
+    #: How long an emailed reset code works. Long enough to switch to the mail
+    #: app and back on a slow phone, short enough that an old email in an inbox
+    #: is not a standing key to the account.
+    password_reset_code_minutes: int = 15
+    #: Wrong guesses allowed against one code before it is burned. Six digits
+    #: and five guesses is a one-in-200,000 chance per emailed code.
+    password_reset_max_attempts: int = 5
+    #: The shortest gap between two codes to one account, so the button cannot
+    #: be used to fill somebody's inbox.
+    password_reset_resend_seconds: int = 60
+
+    # --- Push notifications (FCM) --------------------------------------------
+    #: A Firebase service account key, either the JSON itself or a path to the
+    #: file. Empty switches sending off; phones still register their tokens,
+    #: so turning it on later reaches everyone who has opened the app since.
+    fcm_service_account: str | None = None
+
     # --- Diagnostics ----------------------------------------------------
     #: Lines held in memory for the portal's live tail. Every level lands here;
     #: only WARNING and above is persisted. Five thousand is roughly an hour of
@@ -395,6 +442,20 @@ class Settings(BaseSettings):
                 "TALLYFLOW_ALLOW_LOCAL_MASTER_KEY=true only on a host with no AWS)"
             )
         return self
+
+    @model_validator(mode="after")
+    def _verified_phone_needs_firebase(self) -> Settings:
+        # Required with nothing to verify against would refuse every signup
+        # with a phone, which is every signup.
+        if self.require_verified_phone and not self.firebase_project_id:
+            raise ValueError(
+                "TALLYFLOW_REQUIRE_VERIFIED_PHONE needs TALLYFLOW_FIREBASE_PROJECT_ID"
+            )
+        return self
+
+    @property
+    def email_enabled(self) -> bool:
+        return bool(self.smtp_host and self.smtp_from)
 
     @property
     def is_prod(self) -> bool:

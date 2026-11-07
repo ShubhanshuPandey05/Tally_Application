@@ -20,6 +20,7 @@ from . import (
     portal_sales,
     portal_usage,
     public,
+    push,
     sync,
     team,
     vouchers,
@@ -37,6 +38,7 @@ api_router.include_router(auth.router)
 #: it sits beside `public` rather than among the token-guarded routers.
 api_router.include_router(pairing.router)
 api_router.include_router(team.router)
+api_router.include_router(push.router)
 #: The management portal. Same version prefix, entirely separate authority --
 #: a customer's token is refused by `typ` before any handler in it runs.
 api_router.include_router(portal.router)

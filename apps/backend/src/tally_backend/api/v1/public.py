@@ -20,7 +20,7 @@ router = APIRouter(prefix="/public", tags=["public"])
 
 
 @router.get("/config")
-async def public_config() -> dict:
+async def public_config(settings: SettingsDep) -> dict:
     """What an unauthenticated app needs to know before anyone signs in.
 
     ``demo_available`` is always false now and is kept only for installed
@@ -28,8 +28,25 @@ async def public_config() -> dict:
     "Explore the demo" button. That login is gone -- the demo is a company lent
     to every new account instead -- and false hides the button on those builds
     rather than offering a door that now leads nowhere.
+
+    The other three tell the signup and sign-in screens what this deployment
+    can do, so a build never offers a step the server cannot finish:
+    ``phone_verification`` is ``off`` (no Firebase project), ``optional``
+    (codes are checked when sent) or ``required``; ``password_reset`` is
+    whether an emailed code can be sent at all. The Firebase project id is
+    not a secret -- it is in every installed app.
     """
-    return {"demo_available": False}
+    if not settings.firebase_project_id:
+        phone_verification = "off"
+    elif settings.require_verified_phone:
+        phone_verification = "required"
+    else:
+        phone_verification = "optional"
+    return {
+        "demo_available": False,
+        "phone_verification": phone_verification,
+        "password_reset": settings.email_enabled,
+    }
 
 
 @router.get("/stats")

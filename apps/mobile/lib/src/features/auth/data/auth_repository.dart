@@ -35,6 +35,7 @@ class AuthRepository {
     required String password,
     required String orgName,
     required String phone,
+    String? phoneToken,
     String? fullName,
     String? partnerCode,
     String? deviceName,
@@ -47,6 +48,7 @@ class AuthRepository {
         'org_name': orgName.trim(),
         'full_name': fullName?.trim(),
         'phone': phone.trim(),
+        'phone_token': phoneToken,
         'partner_code': _blankToNull(partnerCode),
         'device_name': deviceName,
       },
@@ -72,16 +74,42 @@ class AuthRepository {
   /// Give an account made before phone numbers were asked for its number.
   /// Answers with the account as it now stands -- for an admin of a business
   /// waiting for approval, that is the account on its free trial.
-  Future<AppUser> addPhone({required String phone, String? partnerCode}) async {
+  Future<AppUser> addPhone({
+    required String phone,
+    String? phoneToken,
+    String? partnerCode,
+  }) async {
     final Map<String, Object?> json = await _api.postJson(
       '/v1/auth/me/phone',
       body: <String, Object?>{
         'phone': phone.trim(),
+        'phone_token': phoneToken,
         'partner_code': _blankToNull(partnerCode),
       },
     );
     return AppUser.fromJson(json);
   }
+
+  /// Email a reset code. The server answers the same whether or not the
+  /// address has an account, so this cannot tell the screen either.
+  Future<void> requestPasswordReset(String email) =>
+      _api.post('/v1/auth/password-reset', body: <String, Object?>{'email': email.trim()});
+
+  /// Set a new password with the emailed code. Every device is signed out by
+  /// the server; the caller signs this one back in.
+  Future<void> resetPassword({
+    required String email,
+    required String code,
+    required String newPassword,
+  }) =>
+      _api.post(
+        '/v1/auth/password-reset/confirm',
+        body: <String, Object?>{
+          'email': email.trim(),
+          'code': code.trim(),
+          'new_password': newPassword,
+        },
+      );
 
   static String? _blankToNull(String? value) {
     final String trimmed = value?.trim() ?? '';

@@ -729,6 +729,49 @@ is not live" and "you are not an admin" need completely different screens.
 Expiry is computed from `expires_at`, never swept by a job that could stop
 running.
 
+### Proving the phone, resetting a password, and push
+
+Decided 2026-11-02: **SMS for signup, email for forgotten passwords, FCM for
+notifications**, all from one Firebase project, and none of it a way to sign
+in. Email and password stay the only sign-in.
+
+**The SMS code proves the number, nothing more.** The app has Firebase text a
+code; the ID token Firebase returns rides on `/auth/register` (and
+`/auth/me/phone`) as `phone_token`, and `services.phone_verification` checks
+it against Google's published keys -- audience, issuer, `sign_in_provider ==
+"phone"`, and an `auth_time` under fifteen minutes old. The proven number must
+equal the typed one after `normalise_phone`, and the app signs out of Firebase
+at once. `users.phone_verified_at` records it, and is cleared when the number
+changes. Firebase rather than our own sender because Indian SMS needs a
+DLT-registered sender and template, which Firebase already holds.
+
+**Proof is optional until it is switched on.** `TALLYFLOW_REQUIRE_VERIFIED_PHONE`
+is off by default so the backend ships before the build that sends codes; on,
+an unproven number is refused with "please update", and only a proven one
+unlocks the trial. A proof sent to a server with no Firebase project is set
+aside, never refused.
+
+**Reset codes are emailed, never texted.** Email is free and the address is
+already the identity. Six digits, stored as an HMAC under the JWT secret (a
+plain hash of six digits is reversed by trying all of them), one live code per
+person, five guesses, fifteen minutes. The guess counter is committed *before*
+the refusal, because the request's session rolls back on error. The request
+answers the same whether or not the address exists and sends after the
+response, so neither words nor timing enumerate accounts. A reset signs out
+every device. Plain SMTP, so the provider is a config line.
+
+**A notification says that something happened, never what.** It crosses
+Google's and Apple's servers and lands on a lock screen, so no amount, no
+party name, no figure -- the books are sealed at rest and a banner must not be
+the exception. The first one tells whoever made a *queued* entry how it ended,
+since that happens hours later with the phone in a pocket. Sending never
+raises. Tokens live in `push_devices`, move to whoever signs in on that phone,
+and are removed before sign-out.
+
+The app takes Firebase settings from `--dart-define`s (`apps/mobile/firebase.json`,
+passed by `run.py`), not `google-services.json`, so a build without them still
+builds with all three features off. Firebase Auth needs Android `minSdk` 23.
+
 ### Portal authority is a second axis
 
 `PlatformUser` is a separate table from `User`, and `PlatformRole`

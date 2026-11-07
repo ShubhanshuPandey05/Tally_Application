@@ -25,6 +25,9 @@ dependencies = [
     "boto3>=1.34",
     "python-multipart>=0.0.9",
     "websockets>=12.0",
+    # Outbound calls to Google: Firebase's signing keys for phone proofs, and
+    # FCM for push notifications. Already the test client, so nothing new.
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]

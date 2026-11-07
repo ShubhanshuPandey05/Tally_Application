@@ -58,6 +58,11 @@ class RegisterRequest(BaseModel):
     #: signup used to -- and their admin is asked for a number at the next
     #: sign-in on a newer build, which is when the trial starts.
     phone: str | None = Field(default=None, max_length=30)
+    #: The Firebase ID token the app received when the SMS code was typed --
+    #: proof that the person holds ``phone``. Absent from builds before it, and
+    #: whether it is required is the deployment's choice
+    #: (``TALLYFLOW_REQUIRE_VERIFIED_PHONE``).
+    phone_token: str | None = Field(default=None, max_length=4096)
     #: Which partner brought this business in. Optional; an unknown code is
     #: refused rather than dropped (``services.trial.resolve_partner_code``).
     partner_code: str | None = Field(default=None, max_length=40)
@@ -67,6 +72,8 @@ class AddPhoneRequest(BaseModel):
     """Supplying the phone number an older account was never asked for."""
 
     phone: str = Field(min_length=1, max_length=30)
+    #: As on :class:`RegisterRequest`.
+    phone_token: str | None = Field(default=None, max_length=4096)
     #: Offered on the same screen, because the account it would attach a
     #: partner to is exactly one that signed up before codes existed. Only an
     #: admin's code counts, and only on a business with no partner yet.
@@ -93,6 +100,27 @@ class LoginRequest(BaseModel):
     email: EmailStr
     password: str = Field(min_length=1, max_length=200)
     device_name: str | None = Field(default=None, max_length=200)
+
+
+class PasswordResetRequest(BaseModel):
+    email: EmailStr
+
+
+class PasswordResetConfirm(BaseModel):
+    email: EmailStr
+    code: str = Field(min_length=6, max_length=12)
+    #: The same rule as signup.
+    new_password: str = Field(min_length=10, max_length=200)
+
+
+class PushDeviceRequest(BaseModel):
+    #: The FCM registration token for this installation.
+    token: str = Field(min_length=20, max_length=512)
+    platform: str = Field(pattern=r"^(android|ios|web)$")
+
+
+class PushDeviceRemoval(BaseModel):
+    token: str = Field(min_length=1, max_length=512)
 
 
 class RefreshRequest(BaseModel):
@@ -199,6 +227,8 @@ class UserResponse(BaseModel):
     #: The app routes to "add your mobile number" while this is true, the same
     #: way it routes to a password change -- see ``router.dart``.
     needs_phone: bool = False
+    #: Whether the number on file was proven with an SMS code.
+    phone_verified: bool = False
     subscription: SubscriptionResponse
 
 

@@ -7,6 +7,7 @@ import '../../../app/theme.dart';
 import '../../../core/widgets/primitives.dart';
 import '../../legal/presentation/legal_screen.dart';
 import '../application/auth_controller.dart';
+import '../application/auth_features.dart';
 
 class SignInScreen extends ConsumerStatefulWidget {
   const SignInScreen({super.key});
@@ -100,6 +101,22 @@ class _SignInScreenState extends ConsumerState<SignInScreen> {
                       validator: (String? value) =>
                           (value ?? '').isEmpty ? 'Enter your password' : null,
                     ),
+                    // Only where the server can send the email. A button that
+                    // leads to a code that never arrives is worse than none.
+                    if (ref.watch(authFeaturesProvider).valueOrNull?.passwordReset ??
+                        false)
+                      Align(
+                        alignment: Alignment.centerRight,
+                        child: TextButton(
+                          onPressed: _busy
+                              ? null
+                              : () => context.go(
+                                    Routes.forgotPassword,
+                                    extra: _email.text.trim(),
+                                  ),
+                          child: const Text('Forgot password?'),
+                        ),
+                      ),
                     if (error != null) ...<Widget>[
                       const SizedBox(height: 16),
                       _ErrorNotice(message: error),

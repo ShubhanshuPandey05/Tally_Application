@@ -361,6 +361,13 @@ class User(Base, TimestampMixin):
     #: Nullable for accounts made before it was asked for; the app asks those
     #: people for it at their next sign-in.
     phone: Mapped[str | None] = mapped_column(String(20), unique=True, nullable=True)
+    #: When the number was proven by an SMS code (Firebase phone sign-in), or
+    #: ``None`` for a number that was only typed. Kept beside the number rather
+    #: than as a flag, and cleared whenever the number changes: a proof is of
+    #: one number, and carrying it over to a new one would prove nothing.
+    phone_verified_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
     #: Set when an admin created this account with a temporary password. Until it
     #: is cleared the only thing the session can do is set a new password.
@@ -400,6 +407,59 @@ class Membership(Base, TimestampMixin):
 
     user: Mapped[User] = relationship(back_populates="memberships")
     organisation: Mapped[Organisation] = relationship(back_populates="memberships")
+
+
+class PasswordResetCode(Base):
+    """A six-digit code emailed to somebody who has forgotten their password.
+
+    Stored as an HMAC keyed by the server's secret, never as the code. A plain
+    hash of six digits is reversed by trying all million of them, so a leaked
+    table would hand out every live code; keyed, it hands out nothing without
+    the key, which never touches the database.
+
+    One live code per person: asking again replaces the last one, so an old
+    email sitting in an inbox stops working the moment a newer one is sent.
+    """
+
+    __tablename__ = "password_reset_codes"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    code_hash: Mapped[str] = mapped_column(String(64))
+    #: Wrong guesses so far. The code is burned at the configured ceiling,
+    #: which is what makes six digits enough.
+    attempts: Mapped[int] = mapped_column(Integer, default=0)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    #: Set when the code is used, or replaced, or burned by too many guesses.
+    #: Rows are kept until they expire rather than deleted, so "how often is
+    #: this account being reset?" can be answered.
+    spent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class PushDevice(Base):
+    """One installed app that can receive a notification, and whose it is.
+
+    Keyed by the FCM registration token, which names an installation rather
+    than a person: when somebody else signs in on the same phone the row moves
+    to them, so a shared counter tablet never shows the last person's alerts.
+    """
+
+    __tablename__ = "push_devices"
+
+    id: Mapped[str] = mapped_column(String(32), primary_key=True, default=new_id)
+    user_id: Mapped[str] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"), index=True
+    )
+    #: FCM tokens are documented as opaque with no fixed length; observed ones
+    #: run to about 160 characters, and this leaves room for that to grow.
+    token: Mapped[str] = mapped_column(String(512), unique=True)
+    platform: Mapped[str] = mapped_column(String(20))
+    app_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
+    last_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utc_now)
 
 
 class RefreshToken(Base):
