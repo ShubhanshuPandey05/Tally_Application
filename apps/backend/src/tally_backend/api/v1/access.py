@@ -1,4 +1,4 @@
-"""Per-person access inside a company: reports, ledger groups, stock groups.
+"""Per-person access inside a company: reports, ledger groups, stock groups, entries.
 
 Three kinds of route:
 
@@ -7,13 +7,13 @@ Three kinds of route:
   always "everything".
 * ``GET /companies/{id}/access/catalog`` -- the names an admin chooses from:
   the report keys, the group tree with its ledgers, the stock groups with their
-  items. Admin-only, names only, never a figure.
+  items, and the kinds of entry. Admin-only, names only, never a figure.
 * ``GET``/``PUT /team/{member}/access/{company}`` -- read and set one staff
   member's policy for one company.
 
-Enforcement is not here. It is in ``deps.get_read_service`` and the report
-gates in ``data.py``; this module only writes what they enforce. See
-``services.access_policy`` for the rules.
+Enforcement is not here. It is in ``deps.get_read_service``, the report
+gates in ``data.py`` and the entry gates in ``vouchers.py``; this module only
+writes what they enforce. See ``services.access_policy`` for the rules.
 """
 
 from __future__ import annotations
@@ -27,6 +27,7 @@ from sqlalchemy import select
 from ...core.errors import ConflictError, NotFound
 from ...db.models import Company, CompanyAccess, Role
 from ...services.access_policy import (
+    ENTRY_KINDS,
     STANDARD_REPORTS,
     AccessPolicy,
     prime_report_keys,
@@ -67,6 +68,7 @@ class CatalogMember(BaseModel):
 class AccessCatalogResponse(BaseModel):
     standard_reports: list[str]
     prime_reports: list[str]
+    entry_kinds: list[str]
     #: False until the company's masters have been read. The trees are then
     #: empty because they are unknown, not because the company has none.
     masters_read: bool
@@ -110,6 +112,7 @@ async def access_catalog(
     return AccessCatalogResponse(
         standard_reports=list(STANDARD_REPORTS),
         prime_reports=list(prime_report_keys()),
+        entry_kinds=list(ENTRY_KINDS),
         masters_read=groups is not None or ledgers is not None or stock is not None,
         ledger_groups=[
             CatalogGroup(name=r["name"], parent=r.get("parent") or None) for r in rows(groups)
@@ -196,6 +199,8 @@ async def set_member_access(
             "denied_ledgers": len(policy.denied_ledgers),
             "denied_stock_groups": len(policy.denied_stock_groups),
             "denied_stock_items": len(policy.denied_stock_items),
+            "entries": policy.entries,
+            "denied_entries": len(policy.denied_entries),
         },
         request=request,
     )

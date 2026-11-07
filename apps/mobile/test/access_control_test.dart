@@ -14,6 +14,8 @@ import 'package:tallyflow/src/app/theme.dart';
 import 'package:tallyflow/src/core/providers.dart';
 import 'package:tallyflow/src/features/companies/application/company_providers.dart';
 import 'package:tallyflow/src/features/companies/domain/company.dart';
+import 'package:tallyflow/src/features/entries/domain/entry_draft.dart';
+import 'package:tallyflow/src/features/entries/presentation/create_entry_button.dart';
 import 'package:tallyflow/src/features/team/application/team_providers.dart';
 import 'package:tallyflow/src/features/team/data/team_repository.dart';
 import 'package:tallyflow/src/features/team/domain/access_policy.dart';
@@ -140,6 +142,53 @@ void main() {
     });
   });
 
+  group('entries', () {
+    test('only the kinds left on are offered, in the menu order', () {
+      const AccessPolicy policy = AccessPolicy(deniedEntries: <String>{'payment', 'purchase'});
+      expect(
+        allowedEntryKinds(policy),
+        <EntryKind>[
+          EntryKind.receipt,
+          EntryKind.sales,
+          EntryKind.salesOrder,
+          EntryKind.purchaseOrder,
+        ],
+      );
+      expect(allowedEntryKinds(const AccessPolicy(entries: false)), isEmpty);
+      expect(allowedEntryKinds(AccessPolicy.all), EntryKind.values);
+    });
+
+    test('survive the round trip to the server', () {
+      const AccessPolicy policy = AccessPolicy(entries: false, deniedEntries: <String>{'sales'});
+      final AccessPolicy back = AccessPolicy.fromJson(policy.toJson());
+      expect(back.entries, isFalse);
+      expect(back.deniedEntries, <String>{'sales'});
+      expect(back.isUnrestricted, isFalse);
+      // A policy from a server that predates the switch allows every kind.
+      expect(AccessPolicy.fromJson(const <String, Object?>{}).allowsEntry('receipt'), isTrue);
+    });
+
+    testWidgets('the new-entry menu shows only the kinds it is given',
+        (WidgetTester tester) async {
+      await tester.pumpWidget(
+        MaterialApp(
+          home: Builder(
+            builder: (BuildContext context) => TextButton(
+              onPressed: () => Navigator.of(context).push(
+                entryMenuRoute(kinds: const <EntryKind>[EntryKind.receipt]),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey<String>('entry-receipt')), findsOneWidget);
+      expect(find.byKey(const ValueKey<String>('entry-payment')), findsNothing);
+    });
+  });
+
   group('the access screen', () {
     testWidgets('drills into a group and saves exactly the switch that moved',
         (WidgetTester tester) async {
@@ -195,6 +244,31 @@ void main() {
       expect(_chevronOf('Stock Groups'), findsNothing);
       expect(_chevronOf('Ledger Groups'), findsOneWidget);
       expect(find.text('No stock items, and no entries that use one'), findsOneWidget);
+    });
+
+    testWidgets('switches off one kind of entry and saves just that',
+        (WidgetTester tester) async {
+      final _FakeTeamRepository repository = _FakeTeamRepository();
+      await _pump(
+        tester,
+        MemberAccessScreen(member: _ravi, company: _company),
+        <Override>[teamRepositoryProvider.overrideWithValue(repository)],
+      );
+
+      await tester.tap(find.text('Entries'));
+      await tester.pumpAndSettle();
+      expect(find.text('Receipt'), findsOneWidget);
+      expect(find.text('Purchase order'), findsOneWidget);
+      await tester.tap(_switchOf('Payment'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+      expect(find.text('1 kind of entry switched off'), findsOneWidget);
+
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      expect(repository.saved.single.deniedEntries, <String>{'payment'});
+      expect(repository.saved.single.entries, isTrue);
     });
 
     testWidgets('nothing to save until something moves', (WidgetTester tester) async {

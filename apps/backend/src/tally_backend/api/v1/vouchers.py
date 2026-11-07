@@ -430,6 +430,11 @@ async def create_voucher(
     wrong entry is that it waits for approval inside TallyPrime rather than a
     permission that would stop them using it at all.
     """
+    if scope is not None:
+        # Before the draft is even built: a kind this person may not make is
+        # refused in their admin's words, not in whatever the builder says
+        # about a half-filled form.
+        scope.require_entry(body.kind)
     draft = _to_draft(body)
     if scope is not None:
         # Before anything reaches Tally. A ledger hidden from this person is one
@@ -634,6 +639,7 @@ async def create_ledger(
     principal: PrincipalDep,
     masters: MasterServiceDep,
     request: Request,
+    scope: AccessScopeDep,
 ) -> MasterCreatedResponse:
     """Add a customer or supplier to TallyPrime.
 
@@ -646,6 +652,10 @@ async def create_ledger(
     No opening balance. That is money, and inventing it from a phone would move
     a trial balance on the strength of a typo.
     """
+    if scope is not None:
+        # Only an entry needs a missing party or item added. Someone who may
+        # make no entry here has no reason to grow the chart of accounts.
+        scope.require_any_entry()
     created = await masters.create_ledger(
         company=company,
         draft=LedgerDraft(name=body.name, role=body.role, gstin=body.gstin),
@@ -664,12 +674,17 @@ async def create_stock_item(
     principal: PrincipalDep,
     masters: MasterServiceDep,
     request: Request,
+    scope: AccessScopeDep,
 ) -> MasterCreatedResponse:
     """Add a stock item to TallyPrime.
 
     No opening quantity and no rate, for the same reason a ledger gets no
     opening balance: both would move a stock valuation.
     """
+    if scope is not None:
+        # Only an entry needs a missing party or item added. Someone who may
+        # make no entry here has no reason to grow the chart of accounts.
+        scope.require_any_entry()
     created = await masters.create_stock_item(
         company=company,
         draft=StockItemDraft(name=body.name, unit=body.unit),
