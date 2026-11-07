@@ -56,6 +56,16 @@ android {
         versionName = flutter.versionName
     }
 
+    // Keep native libraries compressed in the APK. From minSdk 23 the plugin
+    // stores them uncompressed by default, which took the 0.14.0 APK from
+    // 37 MB to 82 MB -- a download people make over mobile data from our own
+    // site, not through the Play Store's per-device splits.
+    packaging {
+        jniLibs {
+            useLegacyPackaging = true
+        }
+    }
+
     signingConfigs {
         if (hasReleaseKey) {
             release {

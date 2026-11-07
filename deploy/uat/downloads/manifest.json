@@ -1,6 +1,6 @@
 {
   "schema": 1,
-  "generated_at": "2026-10-25T09:39:07+00:00",
+  "generated_at": "2026-11-07T11:10:20+00:00",
   "connector": {
     "version": "0.10.0",
     "file": "PrimeAnalystConnector-Setup-0.10.0.exe",
@@ -12,14 +12,14 @@
     "notes": "Reads the extra bill details the app needs to print receipts, payments and ledgers in your own format. Nothing needs to be set up again."
   },
   "android": {
-    "version": "0.13.0",
-    "file": "PrimeAnalyst-0.13.0.apk",
-    "url": "/downloads/PrimeAnalyst-0.13.0.apk",
-    "sha256": "b85afcf5a4a2282499b688c5c0358333462e95d2e8dedc9be59b5867522cb966",
-    "size_bytes": 37299018,
+    "version": "0.14.0",
+    "file": "PrimeAnalyst-0.14.0.apk",
+    "url": "/downloads/PrimeAnalyst-0.14.0.apk",
+    "sha256": "f9c8c252739ff79c4faba71a68653d8bbd57d1dbf430f6020f495048a56ee761",
+    "size_bytes": 38437504,
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Print receipts, payments and ledgers in your shop's own format. New accounts start with a free trial once a mobile number is added, and a partner code can be entered at signup.",
-    "build_number": 14
+    "notes": "Admins can now choose which reports, ledger groups and stock groups each staff member sees inside a company. Needs Android 6.0 or newer.",
+    "build_number": 15
   }
 }

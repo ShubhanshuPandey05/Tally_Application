@@ -37,6 +37,6 @@
   "android": {
     "mandatory": false,
     "min_supported_version": "0.1.0",
-    "notes": "Print receipts, payments and ledgers in your shop's own format. New accounts start with a free trial once a mobile number is added, and a partner code can be entered at signup."
+    "notes": "Admins can now choose which reports, ledger groups and stock groups each staff member sees inside a company. Needs Android 6.0 or newer."
   }
 }

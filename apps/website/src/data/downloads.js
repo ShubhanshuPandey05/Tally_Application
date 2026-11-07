@@ -22,11 +22,11 @@ export const PUBLISHED = {
     sha256: '7059539d7c1ec0fbaf8016a6b11c579e024b23b3b920fad8c843e54f8defad65',
   },
   android: {
-    version: '0.13.0',
-    file: 'PrimeAnalyst-0.13.0.apk',
-    url: '/downloads/PrimeAnalyst-0.13.0.apk',
-    size_bytes: 37299018,
-    sha256: 'b85afcf5a4a2282499b688c5c0358333462e95d2e8dedc9be59b5867522cb966',
+    version: '0.14.0',
+    file: 'PrimeAnalyst-0.14.0.apk',
+    url: '/downloads/PrimeAnalyst-0.14.0.apk',
+    size_bytes: 38437504,
+    sha256: 'f9c8c252739ff79c4faba71a68653d8bbd57d1dbf430f6020f495048a56ee761',
   },
 };
 
